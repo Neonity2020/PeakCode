@@ -80,6 +80,7 @@ import { gitRemoveWorktreeMutationOptions } from "../lib/gitReactQuery";
 import {
   ArchiveIcon,
   ChevronDownIcon,
+  CopyIcon,
   DownloadIcon,
   ExternalLinkIcon,
   Loader2Icon,
@@ -173,7 +174,41 @@ const MODEL_CHANNELS: ReadonlyArray<ModelChannel> = [
 ];
 
 const MODEL_CHANNELS_STORAGE_KEY = "peakcode:enabled-model-channels:v1";
-const LOCAL_GATEWAY_BASE_URL = "http://127.0.0.1:3773/gateway/openai/v1";
+const LOCAL_GATEWAY_ENABLED_STORAGE_KEY = "peakcode:local-gateway-enabled:v1";
+
+function resolveLocalGatewayBaseUrl(): string {
+  const wsUrl = import.meta.env.VITE_WS_URL as string | undefined;
+  if (wsUrl) {
+    try {
+      const url = new URL(wsUrl);
+      url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+      url.pathname = "/gateway/openai/v1";
+      url.search = "";
+      url.hash = "";
+      return url.toString().replace(/\/$/, "");
+    } catch {
+      // Fall back to the page origin below.
+    }
+  }
+  if (typeof window === "undefined") return "/gateway/openai/v1";
+  return `${window.location.origin}/gateway/openai/v1`;
+}
+
+function readLocalGatewayEnabled(): boolean {
+  try {
+    return localStorage.getItem(LOCAL_GATEWAY_ENABLED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeLocalGatewayEnabled(enabled: boolean): void {
+  try {
+    localStorage.setItem(LOCAL_GATEWAY_ENABLED_STORAGE_KEY, enabled ? "1" : "0");
+  } catch {
+    // ignore
+  }
+}
 
 function readEnabledModelChannels(): ReadonlyArray<ModelChannelId> {
   try {
@@ -728,7 +763,17 @@ function SettingsRouteView() {
   const [enabledModelChannels, setEnabledModelChannels] = useState<ReadonlyArray<ModelChannelId>>(
     readEnabledModelChannels,
   );
-  const [gatewayRunning, setGatewayRunning] = useState(false);
+  const [gatewayRunning, setGatewayRunning] = useState(readLocalGatewayEnabled);
+  const localGatewayBaseUrl = useMemo(resolveLocalGatewayBaseUrl, []);
+  const localGatewayEndpoints = useMemo(
+    () => [
+      { label: "Root", url: localGatewayBaseUrl },
+      { label: "Chat", url: `${localGatewayBaseUrl}/chat/completions` },
+      { label: "Responses", url: `${localGatewayBaseUrl}/responses` },
+      { label: "Models", url: `${localGatewayBaseUrl}/models` },
+    ],
+    [localGatewayBaseUrl],
+  );
   const [browserNotificationPermission, setBrowserNotificationPermission] = useState(
     readBrowserNotificationPermissionState(),
   );
@@ -2556,7 +2601,10 @@ function SettingsRouteView() {
             control={
               <Switch
                 checked={gatewayRunning}
-                onCheckedChange={(checked) => setGatewayRunning(checked)}
+                onCheckedChange={(checked) => {
+                  setGatewayRunning(checked);
+                  writeLocalGatewayEnabled(checked);
+                }}
               />
             }
           />
@@ -2566,15 +2614,10 @@ function SettingsRouteView() {
               <div>
                 <h4 className="mb-2 text-sm font-semibold text-foreground">Local API</h4>
                 <p className="mb-2 text-xs text-muted-foreground">
-                  Listening on {LOCAL_GATEWAY_BASE_URL}
+                  Listening on {localGatewayBaseUrl}
                 </p>
                 <div className="space-y-1">
-                  {[
-                    { label: "Root", url: LOCAL_GATEWAY_BASE_URL },
-                    { label: "Chat", url: `${LOCAL_GATEWAY_BASE_URL}/chat/completions` },
-                    { label: "Responses", url: `${LOCAL_GATEWAY_BASE_URL}/responses` },
-                    { label: "Models", url: `${LOCAL_GATEWAY_BASE_URL}/models` },
-                  ].map((ep) => (
+                  {localGatewayEndpoints.map((ep) => (
                     <div
                       key={ep.label}
                       className="flex items-center justify-between rounded-md px-3 py-1.5 text-sm hover:bg-[var(--sidebar-accent)]"
@@ -2592,7 +2635,7 @@ function SettingsRouteView() {
                         }}
                         aria-label={`Copy ${ep.label} URL`}
                       >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                        <CopyIcon className="size-3.5" />
                       </button>
                     </div>
                   ))}
@@ -2903,6 +2946,37 @@ function SettingsRouteView() {
                           ) : null}
                         </div>
                         <div className="text-xs text-muted-foreground">{channel.subtitle}</div>
+                        {channel.id === "deepseek" ? (
+                          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                            <Input
+                              className="font-mono text-xs"
+                              type="password"
+                              value={settings.deepSeekApiKey}
+                              onChange={(event) => {
+                                updateSettings({ deepSeekApiKey: event.target.value });
+                              }}
+                              placeholder="DeepSeek API Key"
+                              spellCheck={false}
+                              autoComplete="off"
+                            />
+                            <Button
+                              className="shrink-0"
+                              size="sm"
+                              variant="outline"
+                              disabled={!settings.deepSeekApiKey}
+                              onClick={() => {
+                                void navigator.clipboard.writeText(settings.deepSeekApiKey);
+                                toastManager.add({
+                                  title: "Copied to clipboard",
+                                  type: "success",
+                                });
+                              }}
+                            >
+                              <CopyIcon className="size-3.5" />
+                              Copy
+                            </Button>
+                          </div>
+                        ) : null}
                       </div>
                       <Switch
                         checked={isEnabled}

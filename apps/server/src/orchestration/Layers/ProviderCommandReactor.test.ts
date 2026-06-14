@@ -2376,6 +2376,59 @@ describe("ProviderCommandReactor", () => {
     expect(thread?.session?.runtimeMode).toBe("full-access");
   });
 
+  it("restarts Codex sessions when crossing the PeakCode gateway model boundary", async () => {
+    const harness = await createHarness({
+      threadModelSelection: { provider: "codex", model: "deepseek-v4-flash" },
+    });
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-gateway-boundary-1"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-gateway-boundary-1"),
+          role: "user",
+          text: "first",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 1);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.makeUnsafe("cmd-turn-start-gateway-boundary-2"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-gateway-boundary-2"),
+          role: "user",
+          text: "second",
+          attachments: [],
+        },
+        modelSelection: { provider: "codex", model: "gpt-5.5" },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.startSession.mock.calls.length === 2);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+      threadId: ThreadId.makeUnsafe("thread-1"),
+      modelSelection: { provider: "codex", model: "gpt-5.5" },
+    });
+    expect(harness.startSession.mock.calls[1]?.[1]).not.toHaveProperty("resumeCursor");
+  });
+
   it("does not inject derived model options when restarting claude on runtime mode changes", async () => {
     const harness = await createHarness({
       threadModelSelection: { provider: "claudeAgent", model: "claude-opus-4-6" },

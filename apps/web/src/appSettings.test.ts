@@ -57,6 +57,8 @@ describe("getAppModelOptions", () => {
       "gpt-5.3-codex-spark",
       "gpt-5.2-codex",
       "gpt-5.2",
+      "deepseek-v4-flash",
+      "deepseek-v4-pro",
       "custom/internal-model",
     ]);
   });

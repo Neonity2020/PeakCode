@@ -10,7 +10,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHttpRequestHandler, isLegacyTokenAuthorized } from "./http";
 import type { ServerAuthShape } from "./auth/Services/ServerAuth";
 import { deriveServerPaths, type ServerConfigShape } from "./config";
+import {
+  matchModelGatewayRoute,
+  serveEffectModelGatewayRoute,
+  serveNodeModelGatewayRoute,
+} from "./modelGateway";
 import type { ProjectFaviconResolverShape } from "./project/Services/ProjectFaviconResolver";
+import { updateRuntimeDeepSeekApiKey } from "./runtimeSecrets";
 import type { ServerReadiness } from "./server/readiness";
 
 const tempDirs: string[] = [];
@@ -20,6 +26,7 @@ afterEach(() => {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   vi.unstubAllGlobals();
+  updateRuntimeDeepSeekApiKey(null);
   delete process.env.PEAKCODE_GATEWAY_API_KEY;
   delete process.env.DEEPSEEK_API_KEY;
 });
@@ -325,6 +332,231 @@ describe("createHttpRequestHandler", () => {
         },
       },
     ]);
+  });
+
+  it("uses the runtime DeepSeek API key for local gateway upstream requests", async () => {
+    updateRuntimeDeepSeekApiKey("runtime-deepseek-secret");
+    const upstreamRequests: Array<{ body: unknown; authorization: string | null }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        upstreamRequests.push({
+          body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+          authorization:
+            init?.headers && "Authorization" in (init.headers as Record<string, string>)
+              ? (init.headers as Record<string, string>).Authorization
+              : null,
+        });
+        return new Response(
+          JSON.stringify({
+            id: "chatcmpl-runtime-key",
+            model: "deepseek-v4-flash",
+            choices: [{ message: { role: "assistant", content: "pong" } }],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }),
+    );
+    const route = matchModelGatewayRoute(new URL("http://local/gateway/openai/v1/responses"));
+    if (!route) {
+      throw new Error("Expected gateway route to match.");
+    }
+
+    const response = await serveEffectModelGatewayRoute({
+      route,
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      bodyText: JSON.stringify({
+        model: "deepseek-v4-flash",
+        input: [
+          {
+            role: "developer",
+            content: [{ type: "input_text", text: "You are a coding agent." }],
+          },
+          { role: "user", content: [{ type: "input_text", text: "ping" }] },
+        ],
+        tools: [
+          {
+            type: "function",
+            name: "shell",
+            description: "Run a shell command",
+            parameters: {
+              type: "object",
+              properties: {
+                command: { type: "string" },
+              },
+              required: ["command"],
+            },
+            strict: true,
+          },
+        ],
+        tool_choice: {
+          type: "function",
+          name: "shell",
+        },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toMatchObject({
+      object: "response",
+      output_text: "pong",
+    });
+    expect(upstreamRequests).toEqual([
+      {
+        authorization: "Bearer runtime-deepseek-secret",
+        body: {
+          model: "deepseek-v4-flash",
+          messages: [
+            {
+              role: "system",
+              content: [{ type: "text", text: "You are a coding agent." }],
+            },
+            { role: "user", content: [{ type: "text", text: "ping" }] },
+          ],
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "shell",
+                description: "Run a shell command",
+                parameters: {
+                  type: "object",
+                  properties: {
+                    command: { type: "string" },
+                  },
+                  required: ["command"],
+                },
+                strict: true,
+              },
+            },
+          ],
+          tool_choice: {
+            type: "function",
+            function: {
+              name: "shell",
+            },
+          },
+        },
+      },
+    ]);
+  });
+
+  it("converts streaming DeepSeek chat completions into Responses SSE events", async () => {
+    updateRuntimeDeepSeekApiKey("runtime-deepseek-secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const encoder = new TextEncoder();
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode(
+                  [
+                    'data: {"choices":[{"delta":{"content":"hel"}}]}',
+                    "",
+                    'data: {"choices":[{"delta":{"content":"lo"}}]}',
+                    "",
+                    "data: [DONE]",
+                    "",
+                  ].join("\n"),
+                ),
+              );
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        );
+      }),
+    );
+    const body = JSON.stringify({
+      model: "deepseek-v4-flash",
+      input: "ping",
+      stream: true,
+    });
+    const req = {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      async *[Symbol.asyncIterator]() {
+        yield Buffer.from(body);
+      },
+    } as unknown as http.IncomingMessage;
+    const chunks: string[] = [];
+    const res = {
+      writeHead: vi.fn(),
+      write: vi.fn((chunk: unknown) => {
+        chunks.push(String(chunk));
+        return true;
+      }),
+      end: vi.fn((chunk?: unknown) => {
+        if (chunk !== undefined) chunks.push(String(chunk));
+      }),
+    } as unknown as http.ServerResponse;
+
+    const handled = await serveNodeModelGatewayRoute({
+      req,
+      res,
+      url: new URL("http://local/gateway/openai/v1/responses"),
+    });
+
+    expect(handled).toBe(true);
+    const output = chunks.join("");
+    expect(output).toContain("event: response.output_text.delta");
+    expect(output).toContain('"delta":"hel"');
+    expect(output).toContain('"delta":"lo"');
+    expect(output).toContain("event: response.completed");
+    expect(output).toContain('"output_text":"hello"');
+  });
+
+  it("converts Effect gateway streaming responses into Responses SSE text", async () => {
+    updateRuntimeDeepSeekApiKey("runtime-deepseek-secret");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        const encoder = new TextEncoder();
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode(
+                  [
+                    'data: {"choices":[{"delta":{"content":"ok"}}]}',
+                    "",
+                    "data: [DONE]",
+                    "",
+                  ].join("\n"),
+                ),
+              );
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        );
+      }),
+    );
+    const route = matchModelGatewayRoute(new URL("http://local/gateway/openai/v1/responses"));
+    if (!route) {
+      throw new Error("Expected gateway route to match.");
+    }
+
+    const response = await serveEffectModelGatewayRoute({
+      route,
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      bodyText: JSON.stringify({
+        model: "deepseek-v4-flash",
+        input: "ping",
+        stream: true,
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers["Content-Type"]).toBe("text/event-stream");
+    expect(response.body).toContain("event: response.output_text.delta");
+    expect(response.body).toContain('"delta":"ok"');
+    expect(response.body).toContain("event: response.completed");
+    expect(response.body).toContain('"output_text":"ok"');
   });
 
   it("preserves dev URL redirect behavior", async () => {

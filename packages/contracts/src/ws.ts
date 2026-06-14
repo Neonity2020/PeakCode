@@ -134,6 +134,7 @@ export const WS_METHODS = {
   serverGetEnvironment: "server.getEnvironment",
   serverGetSettings: "server.getSettings",
   serverUpdateSettings: "server.updateSettings",
+  serverUpdateRuntimeSecrets: "server.updateRuntimeSecrets",
   serverRefreshProviders: "server.refreshProviders",
   serverUpdateProvider: "server.updateProvider",
   serverListWorktrees: "server.listWorktrees",

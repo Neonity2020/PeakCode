@@ -67,6 +67,8 @@ import type {
   ServerProviderUpdateInput,
   ServerProviderUpdateResult,
   ServerRefreshProvidersResult,
+  ServerUpdateRuntimeSecretsInput,
+  ServerUpdateRuntimeSecretsResult,
   ServerUpdateSettingsInput,
   ServerUpdateSettingsResult,
   ServerUpsertKeybindingInput,
@@ -386,6 +388,9 @@ export interface NativeApi {
     getEnvironment: () => Promise<ServerGetEnvironmentResult>;
     getSettings: () => Promise<ServerGetSettingsResult>;
     updateSettings: (input: ServerUpdateSettingsInput) => Promise<ServerUpdateSettingsResult>;
+    updateRuntimeSecrets: (
+      input: ServerUpdateRuntimeSecretsInput,
+    ) => Promise<ServerUpdateRuntimeSecretsResult>;
     getAuthSession: () => Promise<AuthSessionState>;
     bootstrapAuth: (input: AuthBootstrapInput) => Promise<AuthBootstrapResult>;
     bootstrapBearerAuth: (input: AuthBootstrapInput) => Promise<AuthBearerBootstrapResult>;

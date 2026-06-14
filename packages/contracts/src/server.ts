@@ -304,6 +304,16 @@ export type ServerGetSettingsResult = typeof ServerGetSettingsResult.Type;
 export const ServerGetEnvironmentResult = ExecutionEnvironmentDescriptor;
 export type ServerGetEnvironmentResult = typeof ServerGetEnvironmentResult.Type;
 
+export const ServerUpdateRuntimeSecretsInput = Schema.Struct({
+  deepSeekApiKey: Schema.NullOr(Schema.String.check(Schema.isMaxLength(4096))),
+});
+export type ServerUpdateRuntimeSecretsInput = typeof ServerUpdateRuntimeSecretsInput.Type;
+
+export const ServerUpdateRuntimeSecretsResult = Schema.Struct({
+  updated: Schema.Boolean,
+});
+export type ServerUpdateRuntimeSecretsResult = typeof ServerUpdateRuntimeSecretsResult.Type;
+
 export const ServerUpdateSettingsInput = ServerSettingsPatch;
 export type ServerUpdateSettingsInput = typeof ServerUpdateSettingsInput.Type;
 

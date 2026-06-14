@@ -149,6 +149,9 @@ export const AppSettingsSchema = Schema.Struct({
   uiFontFamily: Schema.String.check(Schema.isMaxLength(256)).pipe(withDefaults(() => "")),
   defaultProvider: ProviderKind.pipe(withDefaults(() => "codex" as const)),
   language: LanguageSchema.pipe(withDefaults(() => DEFAULT_LANGUAGE_SETTING)),
+  // Local-only secret used by the settings UI for DeepSeek channel access.
+  // Keep this out of providerOptions because those are persisted in orchestration events.
+  deepSeekApiKey: Schema.String.check(Schema.isMaxLength(4096)).pipe(withDefaults(() => "")),
   // Local-only UI preference: providers explicitly hidden from the composer picker.
   // The active/locked provider for a thread is always shown regardless, so users
   // never get stuck on a thread whose provider they later chose to hide.
@@ -176,6 +179,7 @@ export interface AppModelOption extends ProviderModelOption {
 
 const DEFAULT_APP_SETTINGS = AppSettingsSchema.makeUnsafe({});
 let serverSettingsMigrationInFlight = false;
+let lastSyncedDeepSeekApiKey: string | null | undefined;
 
 const PROVIDER_CUSTOM_MODEL_CONFIG: Record<ProviderKind, ProviderCustomModelConfig> = {
   codex: {
@@ -856,6 +860,19 @@ export function useAppSettings() {
   }, [setSettings]);
 
   useEffect(() => {
+    const deepSeekApiKey = settings.deepSeekApiKey.trim() || null;
+    if (lastSyncedDeepSeekApiKey === deepSeekApiKey) {
+      return;
+    }
+    lastSyncedDeepSeekApiKey = deepSeekApiKey;
+    void ensureNativeApi()
+      .server.updateRuntimeSecrets({ deepSeekApiKey })
+      .catch(() => {
+        lastSyncedDeepSeekApiKey = undefined;
+      });
+  }, [settings.deepSeekApiKey]);
+
+  useEffect(() => {
     if (!serverSettingsQuery.data || serverSettingsMigrationInFlight) {
       return;
     }
@@ -907,6 +924,8 @@ export function useAppSettings() {
 
   const resetSettings = useCallback(() => {
     setSettings(DEFAULT_APP_SETTINGS);
+    lastSyncedDeepSeekApiKey = null;
+    void ensureNativeApi().server.updateRuntimeSecrets({ deepSeekApiKey: null });
     const serverPatch = appSettingsPatchToServerSettingsPatch(defaults);
     void ensureNativeApi()
       .server.updateSettings(serverPatch)

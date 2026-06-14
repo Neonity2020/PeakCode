@@ -42,6 +42,7 @@ import { ProviderService } from "./provider/Services/ProviderService";
 import { getProviderUsageSnapshot } from "./providerUsageSnapshot";
 import { listLocalUserSkills } from "./localSkills";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
+import { updateRuntimeDeepSeekApiKey } from "./runtimeSecrets";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
@@ -571,6 +572,11 @@ export const makeWsRpcLayer = () =>
           rpcEffect(serverSettings.getSettings, "Failed to load server settings"),
         [WS_METHODS.serverUpdateSettings]: (input) =>
           rpcEffect(serverSettings.updateSettings(input), "Failed to update server settings"),
+        [WS_METHODS.serverUpdateRuntimeSecrets]: (input) =>
+          Effect.sync(() => {
+            updateRuntimeDeepSeekApiKey(input.deepSeekApiKey);
+            return { updated: true };
+          }),
         [WS_METHODS.serverRefreshProviders]: () =>
           rpcEffect(
             providerHealth.refresh.pipe(Effect.map((providers) => ({ providers }))),

@@ -91,6 +91,12 @@ function toNonEmptyProviderInput(value: string | undefined): string | undefined 
   return normalized && normalized.length > 0 ? normalized : undefined;
 }
 
+const PEAKCODE_GATEWAY_CODEX_MODELS = new Set(["deepseek-v4-flash", "deepseek-v4-pro"]);
+
+function isPeakCodeGatewayCodexModel(model: string | undefined | null): boolean {
+  return model ? PEAKCODE_GATEWAY_CODEX_MODELS.has(model.trim()) : false;
+}
+
 function attachmentTitleSeed(attachment: ChatAttachment | undefined): string {
   if (!attachment) {
     return "";
@@ -737,6 +743,11 @@ const make = Effect.gen(function* () {
         requestedModelSelection !== undefined &&
         requestedModelSelection.model !== activeSession?.model;
       const shouldRestartForModelChange = modelChanged && sessionModelSwitch === "restart-session";
+      const shouldRestartForCodexGatewayBoundary =
+        currentProvider === "codex" &&
+        requestedModelSelection?.provider === "codex" &&
+        isPeakCodeGatewayCodexModel(requestedModelSelection.model) !==
+          isPeakCodeGatewayCodexModel(activeSession?.model);
       const previousModelSelection = threadModelSelections.get(threadId);
       const shouldRestartForModelSelectionChange =
         (currentProvider === "claudeAgent" || currentProvider === "grok") &&
@@ -747,13 +758,17 @@ const make = Effect.gen(function* () {
         !runtimeModeChanged &&
         !providerChanged &&
         !shouldRestartForModelChange &&
+        !shouldRestartForCodexGatewayBoundary &&
         !shouldRestartForModelSelectionChange
       ) {
         return existingSessionThreadId;
       }
 
       const resumeCursor =
-        providerChanged || shouldRestartForModelChange || runtimeModeChanged
+        providerChanged ||
+        shouldRestartForModelChange ||
+        shouldRestartForCodexGatewayBoundary ||
+        runtimeModeChanged
           ? undefined
           : (activeSession?.resumeCursor ?? undefined);
       yield* Effect.logInfo("provider command reactor restarting provider session", {
@@ -767,6 +782,7 @@ const make = Effect.gen(function* () {
         providerChanged,
         modelChanged,
         shouldRestartForModelChange,
+        shouldRestartForCodexGatewayBoundary,
         shouldRestartForModelSelectionChange,
         hasResumeCursor: resumeCursor !== undefined,
       });

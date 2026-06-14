@@ -91,6 +91,8 @@ import {
   ServerProviderUpdateInput,
   ServerProviderUpdateResult,
   ServerRefreshProvidersResult,
+  ServerUpdateRuntimeSecretsInput,
+  ServerUpdateRuntimeSecretsResult,
   ServerUpdateSettingsInput,
   ServerUpdateSettingsResult,
   ServerUpsertKeybindingResult,
@@ -434,6 +436,12 @@ export const WsServerUpdateSettingsRpc = Rpc.make(WS_METHODS.serverUpdateSetting
   error: WsRpcError,
 });
 
+export const WsServerUpdateRuntimeSecretsRpc = Rpc.make(WS_METHODS.serverUpdateRuntimeSecrets, {
+  payload: ServerUpdateRuntimeSecretsInput,
+  success: ServerUpdateRuntimeSecretsResult,
+  error: WsRpcError,
+});
+
 export const WsServerRefreshProvidersRpc = Rpc.make(WS_METHODS.serverRefreshProviders, {
   payload: Schema.Struct({}),
   success: ServerRefreshProvidersResult,
@@ -617,6 +625,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerGetEnvironmentRpc,
   WsServerGetSettingsRpc,
   WsServerUpdateSettingsRpc,
+  WsServerUpdateRuntimeSecretsRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
   WsServerListWorktreesRpc,
