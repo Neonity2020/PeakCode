@@ -31,6 +31,10 @@ import {
 const CODEX_PROCESS_SHELL_ENV_NAMES = ["PATH", "SSH_AUTH_SOCK"] as const;
 const NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS = "NODE_REPL_SANDBOX_ALLOWED_UNIX_SOCKETS";
 const PEAKCODE_BROWSER_PLUGIN_CONFIG_HEADER = '[plugins."peakcode-browser@local"]';
+const PEAKCODE_CODEX_GATEWAY_PROVIDER_ID = "peakcode-gateway";
+const PEAKCODE_CODEX_GATEWAY_PROVIDER_HEADER = `[model_providers.${PEAKCODE_CODEX_GATEWAY_PROVIDER_ID}]`;
+const PEAKCODE_CODEX_GATEWAY_BASE_URL_ENV = "PEAKCODE_CODEX_GATEWAY_BASE_URL";
+const PEAKCODE_CODEX_GATEWAY_API_KEY_ENV = "PEAKCODE_GATEWAY_API_KEY";
 
 export function resolveCodexBrowserUsePipePath(
   input: {
@@ -94,6 +98,61 @@ export function disablePeakCodeBrowserPluginInCodexConfig(config: string): strin
   return output.join("\n");
 }
 
+export function applyPeakCodeGatewayProviderConfig(
+  config: string,
+  input: { baseUrl: string; apiKeyEnvKey?: string },
+): string {
+  const lines = config.split(/\r?\n/);
+  const output: string[] = [];
+  let wroteModelProvider = false;
+  let skipSection = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const startsSection = trimmed.startsWith("[") && trimmed.endsWith("]");
+
+    if (startsSection) {
+      skipSection = trimmed === PEAKCODE_CODEX_GATEWAY_PROVIDER_HEADER;
+    }
+
+    if (skipSection) {
+      continue;
+    }
+
+    if (!startsSection && /^\s*model_provider\s*=/.test(line)) {
+      if (!wroteModelProvider) {
+        output.push(`model_provider = "${PEAKCODE_CODEX_GATEWAY_PROVIDER_ID}"`);
+        wroteModelProvider = true;
+      }
+      continue;
+    }
+
+    output.push(line);
+  }
+
+  if (!wroteModelProvider) {
+    output.unshift(`model_provider = "${PEAKCODE_CODEX_GATEWAY_PROVIDER_ID}"`);
+  }
+
+  while (output.length > 0 && output.at(-1)?.trim() === "") {
+    output.pop();
+  }
+
+  output.push(
+    "",
+    PEAKCODE_CODEX_GATEWAY_PROVIDER_HEADER,
+    'name = "PeakCode Gateway"',
+    `base_url = "${input.baseUrl}"`,
+    'wire_api = "responses"',
+    "requires_openai_auth = false",
+  );
+  if (input.apiKeyEnvKey) {
+    output.push(`env_key = "${input.apiKeyEnvKey}"`);
+  }
+
+  return `${output.join("\n")}\n`;
+}
+
 function preparePeakCodeCodexHomeOverlay(input: {
   readonly env: NodeJS.ProcessEnv;
   readonly homePath?: string;
@@ -126,9 +185,18 @@ function preparePeakCodeCodexHomeOverlay(input: {
 
   const sourceConfigPath = path.join(sourceHomePath, "config.toml");
   const sourceConfig = existsSync(sourceConfigPath) ? readFileSync(sourceConfigPath, "utf8") : "";
+  const gatewayBaseUrl = input.env[PEAKCODE_CODEX_GATEWAY_BASE_URL_ENV]?.trim();
+  const overlayConfig = gatewayBaseUrl
+    ? applyPeakCodeGatewayProviderConfig(sourceConfig, {
+        baseUrl: gatewayBaseUrl,
+        ...(input.env[PEAKCODE_CODEX_GATEWAY_API_KEY_ENV]?.trim()
+          ? { apiKeyEnvKey: PEAKCODE_CODEX_GATEWAY_API_KEY_ENV }
+          : {}),
+      })
+    : sourceConfig;
   writeFileSync(
     path.join(overlayHomePath, "config.toml"),
-    disablePeakCodeBrowserPluginInCodexConfig(sourceConfig),
+    disablePeakCodeBrowserPluginInCodexConfig(overlayConfig),
     "utf8",
   );
 

@@ -173,6 +173,7 @@ const MODEL_CHANNELS: ReadonlyArray<ModelChannel> = [
 ];
 
 const MODEL_CHANNELS_STORAGE_KEY = "peakcode:enabled-model-channels:v1";
+const LOCAL_GATEWAY_BASE_URL = "http://127.0.0.1:3773/gateway/openai/v1";
 
 function readEnabledModelChannels(): ReadonlyArray<ModelChannelId> {
   try {
@@ -2565,15 +2566,14 @@ function SettingsRouteView() {
               <div>
                 <h4 className="mb-2 text-sm font-semibold text-foreground">Local API</h4>
                 <p className="mb-2 text-xs text-muted-foreground">
-                  Listening on http://127.0.0.1:9872/v1
+                  Listening on {LOCAL_GATEWAY_BASE_URL}
                 </p>
                 <div className="space-y-1">
                   {[
-                    { label: "Root", url: "http://127.0.0.1:9872/v1" },
-                    { label: "Chat", url: "http://127.0.0.1:9872/v1/chat/completions" },
-                    { label: "Messages", url: "http://127.0.0.1:9872/v1/messages" },
-                    { label: "Responses", url: "http://127.0.0.1:9872/v1/responses" },
-                    { label: "Models", url: "http://127.0.0.1:9872/v1/models" },
+                    { label: "Root", url: LOCAL_GATEWAY_BASE_URL },
+                    { label: "Chat", url: `${LOCAL_GATEWAY_BASE_URL}/chat/completions` },
+                    { label: "Responses", url: `${LOCAL_GATEWAY_BASE_URL}/responses` },
+                    { label: "Models", url: `${LOCAL_GATEWAY_BASE_URL}/models` },
                   ].map((ep) => (
                     <div
                       key={ep.label}

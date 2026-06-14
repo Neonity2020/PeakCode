@@ -257,6 +257,28 @@ export const MODEL_OPTIONS_BY_PROVIDER = {
       name: "GPT-5.2",
       capabilities: CODEX_GPT_5_CAPABILITIES,
     },
+    {
+      slug: "deepseek-v4-flash",
+      name: "DeepSeek V4 Flash",
+      capabilities: {
+        reasoningEffortLevels: [],
+        supportsFastMode: false,
+        supportsThinkingToggle: false,
+        promptInjectedEffortLevels: [],
+        contextWindowOptions: [],
+      },
+    },
+    {
+      slug: "deepseek-v4-pro",
+      name: "DeepSeek V4 Pro",
+      capabilities: {
+        reasoningEffortLevels: [],
+        supportsFastMode: false,
+        supportsThinkingToggle: false,
+        promptInjectedEffortLevels: [],
+        contextWindowOptions: [],
+      },
+    },
   ],
   claudeAgent: [
     {
@@ -599,6 +621,9 @@ export const MODEL_SLUG_ALIASES_BY_PROVIDER: Record<ProviderKind, Record<string,
     "gpt-5.3": "gpt-5.3-codex",
     "5.3-spark": "gpt-5.3-codex-spark",
     "gpt-5.3-spark": "gpt-5.3-codex-spark",
+    deepseek: "deepseek-v4-flash",
+    "deepseek-flash": "deepseek-v4-flash",
+    "deepseek-pro": "deepseek-v4-pro",
   },
   claudeAgent: {
     fable: "claude-fable-5",

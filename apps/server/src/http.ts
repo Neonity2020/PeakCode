@@ -24,6 +24,11 @@ import { SessionCredentialService } from "./auth/Services/SessionCredentialServi
 import { deriveAuthClientMetadata } from "./auth/utils";
 import { ServerConfig, type ServerConfigShape } from "./config";
 import { LOCAL_IMAGE_ROUTE_PATH, resolveAllowedLocalImageFile } from "./localImageFiles.ts";
+import {
+  matchModelGatewayRoute,
+  serveEffectModelGatewayRoute,
+  serveNodeModelGatewayRoute,
+} from "./modelGateway";
 import type { ProjectFaviconResolverShape } from "./project/Services/ProjectFaviconResolver";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
 import type { ServerReadiness } from "./server/readiness";
@@ -58,6 +63,7 @@ export function makeEffectHttpRouteLayer(readiness: ServerReadiness) {
       ),
     ),
     authEffectRouteLayer,
+    modelGatewayEffectRouteLayer,
     projectFaviconEffectRouteLayer,
     localImageEffectRouteLayer,
     attachmentsEffectRouteLayer,
@@ -262,6 +268,48 @@ const authEffectRouteLayer = HttpRouter.add(
       ),
     ),
   ),
+);
+
+function makeModelGatewayEffectRouteLayer(pathname: string) {
+  return HttpRouter.add(
+    "*",
+    pathname,
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      const url = HttpServerRequest.toURL(request);
+      if (!url) return HttpServerResponse.text("Bad Request", { status: 400 });
+      const route = matchModelGatewayRoute(url);
+      if (!route) return HttpServerResponse.text("Not Found", { status: 404 });
+      const payload =
+        route.kind === "models"
+          ? ""
+          : yield* request.json.pipe(
+              Effect.map((body) => JSON.stringify(body)),
+              Effect.catch(() => Effect.succeed("__INVALID_JSON__")),
+            );
+      const result = yield* Effect.promise(() =>
+        serveEffectModelGatewayRoute({
+          route,
+          method: request.method,
+          headers: request.headers,
+          bodyText: payload,
+        }),
+      );
+      return HttpServerResponse.text(result.body, {
+        status: result.status,
+        headers: result.headers,
+      });
+    }),
+  );
+}
+
+const modelGatewayEffectRouteLayer = Layer.mergeAll(
+  makeModelGatewayEffectRouteLayer("/v1/models"),
+  makeModelGatewayEffectRouteLayer("/v1/chat/completions"),
+  makeModelGatewayEffectRouteLayer("/v1/responses"),
+  makeModelGatewayEffectRouteLayer("/gateway/openai/v1/models"),
+  makeModelGatewayEffectRouteLayer("/gateway/openai/v1/chat/completions"),
+  makeModelGatewayEffectRouteLayer("/gateway/openai/v1/responses"),
 );
 
 const projectFaviconEffectRouteLayer = HttpRouter.add(
@@ -525,6 +573,10 @@ export function createHttpRequestHandler({
     void Effect.runPromise(
       Effect.gen(function* () {
         const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+
+        if (yield* Effect.promise(() => serveNodeModelGatewayRoute({ req, res, url }))) {
+          return;
+        }
 
         if (url.pathname === "/health") {
           const readinessSnapshot = yield* readiness.getSnapshot;

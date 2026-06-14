@@ -240,6 +240,7 @@ const RECOVERABLE_THREAD_RESUME_ERROR_SNIPPETS = [
 const CODEX_DEFAULT_MODEL = "gpt-5.5";
 const CODEX_SPARK_MODEL = "gpt-5.3-codex-spark";
 const CODEX_SPARK_DISABLED_PLAN_TYPES = new Set<CodexPlanType>(["free", "go", "plus"]);
+const CODEX_GATEWAY_MODELS = new Set(["deepseek-v4-flash", "deepseek-v4-pro"]);
 const CODEX_DISCOVERY_SESSION_IDLE_MS = 10 * 60 * 1000;
 
 function asObject(value: unknown): Record<string, unknown> | undefined {
@@ -704,14 +705,17 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       const codexOptions = readCodexProviderOptions(input);
       const codexBinaryPath = codexOptions.binaryPath ?? "codex";
       const codexHomePath = codexOptions.homePath;
+      const codexGatewayEnv = buildCodexGatewayEnv(input.model, this.resolveLocalGatewayBaseUrl());
       this.assertSupportedCodexCliVersion({
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
         ...(codexHomePath ? { homePath: codexHomePath } : {}),
+        ...(codexGatewayEnv ? { env: codexGatewayEnv } : {}),
       });
       const child = spawn(codexBinaryPath, ["app-server"], {
         cwd: resolvedCwd,
         env: buildCodexProcessEnv({
+          ...(codexGatewayEnv ? { env: { ...process.env, ...codexGatewayEnv } } : {}),
           ...(codexHomePath ? { homePath: codexHomePath } : {}),
         }),
         stdio: ["pipe", "pipe", "pipe"],
@@ -1349,14 +1353,20 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
       });
       const codexBinaryPath = codexOptions.binaryPath ?? "codex";
       const codexHomePath = codexOptions.homePath;
+      const codexGatewayEnv = buildCodexGatewayEnv(
+        input.modelSelection?.provider === "codex" ? input.modelSelection.model : undefined,
+        this.resolveLocalGatewayBaseUrl(),
+      );
       this.assertSupportedCodexCliVersion({
         binaryPath: codexBinaryPath,
         cwd: resolvedCwd,
         ...(codexHomePath ? { homePath: codexHomePath } : {}),
+        ...(codexGatewayEnv ? { env: codexGatewayEnv } : {}),
       });
       const child = spawn(codexBinaryPath, ["app-server"], {
         cwd: resolvedCwd,
         env: buildCodexProcessEnv({
+          ...(codexGatewayEnv ? { env: { ...process.env, ...codexGatewayEnv } } : {}),
           ...(codexHomePath ? { homePath: codexHomePath } : {}),
         }),
         stdio: ["pipe", "pipe", "pipe"],
@@ -2548,8 +2558,14 @@ export class CodexAppServerManager extends EventEmitter<CodexAppServerManagerEve
     readonly binaryPath: string;
     readonly cwd: string;
     readonly homePath?: string;
+    readonly env?: NodeJS.ProcessEnv;
   }): void {
     assertSupportedCodexCliVersion(input);
+  }
+
+  private resolveLocalGatewayBaseUrl(): string {
+    const port = process.env.PEAKCODE_PORT?.trim() || "3773";
+    return `http://127.0.0.1:${port}/gateway/openai/v1`;
   }
 
   private updateSession(context: CodexSessionContext, updates: Partial<ProviderSession>): void {
@@ -3279,10 +3295,12 @@ function assertSupportedCodexCliVersion(input: {
   readonly binaryPath: string;
   readonly cwd: string;
   readonly homePath?: string;
+  readonly env?: NodeJS.ProcessEnv;
 }): void {
   const result = spawnSync(input.binaryPath, ["--version"], {
     cwd: input.cwd,
     env: buildCodexProcessEnv({
+      ...(input.env ? { env: { ...process.env, ...input.env } } : {}),
       ...(input.homePath ? { homePath: input.homePath } : {}),
     }),
     encoding: "utf8",
@@ -3317,6 +3335,19 @@ function assertSupportedCodexCliVersion(input: {
   if (parsedVersion && !isCodexCliVersionSupported(parsedVersion)) {
     throw new Error(formatCodexCliUpgradeMessage(parsedVersion));
   }
+}
+
+function buildCodexGatewayEnv(
+  model: string | undefined | null,
+  baseUrl: string,
+): NodeJS.ProcessEnv | undefined {
+  const normalized = normalizeCodexModelSlug(model);
+  if (!normalized || !CODEX_GATEWAY_MODELS.has(normalized)) {
+    return undefined;
+  }
+  return {
+    PEAKCODE_CODEX_GATEWAY_BASE_URL: baseUrl,
+  };
 }
 
 function readResumeCursorThreadId(resumeCursor: unknown): string | undefined {

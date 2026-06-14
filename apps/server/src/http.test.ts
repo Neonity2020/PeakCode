@@ -5,7 +5,7 @@ import path from "node:path";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { DateTime, Effect, FileSystem, Path } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createHttpRequestHandler, isLegacyTokenAuthorized } from "./http";
 import type { ServerAuthShape } from "./auth/Services/ServerAuth";
@@ -19,6 +19,9 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+  vi.unstubAllGlobals();
+  delete process.env.PEAKCODE_GATEWAY_API_KEY;
+  delete process.env.DEEPSEEK_API_KEY;
 });
 
 const readiness: ServerReadiness = {
@@ -215,6 +218,113 @@ describe("createHttpRequestHandler", () => {
         pushBusReady: true,
       });
     });
+  });
+
+  it("serves local gateway model metadata before dev/static fallback", async () => {
+    const config = await makeConfig({ devUrl: new URL("http://localhost:5173/") });
+    const handler = await makeHandler(config);
+
+    await withServer(handler, async (origin) => {
+      const response = await fetch(`${origin}/gateway/openai/v1/models`);
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        object: "list",
+        data: [
+          { id: "deepseek-v4-flash", owned_by: "deepseek" },
+          { id: "deepseek-v4-pro", owned_by: "deepseek" },
+        ],
+      });
+    });
+  });
+
+  it("requires the optional gateway API key for completion requests", async () => {
+    process.env.PEAKCODE_GATEWAY_API_KEY = "gateway-secret";
+    process.env.DEEPSEEK_API_KEY = "deepseek-secret";
+    const config = await makeConfig();
+    const handler = await makeHandler(config);
+
+    await withServer(handler, async (origin) => {
+      const response = await fetch(`${origin}/gateway/openai/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "deepseek-v4-flash",
+          messages: [{ role: "user", content: "hello" }],
+        }),
+      });
+
+      expect(response.status).toBe(401);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { code: "invalid_api_key" },
+      });
+    });
+  });
+
+  it("adapts local gateway responses requests to DeepSeek chat completions", async () => {
+    process.env.PEAKCODE_GATEWAY_API_KEY = "gateway-secret";
+    process.env.DEEPSEEK_API_KEY = "deepseek-secret";
+    const originalFetch = globalThis.fetch;
+    const upstreamRequests: Array<{ url: string; body: unknown; authorization: string | null }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        upstreamRequests.push({
+          url: String(url),
+          body: typeof init?.body === "string" ? JSON.parse(init.body) : null,
+          authorization:
+            init?.headers && "Authorization" in (init.headers as Record<string, string>)
+              ? (init.headers as Record<string, string>).Authorization
+              : null,
+        });
+        return new Response(
+          JSON.stringify({
+            id: "chatcmpl-test",
+            model: "deepseek-v4-pro",
+            choices: [{ message: { role: "assistant", content: "pong" } }],
+            usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }),
+    );
+    const config = await makeConfig();
+    const handler = await makeHandler(config);
+
+    await withServer(handler, async (origin) => {
+      const response = await originalFetch(`${origin}/gateway/openai/v1/responses`, {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer gateway-secret",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "deepseek-v4-pro",
+          input: "ping",
+          max_output_tokens: 32,
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        object: "response",
+        status: "completed",
+        model: "deepseek-v4-pro",
+        output_text: "pong",
+      });
+    });
+
+    expect(upstreamRequests).toEqual([
+      {
+        url: "https://api.deepseek.com/v1/chat/completions",
+        authorization: "Bearer deepseek-secret",
+        body: {
+          model: "deepseek-v4-pro",
+          messages: [{ role: "user", content: "ping" }],
+          max_tokens: 32,
+        },
+      },
+    ]);
   });
 
   it("preserves dev URL redirect behavior", async () => {

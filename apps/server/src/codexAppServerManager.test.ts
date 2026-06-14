@@ -8,6 +8,7 @@ import { ApprovalRequestId, ThreadId } from "@peakcode/contracts";
 import {
   buildCodexProcessEnv,
   disablePeakCodeBrowserPluginInCodexConfig,
+  applyPeakCodeGatewayProviderConfig,
   resolveCodexBrowserUsePipePath,
 } from "./codexProcessEnv";
 import {
@@ -400,6 +401,35 @@ describe("buildCodexProcessEnv", () => {
     expect(disablePeakCodeBrowserPluginInCodexConfig('model = "gpt-5.5"')).toContain(
       '[plugins."peakcode-browser@local"]\nenabled = false',
     );
+  });
+
+  it("writes a complete PeakCode gateway provider overlay for Codex", () => {
+    const config = applyPeakCodeGatewayProviderConfig(
+      [
+        'model_provider = "openai"',
+        "",
+        "[model_providers.peakcode-gateway]",
+        'name = ""',
+        'base_url = "http://stale"',
+        "",
+        '[plugins."github@openai-curated"]',
+        "enabled = true",
+      ].join("\n"),
+      {
+        baseUrl: "http://127.0.0.1:3773/gateway/openai/v1",
+        apiKeyEnvKey: "PEAKCODE_GATEWAY_API_KEY",
+      },
+    );
+
+    expect(config).toContain('model_provider = "peakcode-gateway"');
+    expect(config).toContain("[model_providers.peakcode-gateway]");
+    expect(config).toContain('name = "PeakCode Gateway"');
+    expect(config).toContain('base_url = "http://127.0.0.1:3773/gateway/openai/v1"');
+    expect(config).toContain('wire_api = "responses"');
+    expect(config).toContain('env_key = "PEAKCODE_GATEWAY_API_KEY"');
+    expect(config).not.toContain('name = ""');
+    expect(config).not.toContain('http://stale');
+    expect(config).toContain('[plugins."github@openai-curated"]');
   });
 });
 
