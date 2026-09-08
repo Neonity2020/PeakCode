@@ -15,7 +15,6 @@ import {
   EmptyPanel,
   InlineWarning,
   PluginGridItem,
-  ProviderDiscoveryToolbar,
   SectionHeader,
   pluginEntryKey,
   sectionTitle,
@@ -32,14 +31,6 @@ export function PluginsView() {
         <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 sm:px-6">
           <SidebarHeaderNavigationControls />
           <div className="flex-1" />
-          <ProviderDiscoveryToolbar
-            providerCapabilities={data.providerCapabilities}
-            providerLabel={data.providerLabel}
-            selectedProvider={data.selectedProvider}
-            onSelectProvider={data.setSelectedProvider}
-            onRequestTabSwitch={undefined}
-            activeTab="plugins"
-          />
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">

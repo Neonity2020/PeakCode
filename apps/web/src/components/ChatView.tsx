@@ -182,7 +182,6 @@ import {
 import { useTheme } from "../hooks/useTheme";
 import { useThreadWorkspaceHandoff } from "../hooks/useThreadWorkspaceHandoff";
 import { useComposerCommandMenuItems } from "../hooks/useComposerCommandMenuItems";
-import { useThreadHandoff } from "../hooks/useThreadHandoff";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import BranchToolbar, { RuntimeUsageControls } from "./BranchToolbar";
 import { ThreadWorktreeHandoffDialog } from "./ThreadWorktreeHandoffDialog";
@@ -237,7 +236,6 @@ import {
 } from "../appSettings";
 import { resolveTerminalNewAction } from "../lib/terminalNewAction";
 import { isTerminalFocused } from "../lib/terminalFocus";
-import { compareProvidersByOrder } from "../providerOrdering";
 import {
   type ComposerImageAttachment,
   type ComposerAssistantSelectionAttachment,
@@ -290,7 +288,7 @@ import { ChatTranscriptPane } from "./chat/ChatTranscriptPane";
 import { buildTurnDiffSummaryByAssistantMessageId } from "./chat/MessagesTimeline.logic";
 import { ComposerSlashStatusDialog } from "./chat/ComposerSlashStatusDialog";
 import { ExpandedImagePreview } from "./chat/ExpandedImagePreview";
-import { AVAILABLE_PROVIDER_OPTIONS, ProviderModelPicker } from "./chat/ProviderModelPicker";
+import { ProviderModelPicker } from "./chat/ProviderModelPicker";
 import { ComposerCommandItem, ComposerCommandMenu } from "./chat/ComposerCommandMenu";
 import {
   ComposerLocalDirectoryMenu,
@@ -352,11 +350,7 @@ import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerSlashCommands } from "../hooks/useComposerSlashCommands";
 import { useFeatureFlags } from "../featureFlags";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
-import {
-  canCreateThreadHandoff,
-  resolveAvailableHandoffTargetProviders,
-  resolveThreadHandoffBadgeLabel,
-} from "../lib/threadHandoff";
+import { resolveThreadHandoffBadgeLabel } from "../lib/threadHandoff";
 import {
   resolveDiffEnvironmentState,
   resolveThreadEnvironmentMode,
@@ -800,7 +794,6 @@ export default function ChatView({
   const navigate = useNavigate();
   const { handleNewThread } = useHandleNewThread();
   const { handleNewChat } = useHandleNewChat();
-  const { createThreadHandoff } = useThreadHandoff();
   const rawSearch = useSearch({
     strict: false,
     select: (params) => parseDiffRouteSearch(params),
@@ -1519,53 +1512,21 @@ export default function ChatView({
     providerModelsLoading,
     requiresDiscoveredModels: selectedProviderRequiresRuntimeModels,
   });
-  const hiddenProviderSet = useMemo(
-    () => new Set<ProviderKind>(settings.hiddenProviders),
-    [settings.hiddenProviders],
-  );
   const searchableModelOptions = useMemo(
     () =>
-      [...AVAILABLE_PROVIDER_OPTIONS]
-        .sort((left, right) =>
-          compareProvidersByOrder(settings.providerOrder, left.value, right.value),
-        )
-        .filter((option) => {
-          if (lockedProvider !== null) {
-            return option.value === lockedProvider;
-          }
-          // Always keep the currently selected provider visible in search even if
-          // it's hidden in the picker, so the user can still see and switch from
-          // its models without first unhiding the provider in settings.
-          if (option.value === selectedProvider) {
-            return true;
-          }
-          return !hiddenProviderSet.has(option.value);
-        })
-        .flatMap((option) =>
-          modelOptionsByProvider[option.value].map(
-            ({ slug, name, upstreamProviderId, upstreamProviderName }) => ({
-              provider: option.value,
-              providerLabel: option.label,
-              slug,
-              name,
-              searchSlug: slug.toLowerCase(),
-              searchName: name.toLowerCase(),
-              searchProvider: option.label.toLowerCase(),
-              searchUpstreamProvider: (
-                upstreamProviderName ??
-                upstreamProviderId ??
-                ""
-              ).toLowerCase(),
-            }),
-          ),
-        ),
-    [
-      hiddenProviderSet,
-      lockedProvider,
-      modelOptionsByProvider,
-      selectedProvider,
-      settings.providerOrder,
-    ],
+      (modelOptionsByProvider[selectedProvider] ?? []).map(
+        ({ slug, name, upstreamProviderId, upstreamProviderName }) => ({
+          provider: selectedProvider,
+          providerLabel: "Pi",
+          slug,
+          name,
+          searchSlug: slug.toLowerCase(),
+          searchName: name.toLowerCase(),
+          searchProvider: "pi",
+          searchUpstreamProvider: (upstreamProviderName ?? upstreamProviderId ?? "").toLowerCase(),
+        }),
+      ),
+    [modelOptionsByProvider, selectedProvider],
   );
   const phase = derivePhase(activeThread?.session ?? null);
   const isConnecting = isLocalConnecting || phase === "connecting";
@@ -1810,17 +1771,6 @@ export default function ChatView({
   const activeTurnInProgress = activeTurnLayoutLive || keepSettledActiveTurnLayout;
   const isComposerApprovalState = activePendingApproval !== null;
   const composerFooterHasWideActions = showPlanFollowUpPrompt || activePendingProgress !== null;
-  const handoffDisabled = !(
-    activeThread &&
-    activeProject &&
-    isServerThread &&
-    canCreateThreadHandoff({
-      thread: activeThread,
-      isBusy: isWorking,
-      hasPendingApprovals: pendingApprovals.length > 0,
-      hasPendingUserInput: pendingUserInputs.length > 0,
-    })
-  );
   const lastSyncedPendingInputRef = useRef<{
     requestId: string | null;
     questionId: string | null;
@@ -2484,19 +2434,6 @@ export default function ChatView({
   const handoffBadgeTargetProvider = activeThread?.handoff
     ? activeThread.modelSelection.provider
     : null;
-  const handoffTargetProviders = useMemo(
-    () =>
-      activeThread
-        ? resolveAvailableHandoffTargetProviders(activeThread.modelSelection.provider).filter(
-            (provider) =>
-              isProviderUsable(
-                providerStatuses.find((status) => status.provider === provider) ?? null,
-              ),
-          )
-        : [],
-    [activeThread, providerStatuses],
-  );
-  const handoffActionLabel = activeThread ? "Hand off thread" : "Create handoff thread";
   const activeProviderStatus = useMemo(
     () => providerStatuses.find((status) => status.provider === selectedProvider) ?? null,
     [selectedProvider, providerStatuses],
@@ -4797,37 +4734,6 @@ export default function ChatView({
     [activeThread, hasLiveTurn, isConnecting, isRevertingCheckpoint, isSendBusy, setThreadError],
   );
 
-  const onCreateHandoffThread = useCallback(
-    async (targetProvider: ProviderKind) => {
-      if (!activeThread || handoffDisabled) {
-        return;
-      }
-
-      try {
-        const targetStatus =
-          providerStatuses.find((status) => status.provider === targetProvider) ?? null;
-        if (!isProviderUsable(targetStatus)) {
-          toastManager.add({
-            type: "error",
-            title: providerUnavailableReason(targetStatus),
-          });
-          return;
-        }
-        await createThreadHandoff(activeThread, targetProvider);
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: "Could not create handoff thread",
-          description:
-            error instanceof Error
-              ? error.message
-              : "An error occurred while creating the handoff thread.",
-        });
-      }
-    },
-    [activeThread, createThreadHandoff, handoffDisabled, providerStatuses],
-  );
-
   const clearComposerInput = useCallback(
     (threadId: ThreadId) => {
       promptRef.current = "";
@@ -6346,14 +6252,8 @@ export default function ChatView({
         compact={isComposerFooterCompact}
         provider={selectedProvider}
         model={selectedModelForPickerWithCustomFallback}
-        lockedProvider={lockedProvider}
-        providers={providerStatuses}
         modelOptionsByProvider={modelOptionsByProvider}
-        loadingModelProviders={{
-          pi: selectedProviderRuntimeModelDiscoveryPending,
-        }}
-        hiddenProviders={settings.hiddenProviders}
-        providerOrder={settings.providerOrder}
+        loadingModels={selectedProviderRuntimeModelDiscoveryPending}
         open={isModelPickerOpen}
         onOpenChange={handleModelPickerOpenChange}
         shortcutLabel={modelPickerShortcutLabel}
@@ -7795,9 +7695,6 @@ export default function ChatView({
           browserToggleShortcutLabel={browserPanelShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           handoffBadgeLabel={handoffBadgeLabel}
-          handoffActionLabel={handoffActionLabel}
-          handoffDisabled={handoffDisabled}
-          handoffActionTargetProviders={handoffTargetProviders}
           handoffBadgeSourceProvider={handoffBadgeSourceProvider}
           handoffBadgeTargetProvider={handoffBadgeTargetProvider}
           browserOpen={resolvedBrowserOpen}
@@ -7839,7 +7736,6 @@ export default function ChatView({
           onToggleTerminal={toggleTerminalVisibility}
           onToggleDiff={onToggleDiff}
           onToggleBrowser={onToggleBrowser}
-          onCreateHandoff={onCreateHandoffThread}
           onNavigateToThread={onNavigateToThread}
           onRenameThread={() => setRenameDialogOpen(true)}
           {...(onCloseThreadPane ? { onCloseThreadPane } : {})}

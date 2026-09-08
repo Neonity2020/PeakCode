@@ -6,7 +6,7 @@
 // Exports: useProviderDiscoveryData, type ProviderDiscoveryData
 
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   PROVIDER_DISPLAY_NAMES,
   type ProviderKind,
@@ -49,8 +49,6 @@ export type PluginSection = {
   entries: PluginEntry[];
 };
 
-export const PROVIDER_DISCOVERY_ORDER: ReadonlyArray<ProviderKind> = ["pi"];
-
 function sectionTitle(value: string): string {
   const n = value.trim();
   return n.length === 0 ? "Unknown" : n;
@@ -61,10 +59,7 @@ export function useProviderDiscoveryData(selectedTab: DiscoveryTab) {
   const { activeProject: focusedProject, activeThread, focusedThreadId } = useFocusedChatContext();
   const activeProject = focusedProject ?? firstProject ?? null;
 
-  const preferredProvider =
-    activeThread?.modelSelection.provider ?? activeProject?.defaultModelSelection?.provider ?? "pi";
-
-  const [selectedProvider, setSelectedProvider] = useState<ProviderKind>(preferredProvider);
+  const selectedProvider: ProviderKind = "pi";
   const [pluginSearch, setPluginSearch] = useState("");
   const [skillSearch, setSkillSearch] = useState("");
   const providerThreadId = focusedThreadId;
@@ -81,25 +76,6 @@ export function useProviderDiscoveryData(selectedTab: DiscoveryTab) {
     }),
     [piCapabilitiesQuery.data],
   );
-
-  useEffect(() => {
-    const supportsTab =
-      selectedTab === "plugins"
-        ? providerCapabilities[selectedProvider].plugins
-        : providerCapabilities[selectedProvider].skills;
-    if (supportsTab) return;
-    const fallbackOrder =
-      selectedTab === "plugins"
-        ? PROVIDER_DISCOVERY_ORDER
-        : [preferredProvider, ...PROVIDER_DISCOVERY_ORDER.filter((p) => p !== preferredProvider)];
-    const fallback =
-      fallbackOrder.find((provider) =>
-        selectedTab === "plugins"
-          ? providerCapabilities[provider].plugins
-          : providerCapabilities[provider].skills,
-      ) ?? null;
-    if (fallback) setSelectedProvider(fallback);
-  }, [preferredProvider, providerCapabilities, selectedProvider, selectedTab]);
 
   const discoveryCwd = resolveProviderDiscoveryCwd({
     activeThreadWorktreePath: activeThread?.worktreePath ?? null,
@@ -186,7 +162,6 @@ export function useProviderDiscoveryData(selectedTab: DiscoveryTab) {
 
   return {
     selectedProvider,
-    setSelectedProvider,
     pluginSearch,
     setPluginSearch,
     skillSearch,

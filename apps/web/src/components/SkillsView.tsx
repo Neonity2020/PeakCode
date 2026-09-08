@@ -14,9 +14,7 @@ import { SidebarInset } from "./ui/sidebar";
 import { SidebarHeaderNavigationControls } from "./SidebarHeaderNavigationControls";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "./ui/input-group";
 import { Skeleton } from "./ui/skeleton";
-import { ProviderDiscoveryToolbar } from "./PluginLibraryPresentation";
 import { useProviderDiscoveryData } from "./useProviderDiscoveryData";
-
 const SKILL_SH_HOMEPAGE = "https://skill.sh/";
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -49,14 +47,6 @@ export function SkillsView() {
         <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 sm:px-6">
           <SidebarHeaderNavigationControls />
           <div className="flex-1" />
-          <ProviderDiscoveryToolbar
-            providerCapabilities={data.providerCapabilities}
-            providerLabel={data.providerLabel}
-            selectedProvider={data.selectedProvider}
-            onSelectProvider={data.setSelectedProvider}
-            onRequestTabSwitch={undefined}
-            activeTab="skills"
-          />
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">

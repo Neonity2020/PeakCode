@@ -66,9 +66,6 @@ interface ChatHeaderProps {
   browserToggleShortcutLabel: string | null;
   diffToggleShortcutLabel: string | null;
   handoffBadgeLabel: string | null;
-  handoffActionLabel: string;
-  handoffDisabled: boolean;
-  handoffActionTargetProviders: ReadonlyArray<ProviderKind>;
   handoffBadgeSourceProvider: ProviderKind | null;
   handoffBadgeTargetProvider: ProviderKind | null;
   browserOpen: boolean;
@@ -96,7 +93,6 @@ interface ChatHeaderProps {
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
   onToggleBrowser: () => void;
-  onCreateHandoff: (targetProvider: ProviderKind) => void;
   onNavigateToThread: (threadId: ThreadId) => void;
   onRenameThread: () => void;
   onCloseThreadPane?: () => void;
@@ -134,9 +130,6 @@ export const ChatHeader = memo(function ChatHeader({
   browserToggleShortcutLabel,
   diffToggleShortcutLabel,
   handoffBadgeLabel,
-  handoffActionLabel,
-  handoffDisabled,
-  handoffActionTargetProviders,
   handoffBadgeSourceProvider,
   handoffBadgeTargetProvider,
   browserOpen,
@@ -156,7 +149,6 @@ export const ChatHeader = memo(function ChatHeader({
   onToggleTerminal,
   onToggleDiff,
   onToggleBrowser,
-  onCreateHandoff,
   onNavigateToThread,
   onRenameThread,
   onCloseThreadPane,
@@ -316,43 +308,6 @@ export const ChatHeader = memo(function ChatHeader({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2 [-webkit-app-region:no-drag]">
-        {!isDisposableThread && !hideHandoffControls ? (
-          <Menu modal={false}>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <MenuTrigger
-                    render={
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="outline"
-                        className={cn(
-                          "shrink-0 bg-transparent not-disabled:before:shadow-none dark:not-disabled:before:shadow-none [:hover,[data-pressed]]:bg-[var(--sidebar-accent)] dark:[:hover,[data-pressed]]:bg-[var(--sidebar-accent)]",
-                          compact ? "gap-1" : "gap-1.5",
-                        )}
-                        aria-label={handoffActionLabel}
-                        disabled={handoffDisabled || handoffActionTargetProviders.length === 0}
-                      />
-                    }
-                  >
-                    <FiGitBranch className="size-3.5 shrink-0" />
-                    {!compact ? <span className="truncate font-normal">Hand off</span> : null}
-                  </MenuTrigger>
-                }
-              />
-              <TooltipPopup side="bottom">{handoffActionLabel}</TooltipPopup>
-            </Tooltip>
-            <MenuPopup align="end" side="bottom" className="w-48">
-              {handoffActionTargetProviders.map((provider) => (
-                <MenuItem key={provider} onClick={() => onCreateHandoff(provider)}>
-                  {renderProviderIcon(provider, "size-3.5 shrink-0")}
-                  <span>Handoff to {PROVIDER_DISPLAY_NAMES[provider]}</span>
-                </MenuItem>
-              ))}
-            </MenuPopup>
-          </Menu>
-        ) : null}
         {/* Keep one shared project-actions controller mounted so both inline and
             compact header menus open the same dialog/state machine. */}
         {!isDisposableThread && activeProjectScripts ? (

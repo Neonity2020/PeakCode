@@ -5,14 +5,9 @@
 // Exports: ProviderDiscoveryToolbar, PluginGridItem, SkillGridItem, ProviderToggleButton,
 //          PluginGlyph, SkillGlyph, InstalledStatus, ProviderIconByKind
 
-import { useState, type ReactNode, type SVGProps } from "react";
+import { useState, type ReactNode } from "react";
 import { HammerIcon, CheckIcon, type LucideIcon } from "~/lib/icons";
-import {
-  PROVIDER_DISPLAY_NAMES,
-  type ProviderKind,
-  type ProviderPluginDescriptor,
-  type ProviderSkillDescriptor,
-} from "@peakcode/contracts";
+import { type ProviderPluginDescriptor, type ProviderSkillDescriptor } from "@peakcode/contracts";
 import {
   SiCanva,
   SiFigma,
@@ -28,13 +23,8 @@ import {
   SiVercel,
 } from "react-icons/si";
 import { cn } from "~/lib/utils";
-import { PROVIDER_ICON_COMPONENT_BY_PROVIDER } from "./ProviderIcon";
 import { isInstalledProviderPlugin } from "~/lib/providerDiscovery";
-import {
-  type DiscoveryTab,
-  PROVIDER_DISCOVERY_ORDER,
-  type PluginEntry,
-} from "./useProviderDiscoveryData";
+import { type PluginEntry } from "./useProviderDiscoveryData";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -52,12 +42,6 @@ const KNOWN_PLUGIN_BRANDS: Record<string, { color: string; icon: typeof SiCanva 
   stripe: { icon: SiStripe, color: "#635BFF" },
   vercel: { icon: SiVercel, color: "#111111" },
 };
-
-const PROVIDER_ICON: Record<ProviderKind, React.FC<React.SVGProps<SVGSVGElement>>> = {
-  ...PROVIDER_ICON_COMPONENT_BY_PROVIDER,
-};
-
-export { PROVIDER_DISCOVERY_ORDER, type DiscoveryTab, type PluginEntry };
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 
@@ -193,87 +177,6 @@ export function InstalledStatus({ installed }: { installed: boolean }) {
     <span className="inline-flex size-7 shrink-0 items-center justify-center rounded-lg border border-border/40 text-muted-foreground/60">
       <CheckIcon className="size-3.5" />
     </span>
-  );
-}
-
-export function ProviderToggleButton({
-  label,
-  active,
-  disabled,
-  onClick,
-  provider,
-}: {
-  label: string;
-  active: boolean;
-  disabled: boolean;
-  onClick: () => void;
-  provider: ProviderKind;
-}) {
-  const Icon = PROVIDER_ICON[provider] ?? HammerIcon;
-  return (
-    <button
-      type="button"
-      className={cn(
-        "inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[12px] font-medium transition-colors",
-        active
-          ? "bg-[var(--color-text-foreground)] text-[var(--color-background-surface)] shadow-xs"
-          : "text-muted-foreground hover:bg-[var(--sidebar-accent)] hover:text-foreground",
-        disabled && "pointer-events-none opacity-35",
-      )}
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={active}
-    >
-      <Icon className="size-3.5 shrink-0" />
-      {label}
-    </button>
-  );
-}
-
-type ProviderCapabilities = { plugins: boolean; skills: boolean };
-
-export function ProviderDiscoveryToolbar({
-  providerCapabilities,
-  providerLabel: _providerLabel,
-  selectedProvider,
-  onSelectProvider,
-  onRequestTabSwitch,
-  activeTab,
-}: {
-  providerCapabilities: Record<ProviderKind, ProviderCapabilities>;
-  providerLabel: string;
-  selectedProvider: ProviderKind;
-  onSelectProvider: (next: ProviderKind) => void;
-  onRequestTabSwitch: ((next: DiscoveryTab) => void) | undefined;
-  activeTab: DiscoveryTab;
-}) {
-  return (
-    <div className="inline-flex rounded-full border border-border/60 bg-background/60 p-0.5">
-      {PROVIDER_DISCOVERY_ORDER.map((provider) => {
-        const capabilities = providerCapabilities[provider];
-        const label = PROVIDER_DISPLAY_NAMES[provider];
-        return (
-          <ProviderToggleButton
-            key={provider}
-            label={label}
-            provider={provider}
-            active={selectedProvider === provider}
-            disabled={!capabilities.plugins && !capabilities.skills}
-            onClick={() => {
-              onSelectProvider(provider);
-              if (onRequestTabSwitch) {
-                if (activeTab === "plugins" && !capabilities.plugins && capabilities.skills) {
-                  onRequestTabSwitch("skills");
-                }
-                if (activeTab === "skills" && !capabilities.skills && capabilities.plugins) {
-                  onRequestTabSwitch("plugins");
-                }
-              }
-            }}
-          />
-        );
-      })}
-    </div>
   );
 }
 

@@ -1,9 +1,9 @@
 // FILE: ProviderModelPicker.tsx
-// Purpose: Renders the composer provider/model menu and supports controlled opening for shortcuts.
+// Purpose: Renders the composer model menu (Pi-only) and supports controlled opening for shortcuts.
 // Layer: Chat composer presentation
-// Depends on: provider availability metadata, shared menu primitives, and picker trigger styling.
+// Depends on: Pi model options, shared menu primitives, and picker trigger styling.
 
-import { type ModelSlug, type ProviderKind, type ServerProviderStatus } from "@peakcode/contracts";
+import { type ModelSlug, type ProviderKind } from "@peakcode/contracts";
 import { resolveSelectableModel } from "@peakcode/shared/model";
 import * as Schema from "effect/Schema";
 import {
@@ -16,9 +16,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { type ProviderPickerKind, PROVIDER_OPTIONS } from "../../session-logic";
 import { formatProviderModelOptionName } from "../../providerModelOptions";
-import { compareProvidersByOrder } from "../../providerOrdering";
 import {
   Menu,
   MenuGroup,
@@ -28,9 +26,6 @@ import {
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
-  MenuSub,
-  MenuSubPopup,
-  MenuSubTrigger,
   MenuTrigger,
 } from "../ui/menu";
 import { PROVIDER_ICON_COMPONENT_BY_PROVIDER } from "../ProviderIcon";
@@ -48,83 +43,13 @@ import { useLocalStorage } from "../../hooks/useLocalStorage";
 import { StarFilledIcon, StarIcon } from "../../lib/icons";
 import { Skeleton } from "../ui/skeleton";
 
-function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
-  value: ProviderKind;
-  label: string;
-  available: true;
-} {
-  return option.available;
-}
-
-function resolveLiveProviderAvailability(provider: ServerProviderStatus | undefined): {
-  disabled: boolean;
-  label: string | null;
-} {
-  if (!provider) {
-    return {
-      disabled: true,
-      label: "Checking",
-    };
-  }
-
-  if (!provider.available) {
-    return {
-      disabled: true,
-      label: provider.authStatus === "unauthenticated" ? "Sign in" : "Unavailable",
-    };
-  }
-
-  if (provider.authStatus === "unauthenticated") {
-    return {
-      disabled: true,
-      label: "Sign in",
-    };
-  }
-
-  return {
-    disabled: false,
-    label: null,
-  };
-}
-
-export const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
-const UNAVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter((option) => !option.available);
-
-// Removes user-hidden providers from a provider option list while always
-// preserving any providers the caller marks as protected (the active and
-// locked provider for the current thread). Without that carve-out, hiding the
-// provider you're already using would erase the entry that lets you switch
-// away from it.
-function filterProviderOptionsByVisibility<T extends { value: ProviderKind }>(
-  options: ReadonlyArray<T>,
-  hiddenProviders: ReadonlySet<ProviderKind>,
-  protectedProviders: ReadonlySet<ProviderKind>,
-): ReadonlyArray<T> {
-  if (hiddenProviders.size === 0) {
-    return options;
-  }
-  return options.filter(
-    (option) => protectedProviders.has(option.value) || !hiddenProviders.has(option.value),
-  );
-}
-
-function providerIconClassName(
-  _provider: ProviderKind | ProviderPickerKind,
-  _fallbackClassName: string,
-): string {
+function providerIconClassName(_provider: ProviderKind, _fallbackClassName: string): string {
   return "text-foreground";
 }
 
 const SEARCHABLE_MODEL_PICKER_THRESHOLD = 15;
-const FAVORITE_MODEL_STORAGE_KEYS = {
-  pi: "peakcode:pi-favourite-models:v1",
-} as const;
+const PI_FAVORITE_MODEL_STORAGE_KEY = "peakcode:pi-favourite-models:v1";
 const FavoriteModelSlugs = Schema.Array(Schema.String);
-type FavoriteModelProvider = keyof typeof FAVORITE_MODEL_STORAGE_KEYS;
-
-function supportsModelFavorites(provider: ProviderKind): provider is FavoriteModelProvider {
-  return provider === "pi";
-}
 
 // Keeps persisted favorite slugs compact and stable while preserving the user's order.
 function toggleFavoriteModelSlug(current: ReadonlyArray<string>, slug: string): string[] {
@@ -159,12 +84,8 @@ function buildModelSearchText(option: ProviderModelOption): string {
 export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   provider: ProviderKind;
   model: ModelSlug;
-  lockedProvider: ProviderKind | null;
-  providers?: ReadonlyArray<ServerProviderStatus>;
   modelOptionsByProvider: Record<ProviderKind, ReadonlyArray<ProviderModelOption>>;
-  loadingModelProviders?: Partial<Record<ProviderKind, boolean>>;
-  hiddenProviders?: ReadonlyArray<ProviderKind>;
-  providerOrder?: ReadonlyArray<ProviderKind>;
+  loadingModels?: boolean;
   activeProviderIconClassName?: string;
   compact?: boolean;
   disabled?: boolean;
@@ -179,56 +100,13 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const selectionCommitTimerRef = useRef<number | null>(null);
   const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [piFavoriteModelSlugs, setPiFavoriteModelSlugs] = useLocalStorage(
-    FAVORITE_MODEL_STORAGE_KEYS.pi,
+    PI_FAVORITE_MODEL_STORAGE_KEY,
     [],
     FavoriteModelSlugs,
   );
   const deferredModelSearchQuery = useDeferredValue(modelSearchQuery);
-  const activeProvider = props.lockedProvider ?? props.provider;
+  const activeProvider = props.provider;
   const isMenuOpen = open ?? uncontrolledMenuOpen;
-  const hiddenProviders = props.hiddenProviders;
-  const providerOrder = props.providerOrder;
-  const hiddenProviderSet = useMemo(
-    () => new Set<ProviderKind>(hiddenProviders ?? []),
-    [hiddenProviders],
-  );
-  const protectedProviderSet = useMemo(() => {
-    const set = new Set<ProviderKind>([props.provider]);
-    if (props.lockedProvider !== null) {
-      set.add(props.lockedProvider);
-    }
-    return set;
-  }, [props.provider, props.lockedProvider]);
-  const visibleAvailableProviderOptions = useMemo(
-    () =>
-      filterProviderOptionsByVisibility(
-        [...AVAILABLE_PROVIDER_OPTIONS].sort((left, right) =>
-          compareProvidersByOrder(providerOrder ?? [], left.value, right.value),
-        ),
-        hiddenProviderSet,
-        protectedProviderSet,
-      ),
-    [hiddenProviderSet, protectedProviderSet, providerOrder],
-  );
-  const visibleUnavailableProviderOptions = useMemo(
-    () =>
-      filterProviderOptionsByVisibility(
-        [...UNAVAILABLE_PROVIDER_OPTIONS].sort((left, right) =>
-          compareProvidersByOrder(providerOrder ?? [], left.value, right.value),
-        ),
-        hiddenProviderSet,
-        protectedProviderSet,
-      ),
-    [hiddenProviderSet, protectedProviderSet, providerOrder],
-  );
-  const piFavoriteModelSlugSet = useMemo(
-    () => new Set(piFavoriteModelSlugs),
-    [piFavoriteModelSlugs],
-  );
-  const favoriteModelSlugSets = useMemo(
-    () => ({ pi: piFavoriteModelSlugSet }),
-    [piFavoriteModelSlugSet],
-  );
   const selectedProviderOptions = props.modelOptionsByProvider[activeProvider];
   const selectedModelLabel = resolveSelectedModelLabel({
     provider: activeProvider,
@@ -279,15 +157,9 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     setMenuOpen(false);
     scheduleSelectionCommitted();
   };
-  const toggleFavoriteModel = useCallback(
-    (_provider: FavoriteModelProvider, slug: string) => {
-      setPiFavoriteModelSlugs((current) => toggleFavoriteModelSlug(current, slug));
-    },
-    [setPiFavoriteModelSlugs],
-  );
 
-  const renderModelRadioGroup = (provider: ProviderKind) => {
-    if (props.loadingModelProviders?.[provider]) {
+  const renderModelRadioGroup = () => {
+    if (props.loadingModels) {
       return (
         <div className="w-60 space-y-2 px-2 py-2" aria-label="Loading models">
           {Array.from({ length: 6 }, (_, index) => (
@@ -300,7 +172,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       );
     }
 
-    const providerOptions = props.modelOptionsByProvider[provider];
+    const providerOptions = props.modelOptionsByProvider[activeProvider];
     const shouldShowSearch = providerOptions.length >= SEARCHABLE_MODEL_PICKER_THRESHOLD;
     const normalizedModelSearchQuery = deferredModelSearchQuery.trim().toLowerCase();
     const filteredOptions =
@@ -309,73 +181,64 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
             buildModelSearchText(option).includes(normalizedModelSearchQuery),
           )
         : providerOptions;
-    const favoriteProvider = supportsModelFavorites(provider) ? provider : null;
-    const favoriteModelSlugSet =
-      favoriteProvider !== null ? favoriteModelSlugSets[favoriteProvider] : undefined;
-    const groupedOptions =
-      favoriteModelSlugSet !== undefined
-        ? groupProviderModelOptionsWithFavorites({
-            options: filteredOptions,
-            favoriteSlugs: favoriteModelSlugSet,
-          })
-        : groupProviderModelOptions(filteredOptions);
+    const piFavoriteModelSlugSet = new Set(piFavoriteModelSlugs);
+    const groupedOptions = groupProviderModelOptionsWithFavorites({
+      options: filteredOptions,
+      favoriteSlugs: piFavoriteModelSlugSet,
+    });
 
     const content =
       groupedOptions.length > 0 ? (
         <MenuRadioGroup
-          value={activeProvider === provider ? props.model : ""}
-          onValueChange={(value) => handleModelChange(provider, value)}
+          value={props.model}
+          onValueChange={(value) => handleModelChange(activeProvider, value)}
         >
           {groupedOptions.map((group, index) => (
-            <Fragment key={`${provider}:${group.key}`}>
+            <Fragment key={`${activeProvider}:${group.key}`}>
               <MenuGroup>
                 {group.label ? <MenuGroupLabel>{group.label}</MenuGroupLabel> : null}
                 {group.options.map((modelOption) => {
-                  const isFavorite = favoriteModelSlugSet?.has(modelOption.slug) ?? false;
+                  const isFavorite = piFavoriteModelSlugSet.has(modelOption.slug);
                   return (
                     <MenuRadioItem
-                      key={`${provider}:${modelOption.slug}`}
+                      key={`${activeProvider}:${modelOption.slug}`}
                       value={modelOption.slug}
                       onClick={() => {
                         setMenuOpen(false);
                         scheduleSelectionCommitted();
                       }}
                     >
-                      {favoriteModelSlugSet !== undefined ? (
-                        <span className="flex w-full min-w-0 items-center gap-2">
-                          <span className="block min-w-0 flex-1 truncate">{modelOption.name}</span>
-                          <button
-                            type="button"
-                            aria-label={
-                              isFavorite
-                                ? `Remove ${modelOption.name} from favourites`
-                                : `Add ${modelOption.name} to favourites`
-                            }
-                            className={cn(
-                              "-me-2 ms-auto inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground/55 transition-colors hover:bg-[var(--color-background-elevated-tertiary)] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/60",
-                              isFavorite && "text-amber-300 hover:text-amber-200",
-                            )}
-                            onClick={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              if (favoriteProvider !== null) {
-                                toggleFavoriteModel(favoriteProvider, modelOption.slug);
-                              }
-                            }}
-                            onPointerDown={(event) => {
-                              event.stopPropagation();
-                            }}
-                          >
-                            {isFavorite ? (
-                              <StarFilledIcon aria-hidden="true" className="size-3.5" />
-                            ) : (
-                              <StarIcon aria-hidden="true" className="size-3.5" />
-                            )}
-                          </button>
-                        </span>
-                      ) : (
-                        modelOption.name
-                      )}
+                      <span className="flex w-full min-w-0 items-center gap-2">
+                        <span className="block min-w-0 flex-1 truncate">{modelOption.name}</span>
+                        <button
+                          type="button"
+                          aria-label={
+                            isFavorite
+                              ? `Remove ${modelOption.name} from favourites`
+                              : `Add ${modelOption.name} to favourites`
+                          }
+                          className={cn(
+                            "-me-2 ms-auto inline-flex size-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground/55 transition-colors hover:bg-[var(--color-background-elevated-tertiary)] hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring/60",
+                            isFavorite && "text-amber-300 hover:text-amber-200",
+                          )}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setPiFavoriteModelSlugs((current) =>
+                              toggleFavoriteModelSlug(current, modelOption.slug),
+                            );
+                          }}
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                          }}
+                        >
+                          {isFavorite ? (
+                            <StarFilledIcon aria-hidden="true" className="size-3.5" />
+                          ) : (
+                            <StarIcon aria-hidden="true" className="size-3.5" />
+                          )}
+                        </button>
+                      </span>
                     </MenuRadioItem>
                   );
                 })}
@@ -394,7 +257,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
 
     return (
       <PickerPanelShell
-        searchPlaceholder="Search models or providers"
+        searchPlaceholder="Search models"
         query={modelSearchQuery}
         onQueryChange={setModelSearchQuery}
         stopSearchKeyPropagation
@@ -480,71 +343,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
           <span className="sr-only">{selectedModelLabel}</span>
         </MenuTrigger>
       )}
-      <MenuPopup align="start">
-        {props.lockedProvider !== null ? (
-          renderModelRadioGroup(props.lockedProvider)
-        ) : (
-          <>
-            {visibleAvailableProviderOptions.map((option) => {
-              const OptionIcon = PROVIDER_ICON_COMPONENT_BY_PROVIDER[option.value];
-              const liveProvider = props.providers?.find(
-                (entry) => entry.provider === option.value,
-              );
-              const availability = resolveLiveProviderAvailability(liveProvider);
-              if (availability.disabled) {
-                return (
-                  <MenuItem key={option.value} disabled>
-                    <OptionIcon
-                      aria-hidden="true"
-                      className={cn(
-                        "size-4 shrink-0 opacity-80",
-                        providerIconClassName(option.value, "text-muted-foreground/85"),
-                      )}
-                    />
-                    <span>{option.label}</span>
-                    <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
-                      {availability.label}
-                    </span>
-                  </MenuItem>
-                );
-              }
-              return (
-                <MenuSub key={option.value}>
-                  <MenuSubTrigger>
-                    <OptionIcon
-                      aria-hidden="true"
-                      className={cn(
-                        "size-4 shrink-0",
-                        providerIconClassName(option.value, "text-muted-foreground/85"),
-                      )}
-                    />
-                    {option.label}
-                  </MenuSubTrigger>
-                  <MenuSubPopup className="[--available-height:min(24rem,70vh)]">
-                    {renderModelRadioGroup(option.value)}
-                  </MenuSubPopup>
-                </MenuSub>
-              );
-            })}
-            {visibleUnavailableProviderOptions.length > 0 && <MenuSeparator />}
-            {visibleUnavailableProviderOptions.map((option) => {
-              const OptionIcon = PROVIDER_ICON_COMPONENT_BY_PROVIDER[option.value];
-              return (
-                <MenuItem key={option.value} disabled>
-                  <OptionIcon
-                    aria-hidden="true"
-                    className="size-4 shrink-0 text-muted-foreground/85 opacity-80"
-                  />
-                  <span>{option.label}</span>
-                  <span className="ms-auto text-[11px] text-muted-foreground/80 uppercase tracking-[0.08em]">
-                    Coming soon
-                  </span>
-                </MenuItem>
-              );
-            })}
-          </>
-        )}
-      </MenuPopup>
+      <MenuPopup align="start">{renderModelRadioGroup()}</MenuPopup>
     </Menu>
   );
 });

@@ -14,22 +14,6 @@ import { createFileRoute, useSearch } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  closestCenter,
-  DndContext,
-  PointerSensor,
-  type DragEndEvent,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
-import { restrictToVerticalAxis } from "@dnd-kit/modifiers";
-import { CSS } from "@dnd-kit/utilities";
-import {
   MAX_CHAT_FONT_SIZE_PX,
   getGitTextGenerationModelOptions,
   MIN_CHAT_FONT_SIZE_PX,
@@ -42,7 +26,6 @@ import {
 import { APP_VERSION } from "../branding";
 import { SidebarHeaderNavigationControls } from "../components/SidebarHeaderNavigationControls";
 import { useDesktopTopBarTrafficLightGutterClassName } from "../hooks/useDesktopTopBarGutter";
-import { DotGrid2x3Icon, PiIcon } from "../components/Icons";
 import { Button } from "../components/ui/button";
 import { Collapsible, CollapsibleContent } from "../components/ui/collapsible";
 import { Input } from "../components/ui/input";
@@ -93,7 +76,6 @@ import ReleaseHistoryDialog from "../components/ReleaseHistoryDialog";
 import { createAllThreadsSelector } from "../storeSelectors";
 import { formatRelativeTime } from "../components/Sidebar";
 import { formatWorktreePathForDisplay } from "../worktreeCleanup";
-import { sameProviderOrder } from "../providerOrdering";
 
 // ── Settings taxonomy ──────────────────────────────────────────────────────
 
@@ -113,70 +95,6 @@ type InstallProviderSettings = {
   agentDirPlaceholder?: string;
   agentDirDescription?: ReactNode;
 };
-
-const PROVIDER_VISIBILITY_OPTIONS: ReadonlyArray<{ provider: ProviderKind; title: string }> = [
-  { provider: "pi", title: PROVIDER_DISPLAY_NAMES.pi },
-];
-
-// Pure helper kept at module scope so the toggle handler stays trivial and the
-// dedupe logic is shared between the toggle and the schema normalizer.
-function setProviderHidden(
-  current: ReadonlyArray<ProviderKind>,
-  provider: ProviderKind,
-  hidden: boolean,
-): ProviderKind[] {
-  const withoutTarget = current.filter((entry) => entry !== provider);
-  return hidden ? [...withoutTarget, provider] : withoutTarget;
-}
-
-function SortableProviderVisibilityRow(props: {
-  option: { provider: ProviderKind; title: string };
-  isHidden: boolean;
-  onHiddenChange: (hidden: boolean) => void;
-}) {
-  const {
-    attributes,
-    listeners,
-    setActivatorNodeRef,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = useSortable({ id: props.option.provider });
-
-  return (
-    <div
-      ref={setNodeRef}
-      style={{
-        transform: CSS.Translate.toString(transform),
-        transition,
-      }}
-      className={cn(
-        "flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-[var(--color-background-elevated-secondary)]/40 px-3 py-2.5",
-        isDragging && "z-10 opacity-80 shadow-lg",
-      )}
-    >
-      <div className="flex min-w-0 items-center gap-2.5">
-        <button
-          type="button"
-          ref={setActivatorNodeRef}
-          className="inline-flex size-6 shrink-0 cursor-grab touch-none items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-[var(--color-background-elevated-secondary)] hover:text-foreground active:cursor-grabbing"
-          aria-label={`Reorder ${props.option.title}`}
-          {...attributes}
-          {...listeners}
-        >
-          <DotGrid2x3Icon className="size-4" />
-        </button>
-        <span className="min-w-0 text-sm text-foreground">{props.option.title}</span>
-      </div>
-      <Switch
-        checked={!props.isHidden}
-        onCheckedChange={(checked) => props.onHiddenChange(!Boolean(checked))}
-        aria-label={`Show ${props.option.title} in the provider picker`}
-      />
-    </div>
-  );
-}
 
 const INSTALL_PROVIDER_DOCS: ReadonlyArray<{
   provider: ProviderKind;
@@ -446,31 +364,6 @@ function SettingsRouteView() {
     typeof navigator === "undefined" ? "" : navigator.platform,
   );
 
-  const hiddenProviderSet = useMemo(
-    () => new Set<ProviderKind>(settings.hiddenProviders),
-    [settings.hiddenProviders],
-  );
-  const hiddenProviderCount = hiddenProviderSet.size;
-  const providerVisibilityOptionsByProvider = useMemo(
-    () => new Map(PROVIDER_VISIBILITY_OPTIONS.map((option) => [option.provider, option])),
-    [],
-  );
-  const orderedProviderVisibilityOptions = useMemo(
-    () =>
-      settings.providerOrder.flatMap((provider) => {
-        const option = providerVisibilityOptionsByProvider.get(provider);
-        return option ? [option] : [];
-      }),
-    [providerVisibilityOptionsByProvider, settings.providerOrder],
-  );
-  const providerVisibilitySensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 4,
-      },
-    }),
-  );
-  const isProviderOrderDirty = !sameProviderOrder(settings.providerOrder, defaults.providerOrder);
   const piBinaryPath = settings.piBinaryPath;
   const piAgentDir = settings.piAgentDir;
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
@@ -541,11 +434,11 @@ function SettingsRouteView() {
   }, []);
 
   const gitTextGenerationModelOptions = getGitTextGenerationModelOptions(settings);
-  const currentGitTextGenerationProvider = settings.textGenerationProvider ?? "codex";
+  const currentGitTextGenerationProvider = settings.textGenerationProvider ?? "pi";
   const currentGitTextGenerationModel =
     settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
   const currentGitTextGenerationValue = `${currentGitTextGenerationProvider}:${currentGitTextGenerationModel}`;
-  const defaultGitTextGenerationProvider = defaults.textGenerationProvider ?? "codex";
+  const defaultGitTextGenerationProvider = defaults.textGenerationProvider ?? "pi";
   const defaultGitTextGenerationModel =
     defaults.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
   const isGitTextGenerationModelDirty =
@@ -568,9 +461,6 @@ function SettingsRouteView() {
             ? messages.settings.changedSettingLabel.darkThemePack
             : messages.settings.changedSettingLabel.lightThemePack,
         ]
-      : []),
-    ...(settings.defaultProvider !== defaults.defaultProvider
-      ? [messages.settings.changedSettingLabel.defaultProvider]
       : []),
     ...(settings.defaultThreadEnvMode !== defaults.defaultThreadEnvMode
       ? [messages.settings.changedSettingLabel.newThreadMode]
@@ -629,8 +519,6 @@ function SettingsRouteView() {
       ? [messages.settings.changedSettingLabel.customModels]
       : []),
     ...(isInstallSettingsDirty ? [messages.settings.changedSettingLabel.providerInstalls] : []),
-    ...(hiddenProviderCount > 0 ? [messages.settings.changedSettingLabel.providerVisibility] : []),
-    ...(isProviderOrderDirty ? [messages.settings.changedSettingLabel.providerOrder] : []),
   ];
 
   const openKeybindingsFile = useCallback(() => {
@@ -659,24 +547,6 @@ function SettingsRouteView() {
   useEffect(() => {
     setBrowserNotificationPermission(readBrowserNotificationPermissionState());
   }, []);
-
-  const handleProviderOrderDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) {
-        return;
-      }
-      const fromIndex = settings.providerOrder.indexOf(active.id as ProviderKind);
-      const toIndex = settings.providerOrder.indexOf(over.id as ProviderKind);
-      if (fromIndex < 0 || toIndex < 0) {
-        return;
-      }
-      updateSettings({
-        providerOrder: arrayMove([...settings.providerOrder], fromIndex, toIndex),
-      });
-    },
-    [settings.providerOrder, updateSettings],
-  );
 
   const runProviderUpdate = useCallback(
     async (provider: ProviderKind) => {
@@ -1043,50 +913,6 @@ function SettingsRouteView() {
                       {NATIVE_LANGUAGE_LABELS[language]}
                     </SelectItem>
                   ))}
-                </SelectPopup>
-              </Select>
-            }
-          />
-
-          <SettingsRow
-            title={messages.settings.general.defaultProvider.title}
-            description={messages.settings.general.defaultProvider.description}
-            resetAction={
-              settings.defaultProvider !== defaults.defaultProvider ? (
-                <SettingResetButton
-                  label={messages.settings.general.defaultProvider.resetLabel}
-                  onClick={() => updateSettings({ defaultProvider: defaults.defaultProvider })}
-                />
-              ) : null
-            }
-            control={
-              <Select
-                value={settings.defaultProvider}
-                onValueChange={(value) => {
-                  if (value !== "pi") {
-                    return;
-                  }
-                  updateSettings({ defaultProvider: value });
-                }}
-              >
-                <SelectTrigger
-                  className="w-full sm:w-44"
-                  aria-label={messages.settings.general.defaultProvider.title}
-                >
-                  <SelectValue>
-                    <span className="flex items-center gap-2">
-                      <PiIcon className="size-3.5 text-foreground" />
-                      {PROVIDER_DISPLAY_NAMES[settings.defaultProvider]}
-                    </span>
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem hideIndicator value="pi">
-                    <span className="flex items-center gap-2">
-                      <PiIcon className="size-3.5 text-foreground" />
-                      Pi
-                    </span>
-                  </SelectItem>
                 </SelectPopup>
               </Select>
             }
@@ -2053,67 +1879,6 @@ function SettingsRouteView() {
   const renderProvidersPanel = () => (
     <div className="space-y-6">
       {renderProviderUpdatesSection()}
-      <SettingsSection title={messages.settings.providers.pickerSection}>
-        <div className="space-y-2">
-          <SettingsRow
-            title={messages.settings.providers.visibility.title}
-            description={messages.settings.providers.visibility.description}
-            status={
-              hiddenProviderCount > 0
-                ? hiddenProviderCount === 1
-                  ? messages.settings.providers.visibility.statusHiddenOne
-                  : messages.settings.providers.visibility.statusHidden(hiddenProviderCount)
-                : isProviderOrderDirty
-                  ? messages.settings.providers.visibility.statusCustomOrder
-                  : messages.settings.providers.visibility.statusAllVisible
-            }
-            resetAction={
-              hiddenProviderCount > 0 || isProviderOrderDirty ? (
-                <SettingResetButton
-                  label={messages.settings.providers.visibility.resetLabel}
-                  onClick={() =>
-                    updateSettings({
-                      hiddenProviders: defaults.hiddenProviders,
-                      providerOrder: defaults.providerOrder,
-                    })
-                  }
-                />
-              ) : null
-            }
-          >
-            <DndContext
-              sensors={providerVisibilitySensors}
-              collisionDetection={closestCenter}
-              modifiers={[restrictToVerticalAxis]}
-              onDragEnd={handleProviderOrderDragEnd}
-            >
-              <SortableContext
-                items={orderedProviderVisibilityOptions.map((option) => option.provider)}
-                strategy={verticalListSortingStrategy}
-              >
-                <div className="mt-4 space-y-2">
-                  {orderedProviderVisibilityOptions.map((option) => (
-                    <SortableProviderVisibilityRow
-                      key={option.provider}
-                      option={option}
-                      isHidden={hiddenProviderSet.has(option.provider)}
-                      onHiddenChange={(hidden) =>
-                        updateSettings({
-                          hiddenProviders: setProviderHidden(
-                            settings.hiddenProviders,
-                            option.provider,
-                            hidden,
-                          ),
-                        })
-                      }
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-          </SettingsRow>
-        </div>
-      </SettingsSection>
       {renderProviderInstallsSection()}
     </div>
   );
