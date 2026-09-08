@@ -57,10 +57,6 @@ function cloneProviders(
   );
 }
 
-function toStringValue(value: unknown): string {
-  return typeof value === "string" ? value : value === undefined ? "" : String(value);
-}
-
 function toApiKind(value: string | undefined): ModelProviderApiKind | undefined {
   return API_KINDS.includes(value as ModelProviderApiKind)
     ? (value as ModelProviderApiKind)
@@ -94,7 +90,7 @@ export function ModelProvidersSettingsPanel() {
   }, [draft, providers]);
 
   const providerEntries = useMemo(
-    () => (draft ? Object.entries(draft).sort(([a], [b]) => a.localeCompare(b)) : []),
+    () => (draft ? Object.entries(draft).toSorted(([a], [b]) => a.localeCompare(b)) : []),
     [draft],
   );
 
@@ -355,10 +351,8 @@ export function ModelProvidersSettingsPanel() {
                     value={provider.name ?? ""}
                     spellCheck={false}
                     onChange={(event) => {
-                      const value = event.target.value;
-                      updateProvider(key, {
-                        ...(value.trim().length > 0 ? { name: value } : {}),
-                      });
+                      const name = event.target.value.trim();
+                      updateProvider(key, name.length > 0 ? { name } : {});
                     }}
                   />
                 </label>
@@ -399,10 +393,8 @@ export function ModelProvidersSettingsPanel() {
                   placeholder="https://api.example.com/v1"
                   spellCheck={false}
                   onChange={(event) => {
-                    const value = event.target.value;
-                    updateProvider(key, {
-                      ...(value.trim().length > 0 ? { baseUrl: value } : {}),
-                    });
+                    const baseUrl = event.target.value.trim();
+                    updateProvider(key, baseUrl.length > 0 ? { baseUrl } : {});
                   }}
                 />
               </label>
@@ -421,10 +413,8 @@ export function ModelProvidersSettingsPanel() {
                   )}
                   spellCheck={false}
                   onChange={(event) => {
-                    const value = event.target.value;
-                    updateProvider(key, {
-                      ...(value.length > 0 ? { apiKey: value } : {}),
-                    });
+                    const apiKey = event.target.value;
+                    updateProvider(key, apiKey.length > 0 ? { apiKey } : {});
                   }}
                 />
                 <span className="mt-1 block text-xs text-muted-foreground">
