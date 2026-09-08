@@ -13,8 +13,8 @@ import {
   writeProviderStatusCache,
 } from "./providerStatusCache";
 
-const readyCodexStatus = {
-  provider: "codex" as const,
+const readyPiStatus = {
+  provider: "pi" as const,
   status: "ready" as const,
   available: true,
   authStatus: "authenticated" as const,
@@ -31,19 +31,19 @@ describe("providerStatusCache", () => {
         });
         const cachePath = resolveProviderStatusCachePath({
           stateDir: tempDir,
-          provider: readyCodexStatus.provider,
+          provider: readyPiStatus.provider,
         });
 
         yield* writeProviderStatusCache({
           filePath: cachePath,
-          provider: readyCodexStatus,
+          provider: readyPiStatus,
         });
 
         return yield* readProviderStatusCache(cachePath);
       }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
     );
 
-    expect(result).toEqual(readyCodexStatus);
+    expect(result).toEqual(readyPiStatus);
   });
 
   it("ignores malformed cache files", async () => {
@@ -56,7 +56,7 @@ describe("providerStatusCache", () => {
         });
         const cachePath = resolveProviderStatusCachePath({
           stateDir: tempDir,
-          provider: readyCodexStatus.provider,
+          provider: readyPiStatus.provider,
         });
 
         yield* fileSystem.makeDirectory(path.dirname(cachePath), { recursive: true });
@@ -70,68 +70,27 @@ describe("providerStatusCache", () => {
   });
 
   it("keeps provider ordering stable for transport consumers", () => {
-    expect(
-      orderProviderStatuses([
-        {
-          provider: "gemini",
-          status: "ready",
-          available: true,
-          authStatus: "authenticated",
-          checkedAt: "2026-04-15T10:02:00.000Z",
-        },
-        {
-          provider: "claudeAgent",
-          status: "warning",
-          available: true,
-          authStatus: "unknown",
-          checkedAt: "2026-04-15T10:01:00.000Z",
-        },
-        {
-          provider: "cursor",
-          status: "ready",
-          available: true,
-          authStatus: "unknown",
-          checkedAt: "2026-04-15T10:03:00.000Z",
-        },
-        {
-          provider: "grok",
-          status: "ready",
-          available: true,
-          authStatus: "unknown",
-          checkedAt: "2026-04-15T10:04:00.000Z",
-        },
-        readyCodexStatus,
-      ]),
-    ).toEqual([
-      readyCodexStatus,
-      {
-        provider: "claudeAgent",
-        status: "warning",
-        available: true,
-        authStatus: "unknown",
-        checkedAt: "2026-04-15T10:01:00.000Z",
-      },
-      {
-        provider: "cursor",
-        status: "ready",
-        available: true,
-        authStatus: "unknown",
-        checkedAt: "2026-04-15T10:03:00.000Z",
-      },
-      {
-        provider: "gemini",
-        status: "ready",
-        available: true,
-        authStatus: "authenticated",
-        checkedAt: "2026-04-15T10:02:00.000Z",
-      },
-      {
-        provider: "grok",
-        status: "ready",
-        available: true,
-        authStatus: "unknown",
-        checkedAt: "2026-04-15T10:04:00.000Z",
-      },
+    const warningPiStatus = {
+      provider: "pi" as const,
+      status: "warning" as const,
+      available: true,
+      authStatus: "unknown" as const,
+      checkedAt: "2026-04-15T10:01:00.000Z",
+    };
+    const secondReadyPiStatus = {
+      provider: "pi" as const,
+      status: "ready" as const,
+      available: true,
+      authStatus: "authenticated" as const,
+      checkedAt: "2026-04-15T10:02:00.000Z",
+    };
+
+    // All entries share the same pi provider rank, so a stable sort preserves
+    // the input order for transport consumers.
+    expect(orderProviderStatuses([secondReadyPiStatus, warningPiStatus, readyPiStatus])).toEqual([
+      secondReadyPiStatus,
+      warningPiStatus,
+      readyPiStatus,
     ]);
   });
 });

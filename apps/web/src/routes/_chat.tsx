@@ -29,11 +29,6 @@ import { selectThreadTerminalState, useTerminalStateStore } from "../terminalSta
 import { useThreadSelectionStore } from "../threadSelectionStore";
 import { onServerMaintenanceUpdated } from "../wsNativeApi";
 import { useAppSettings } from "~/appSettings";
-import {
-  isProviderUsable,
-  normalizeProviderStatusForLocalConfig,
-  providerUnavailableReason,
-} from "~/lib/providerAvailability";
 import { toastManager } from "~/components/ui/toast";
 import { Sidebar, SidebarProvider, SidebarRail, useSidebar } from "~/components/ui/sidebar";
 
@@ -219,7 +214,6 @@ function ChatRouteGlobalShortcuts() {
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const keybindings = serverConfigQuery.data?.keybindings ?? EMPTY_KEYBINDINGS;
   const platform = typeof navigator === "undefined" ? "" : navigator.platform;
-  const providerStatuses = serverConfigQuery.data?.providers ?? [];
   const activeThreadTerminalState = useTerminalStateStore((state) =>
     activeContextThreadId
       ? selectThreadTerminalState(state.terminalStateByThreadId, activeContextThreadId)
@@ -342,59 +336,6 @@ function ChatRouteGlobalShortcuts() {
         return;
       }
 
-      if (
-        command === "chat.newClaude" ||
-        command === "chat.newCodex" ||
-        command === "chat.newCursor" ||
-        command === "chat.newGemini"
-      ) {
-        const provider =
-          command === "chat.newClaude"
-            ? "claudeAgent"
-            : command === "chat.newCodex"
-              ? "codex"
-              : command === "chat.newCursor"
-                ? "cursor"
-                : "gemini";
-        const normalizedStatus = normalizeProviderStatusForLocalConfig({
-          provider,
-          status: providerStatuses.find((entry) => entry.provider === provider) ?? null,
-          customBinaryPath:
-            provider === "codex"
-              ? appSettings.codexBinaryPath
-              : provider === "claudeAgent"
-                ? appSettings.claudeBinaryPath
-                : provider === "cursor"
-                  ? appSettings.cursorBinaryPath
-                  : appSettings.geminiBinaryPath,
-        });
-        if (!isProviderUsable(normalizedStatus)) {
-          event.preventDefault();
-          event.stopPropagation();
-          toastManager.add({
-            type: "error",
-            title: providerUnavailableReason(normalizedStatus),
-          });
-          return;
-        }
-        const projectId = activeProjectId ?? (allowProjectFallback ? projects[0]?.id : null);
-        if (!projectId) return;
-        event.preventDefault();
-        event.stopPropagation();
-        void handleNewThread(projectId, {
-          provider,
-          branch: activeThread?.branch ?? activeDraftThread?.branch ?? null,
-          worktreePath: activeThread?.worktreePath ?? activeDraftThread?.worktreePath ?? null,
-          envMode:
-            activeDraftThread?.envMode ??
-            resolveThreadEnvironmentMode({
-              envMode: activeThread?.envMode,
-              worktreePath: activeThread?.worktreePath ?? null,
-            }),
-        });
-        return;
-      }
-
       if (command !== "chat.new") return;
       if (!currentProjectId) return;
       event.preventDefault();
@@ -426,11 +367,6 @@ function ChatRouteGlobalShortcuts() {
     handleNewThread,
     keybindings,
     latestUsableProjectId,
-    appSettings.claudeBinaryPath,
-    appSettings.codexBinaryPath,
-    appSettings.cursorBinaryPath,
-    appSettings.geminiBinaryPath,
-    providerStatuses,
     projects,
     selectedThreadIdsSize,
     terminalOpen,

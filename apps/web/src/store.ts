@@ -1869,20 +1869,8 @@ function toLegacySessionStatus(
   }
 }
 
-function toLegacyProvider(providerName: string | null): ProviderKind {
-  if (
-    providerName === "codex" ||
-    providerName === "claudeAgent" ||
-    providerName === "cursor" ||
-    providerName === "gemini" ||
-    providerName === "grok" ||
-    providerName === "kilo" ||
-    providerName === "opencode" ||
-    providerName === "pi"
-  ) {
-    return providerName;
-  }
-  return "codex";
+function toLegacyProvider(_providerName: string | null): ProviderKind {
+  return "pi";
 }
 
 function attachmentPreviewRoutePath(attachmentId: string): string {

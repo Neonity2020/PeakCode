@@ -267,7 +267,7 @@ export default function BranchToolbar({
   const usageSummary = useProviderUsageSummary({
     provider: activeProvider,
     threads,
-    codexHomePath: settings.codexHomePath || null,
+    codexHomePath: settings.piAgentDir || null,
   });
   const [rateLimitsOpen, setRateLimitsOpen] = useState(true);
   const [envPickerOpen, setEnvPickerOpen] = useState(false);

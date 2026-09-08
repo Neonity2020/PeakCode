@@ -1,13 +1,5 @@
 import { Option, Schema, SchemaIssue, Struct } from "effect";
-import {
-  ClaudeModelOptions,
-  CodexModelOptions,
-  CursorModelOptions,
-  GeminiModelOptions,
-  GrokModelOptions,
-  OpenCodeModelOptions,
-  PiModelOptions,
-} from "./model";
+import { PiModelOptions } from "./model";
 import { ProviderMentionReference, ProviderSkillReference } from "./providerDiscovery";
 import { ProjectKind } from "./project";
 import {
@@ -47,16 +39,7 @@ export const ORCHESTRATION_WS_CHANNELS = {
   threadEvent: "orchestration.threadEvent",
 } as const;
 
-export const ProviderKind = Schema.Literals([
-  "codex",
-  "claudeAgent",
-  "cursor",
-  "gemini",
-  "grok",
-  "kilo",
-  "opencode",
-  "pi",
-]);
+export const ProviderKind = Schema.Literals(["pi"]);
 export type ProviderKind = typeof ProviderKind.Type;
 export const ProviderApprovalPolicy = Schema.Literals([
   "untrusted",
@@ -71,56 +54,7 @@ export const ProviderSandboxMode = Schema.Literals([
   "danger-full-access",
 ]);
 export type ProviderSandboxMode = typeof ProviderSandboxMode.Type;
-export const DEFAULT_PROVIDER_KIND: ProviderKind = "codex";
-
-export const CodexModelSelection = Schema.Struct({
-  provider: Schema.Literal("codex"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(CodexModelOptions),
-});
-export type CodexModelSelection = typeof CodexModelSelection.Type;
-
-export const ClaudeModelSelection = Schema.Struct({
-  provider: Schema.Literal("claudeAgent"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(ClaudeModelOptions),
-});
-export type ClaudeModelSelection = typeof ClaudeModelSelection.Type;
-
-export const CursorModelSelection = Schema.Struct({
-  provider: Schema.Literal("cursor"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(CursorModelOptions),
-});
-export type CursorModelSelection = typeof CursorModelSelection.Type;
-
-export const GeminiModelSelection = Schema.Struct({
-  provider: Schema.Literal("gemini"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(GeminiModelOptions),
-});
-export type GeminiModelSelection = typeof GeminiModelSelection.Type;
-
-export const GrokModelSelection = Schema.Struct({
-  provider: Schema.Literal("grok"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(GrokModelOptions),
-});
-export type GrokModelSelection = typeof GrokModelSelection.Type;
-
-export const OpenCodeModelSelection = Schema.Struct({
-  provider: Schema.Literal("opencode"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(OpenCodeModelOptions),
-});
-export type OpenCodeModelSelection = typeof OpenCodeModelSelection.Type;
-
-export const KiloModelSelection = Schema.Struct({
-  provider: Schema.Literal("kilo"),
-  model: TrimmedNonEmptyString,
-  options: Schema.optional(OpenCodeModelOptions),
-});
-export type KiloModelSelection = typeof KiloModelSelection.Type;
+export const DEFAULT_PROVIDER_KIND: ProviderKind = "pi";
 
 export const PiModelSelection = Schema.Struct({
   provider: Schema.Literal("pi"),
@@ -129,53 +63,8 @@ export const PiModelSelection = Schema.Struct({
 });
 export type PiModelSelection = typeof PiModelSelection.Type;
 
-export const ModelSelection = Schema.Union([
-  CodexModelSelection,
-  ClaudeModelSelection,
-  CursorModelSelection,
-  GeminiModelSelection,
-  GrokModelSelection,
-  KiloModelSelection,
-  OpenCodeModelSelection,
-  PiModelSelection,
-]);
+export const ModelSelection = PiModelSelection;
 export type ModelSelection = typeof ModelSelection.Type;
-
-export const CodexProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyString),
-  homePath: Schema.optional(TrimmedNonEmptyString),
-});
-
-export const ClaudeProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyString),
-  permissionMode: Schema.optional(TrimmedNonEmptyString),
-  maxThinkingTokens: Schema.optional(NonNegativeInt),
-});
-
-export const GeminiProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyString),
-});
-
-export const CursorProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyString),
-  apiEndpoint: Schema.optional(TrimmedNonEmptyString),
-});
-
-export const GrokProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyString),
-});
-
-export const OpenCodeProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyString),
-  serverUrl: Schema.optional(TrimmedNonEmptyString),
-  serverPassword: Schema.optional(TrimmedNonEmptyString),
-});
-
-export const KiloProviderStartOptions = Schema.Struct({
-  binaryPath: Schema.optional(TrimmedNonEmptyString),
-  serverUrl: Schema.optional(TrimmedNonEmptyString),
-  serverPassword: Schema.optional(TrimmedNonEmptyString),
-});
 
 export const PiProviderStartOptions = Schema.Struct({
   binaryPath: Schema.optional(TrimmedNonEmptyString),
@@ -183,13 +72,6 @@ export const PiProviderStartOptions = Schema.Struct({
 });
 
 export const ProviderStartOptions = Schema.Struct({
-  codex: Schema.optional(CodexProviderStartOptions),
-  claudeAgent: Schema.optional(ClaudeProviderStartOptions),
-  cursor: Schema.optional(CursorProviderStartOptions),
-  gemini: Schema.optional(GeminiProviderStartOptions),
-  grok: Schema.optional(GrokProviderStartOptions),
-  kilo: Schema.optional(KiloProviderStartOptions),
-  opencode: Schema.optional(OpenCodeProviderStartOptions),
   pi: Schema.optional(PiProviderStartOptions),
 });
 export type ProviderStartOptions = typeof ProviderStartOptions.Type;

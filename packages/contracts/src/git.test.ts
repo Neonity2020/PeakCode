@@ -73,26 +73,26 @@ describe("GitRunStackedActionInput", () => {
     expect(parsed.action).toBe("commit");
   });
 
-  it("accepts an optional codexHomePath for git text generation", () => {
+  it("accepts an optional textGenerationModel for git text generation", () => {
     const parsed = decodeRunStackedActionInput({
       actionId: "action-2",
       cwd: "/repo",
       action: "commit_push",
-      codexHomePath: "/tmp/custom-codex-home",
+      textGenerationModel: "pi-coding-agent",
     });
 
-    expect(parsed.codexHomePath).toBe("/tmp/custom-codex-home");
+    expect(parsed.textGenerationModel).toBe("pi-coding-agent");
   });
 });
 
 describe("GitSummarizeDiffInput", () => {
-  it("accepts an optional codexHomePath for diff summaries", () => {
+  it("accepts an optional textGenerationModel for diff summaries", () => {
     const parsed = decodeSummarizeDiffInput({
       cwd: "/repo",
       patch: "diff --git a/a b/a",
-      codexHomePath: "/tmp/custom-codex-home",
+      textGenerationModel: "pi-coding-agent",
     });
 
-    expect(parsed.codexHomePath).toBe("/tmp/custom-codex-home");
+    expect(parsed.textGenerationModel).toBe("pi-coding-agent");
   });
 });

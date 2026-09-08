@@ -14,52 +14,52 @@ import {
 } from "./providerModelOptions";
 
 describe("formatProviderModelOptionName", () => {
-  it("humanizes unknown OpenCode runtime model slugs using the model identifier", () => {
+  it("humanizes unknown pi runtime model slugs using the model identifier", () => {
     expect(
       formatProviderModelOptionName({
-        provider: "opencode",
+        provider: "pi",
         slug: "opencode-go/kimi-k2.6",
       }),
     ).toBe("Kimi K2.6");
   });
 
-  it("keeps known OpenCode-backed models on their shared display names", () => {
+  it("keeps known model slugs on their shared display names", () => {
     expect(
       formatProviderModelOptionName({
-        provider: "opencode",
+        provider: "pi",
         slug: "openai/gpt-5",
       }),
     ).toBe("GPT-5");
   });
 
-  it("leaves non-OpenCode unknown slugs unchanged", () => {
+  it("humanizes unknown pi slugs into readable labels", () => {
     expect(
       formatProviderModelOptionName({
-        provider: "codex",
+        provider: "pi",
         slug: "custom/internal-model",
       }),
-    ).toBe("custom/internal-model");
+    ).toBe("Internal Model");
   });
 });
 
 describe("buildProviderOptionPatch", () => {
-  it("maps generic Gemini thinking selections back to the provider-specific option shape", () => {
-    expect(buildProviderOptionPatch("gemini", "thinkingBudget", "512")).toEqual({
-      thinkingBudget: 512,
+  it("passes through option ids unchanged for pi", () => {
+    expect(buildProviderOptionPatch("pi", "thinkingBudget", "512")).toEqual({
+      thinkingBudget: "512",
     });
-    expect(buildProviderOptionPatch("gemini", "thinkingLevel", "HIGH")).toEqual({
+    expect(buildProviderOptionPatch("pi", "thinkingLevel", "HIGH")).toEqual({
       thinkingLevel: "HIGH",
     });
   });
 
   it("passes through non-Gemini option ids unchanged", () => {
-    expect(buildProviderOptionPatch("codex", "reasoningEffort", "xhigh")).toEqual({
+    expect(buildProviderOptionPatch("pi", "reasoningEffort", "xhigh")).toEqual({
       reasoningEffort: "xhigh",
     });
-    expect(buildProviderOptionPatch("grok", "reasoningEffort", "high")).toEqual({
+    expect(buildProviderOptionPatch("pi", "reasoningEffort", "high")).toEqual({
       reasoningEffort: "high",
     });
-    expect(buildProviderOptionPatch("cursor", "fastMode", true)).toEqual({ fastMode: true });
+    expect(buildProviderOptionPatch("pi", "fastMode", true)).toEqual({ fastMode: true });
   });
 });
 

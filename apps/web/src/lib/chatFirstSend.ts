@@ -70,8 +70,8 @@ export function resolveFirstSendTarget(input: {
       workspaceRoot: selectedWorkspaceRoot,
       title: buildProjectTitleFromWorkspaceRoot(selectedWorkspaceRoot),
       defaultModelSelection: {
-        provider: "codex",
-        model: DEFAULT_MODEL_BY_PROVIDER.codex,
+        provider: "pi",
+        model: "gpt-5.4-mini",
       },
     },
   };

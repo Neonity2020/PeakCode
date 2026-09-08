@@ -62,7 +62,7 @@ function createBaseServerConfig(): ServerConfig {
     issues: [],
     providers: [
       {
-        provider: "codex",
+        provider: "pi",
         status: "ready",
         available: true,
         authStatus: "authenticated",
@@ -83,7 +83,7 @@ function createSnapshot(overrides?: Partial<OrchestrationReadModel["threads"][nu
         title: "Project",
         workspaceRoot: "/repo/project",
         defaultModelSelection: {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5",
         },
         scripts: [],
@@ -98,7 +98,7 @@ function createSnapshot(overrides?: Partial<OrchestrationReadModel["threads"][nu
         projectId: PROJECT_ID,
         title: "Root test thread",
         modelSelection: {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5",
         },
         interactionMode: "default",

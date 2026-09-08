@@ -39,8 +39,8 @@ import { ProviderUnsupportedError } from "../src/provider/Errors.ts";
 import { ProviderAdapterRegistry } from "../src/provider/Services/ProviderAdapterRegistry.ts";
 import { ProviderSessionDirectoryLive } from "../src/provider/Layers/ProviderSessionDirectory.ts";
 import { makeProviderServiceLive } from "../src/provider/Layers/ProviderService.ts";
-import { makeCodexAdapterLive } from "../src/provider/Layers/CodexAdapter.ts";
-import { CodexAdapter } from "../src/provider/Services/CodexAdapter.ts";
+import { makePiAdapterLive } from "../src/provider/Layers/PiAdapter.ts";
+import { PiAdapter } from "../src/provider/Services/PiAdapter.ts";
 import { ProviderService } from "../src/provider/Services/ProviderService.ts";
 import { AnalyticsService } from "../src/telemetry/Services/AnalyticsService.ts";
 import { ServerSettingsService } from "../src/serverSettings.ts";
@@ -210,7 +210,7 @@ export interface OrchestrationIntegrationHarness {
 
 interface MakeOrchestrationIntegrationHarnessOptions {
   readonly provider?: ProviderKind;
-  readonly realCodex?: boolean;
+  readonly realProvider?: boolean;
 }
 
 export const makeOrchestrationIntegrationHarness = (
@@ -220,9 +220,9 @@ export const makeOrchestrationIntegrationHarness = (
     const path = yield* Path.Path;
     const fileSystem = yield* FileSystem.FileSystem;
 
-    const provider = options?.provider ?? "codex";
-    const useRealCodex = options?.realCodex === true;
-    const adapterHarness = useRealCodex
+    const provider = options?.provider ?? "pi";
+    const useRealProvider = options?.realProvider === true;
+    const adapterHarness = useRealProvider
       ? null
       : yield* makeTestProviderAdapterHarness({
           provider,
@@ -257,28 +257,28 @@ export const makeOrchestrationIntegrationHarness = (
     const providerSessionDirectoryLayer = ProviderSessionDirectoryLive.pipe(
       Layer.provide(ProviderSessionRuntimeRepositoryLive),
     );
-    const realCodexRegistry = Layer.effect(
+    const realPiRegistry = Layer.effect(
       ProviderAdapterRegistry,
       Effect.gen(function* () {
-        const codexAdapter = yield* CodexAdapter;
+        const piAdapter = yield* PiAdapter;
         return {
           getByProvider: (resolvedProvider) =>
-            resolvedProvider === "codex"
-              ? Effect.succeed(codexAdapter)
+            resolvedProvider === "pi"
+              ? Effect.succeed(piAdapter)
               : Effect.fail(new ProviderUnsupportedError({ provider: resolvedProvider })),
-          listProviders: () => Effect.succeed(["codex"] as const),
+          listProviders: () => Effect.succeed(["pi"] as const),
         } as typeof ProviderAdapterRegistry.Service;
       }),
     ).pipe(
-      Layer.provide(makeCodexAdapterLive()),
+      Layer.provide(makePiAdapterLive()),
       Layer.provideMerge(ServerConfig.layerTest(workspaceDir, rootDir)),
       Layer.provideMerge(NodeServices.layer),
       Layer.provideMerge(providerSessionDirectoryLayer),
     );
-    const providerLayer = useRealCodex
+    const providerLayer = useRealProvider
       ? makeProviderServiceLive().pipe(
           Layer.provide(providerSessionDirectoryLayer),
-          Layer.provide(realCodexRegistry),
+          Layer.provide(realPiRegistry),
           Layer.provide(AnalyticsService.layerTest),
         )
       : makeProviderServiceLive().pipe(

@@ -20,7 +20,7 @@ import {
   type RuntimeMode,
   TurnId,
 } from "@peakcode/contracts";
-import { Cache, Cause, Duration, Effect, Equal, Layer, Option, Schema, Stream } from "effect";
+import { Cache, Cause, Duration, Effect, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@peakcode/shared/DrainableWorker";
 import {
   buildPromptThreadTitleFallback,
@@ -50,7 +50,6 @@ import { ProviderService } from "../../provider/Services/ProviderService.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { clearWorkspaceIndexCache } from "../../workspaceEntries.ts";
 import {
-  buildPriorTranscriptBootstrapText,
   buildForkBootstrapText,
   buildHandoffBootstrapText,
   hasNativeAssistantMessagesBefore,
@@ -162,7 +161,7 @@ function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServic
   return Cause.pretty(cause).toLowerCase().includes("unknown pending user-input request");
 }
 
-function isStaleCodexResumeError(error: unknown): boolean {
+function isStaleResumeError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
   return (
@@ -216,9 +215,10 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 }
 
 function hasDedicatedTextGenerationProvider(provider: ProviderKind | undefined): boolean {
-  return (
-    provider === "codex" || provider === "cursor" || provider === "kilo" || provider === "opencode"
-  );
+  // Pi is the only provider and does not have a dedicated text-generation
+  // provider; the generic provider-start path handles text generation.
+  void provider;
+  return false;
 }
 
 const make = Effect.gen(function* () {
@@ -281,16 +281,6 @@ const make = Effect.gen(function* () {
   ) => {
     if (!hasDedicatedTextGenerationProvider(modelSelection?.provider)) {
       return null;
-    }
-
-    if (modelSelection?.provider === "codex") {
-      return {
-        modelSelection,
-        ...(providerOptions ? { providerOptions } : {}),
-        ...(providerOptions?.codex?.homePath
-          ? { codexHomePath: providerOptions.codex.homePath }
-          : {}),
-      } as const;
     }
 
     return {
@@ -556,7 +546,7 @@ const make = Effect.gen(function* () {
       if (rollbackError === null) {
         return;
       }
-      if (isStaleCodexResumeError(rollbackError)) {
+      if (isStaleResumeError(rollbackError)) {
         yield* clearStaleProviderResumeState({
           threadId: input.threadId,
           cause: rollbackError,
@@ -737,11 +727,8 @@ const make = Effect.gen(function* () {
         requestedModelSelection !== undefined &&
         requestedModelSelection.model !== activeSession?.model;
       const shouldRestartForModelChange = modelChanged && sessionModelSwitch === "restart-session";
-      const previousModelSelection = threadModelSelections.get(threadId);
-      const shouldRestartForModelSelectionChange =
-        (currentProvider === "claudeAgent" || currentProvider === "grok") &&
-        requestedModelSelection !== undefined &&
-        !Equal.equals(previousModelSelection, requestedModelSelection);
+      // Pi handles model-selection changes in-session; no restart is required.
+      const shouldRestartForModelSelectionChange = false;
 
       if (
         !runtimeModeChanged &&
@@ -842,11 +829,6 @@ const make = Effect.gen(function* () {
     if (!thread) {
       return;
     }
-    const activeSessionBeforeEnsure = yield* providerService
-      .listSessions()
-      .pipe(
-        Effect.map((sessions) => sessions.find((session) => session.threadId === input.threadId)),
-      );
     yield* ensureSessionForThread(input.threadId, input.createdAt, {
       ...(input.modelSelection !== undefined ? { modelSelection: input.modelSelection } : {}),
       ...(input.providerOptions !== undefined ? { providerOptions: input.providerOptions } : {}),
@@ -879,20 +861,7 @@ const make = Effect.gen(function* () {
       shouldBootstrapSidechatContext && availableBootstrapChars > 0
         ? buildForkBootstrapText(thread, availableBootstrapChars)
         : null;
-    const selectedProvider =
-      input.modelSelection?.provider ??
-      threadModelSelections.get(input.threadId)?.provider ??
-      thread.session?.providerName ??
-      thread.modelSelection.provider;
-    const shouldBootstrapPriorTranscriptContext =
-      (selectedProvider === "kilo" || selectedProvider === "opencode") &&
-      activeSessionBeforeEnsure === undefined &&
-      !handoffBootstrapText &&
-      !sidechatBootstrapText;
-    const priorTranscriptBootstrapText =
-      shouldBootstrapPriorTranscriptContext && availableBootstrapChars > 0
-        ? buildPriorTranscriptBootstrapText(thread, input.messageId, availableBootstrapChars)
-        : null;
+    // Pi does not bootstrap prior-session transcript context.
     const boundaryMessageText = thread.sidechatSourceThreadId
       ? wrapSidechatInput(input.messageText)
       : input.messageText;
@@ -900,9 +869,7 @@ const make = Effect.gen(function* () {
       ? `<handoff_context>\n${handoffBootstrapText}\n</handoff_context>\n\n<latest_user_message>\n${boundaryMessageText}\n</latest_user_message>`
       : sidechatBootstrapText
         ? `<sidechat_context>\n${sidechatBootstrapText}\n</sidechat_context>\n\n${boundaryMessageText}`
-        : priorTranscriptBootstrapText
-          ? `<thread_context>\n${priorTranscriptBootstrapText}\n</thread_context>\n\n<latest_user_message>\n${boundaryMessageText}\n</latest_user_message>`
-          : boundaryMessageText;
+        : boundaryMessageText;
     const normalizedInput = toNonEmptyProviderInput(providerInput);
     const normalizedAttachments = input.attachments ?? [];
     const activeSession = yield* providerService
@@ -1301,10 +1268,7 @@ const make = Effect.gen(function* () {
         : {}),
     }).pipe(Effect.forkScoped);
     const immediateDispatchMode =
-      event.payload.dispatchMode === "steer" &&
-      (thread.session?.providerName ?? thread.modelSelection.provider) !== "codex"
-        ? "queue"
-        : event.payload.dispatchMode;
+      event.payload.dispatchMode === "steer" ? "queue" : event.payload.dispatchMode;
     const editResendKey = editResendTurnStartKey(event.payload.threadId, event.payload.messageId);
     const isEditResendTurn = editResendTurnStartKeys.has(editResendKey);
 

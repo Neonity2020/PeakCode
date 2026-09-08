@@ -2,15 +2,13 @@
 // Purpose: Resolves local image preview/download requests without exposing arbitrary files.
 // Layer: Server HTTP utility
 // Exports: local image route constants and allowlisted path resolver
-// Depends on: fs realpath/stat, Codex generated image roots, safe image extensions
+// Depends on: fs realpath/stat, safe image extensions
 
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
 import { LOCAL_IMAGE_ROUTE_PATH, isSupportedLocalImagePath } from "@peakcode/shared/localImage";
-
-import { resolveCodexGeneratedImagesRoots } from "./codexGeneratedImages.ts";
 
 export { LOCAL_IMAGE_ROUTE_PATH };
 
@@ -80,7 +78,6 @@ async function resolveWorkspaceRoot(cwd: string | null): Promise<string | null> 
 export async function resolveAllowedLocalImageFile(input: {
   readonly requestedPath: string | null;
   readonly cwd: string | null;
-  readonly codexHomePath?: string;
 }): Promise<ResolvedLocalImageFile | null> {
   const requestedPath = input.requestedPath?.trim();
   if (!requestedPath || requestedPath.includes("\0") || !isSupportedLocalImagePath(requestedPath)) {
@@ -100,16 +97,12 @@ export async function resolveAllowedLocalImageFile(input: {
     return null;
   }
 
-  const [workspaceRoot, generatedImagesRoots, tempRoots] = await Promise.all([
+  const [workspaceRoot, tempRoots] = await Promise.all([
     resolveWorkspaceRoot(input.cwd),
-    Promise.all(resolveCodexGeneratedImagesRoots(input.codexHomePath).map(realpathOrNull)).then(
-      (roots) => roots.filter((root): root is string => root !== null),
-    ),
     temporaryImageRoots(),
   ]);
   const allowed =
     (workspaceRoot !== null && isPathInside(realImagePath, workspaceRoot)) ||
-    generatedImagesRoots.some((root) => isPathInside(realImagePath, root)) ||
     tempRoots.some((root) => isPathInside(realImagePath, root));
   if (!allowed) {
     return null;

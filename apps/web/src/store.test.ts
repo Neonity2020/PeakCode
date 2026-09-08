@@ -37,7 +37,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     projectId: ProjectId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
-      provider: "codex",
+      provider: "pi",
       model: "gpt-5-codex",
     },
     runtimeMode: DEFAULT_RUNTIME_MODE,
@@ -129,7 +129,7 @@ function makeProject(
     localName: null,
     cwd: "/tmp/project",
     defaultModelSelection: {
-      provider: "codex",
+      provider: "pi",
       model: "gpt-5-codex",
     },
     expanded: true,
@@ -144,7 +144,7 @@ function makeReadModelThread(overrides: Partial<OrchestrationReadModel["threads"
     projectId: ProjectId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
-      provider: "codex",
+      provider: "pi",
       model: "gpt-5.3-codex",
     },
     runtimeMode: DEFAULT_RUNTIME_MODE,
@@ -179,7 +179,7 @@ function makeReadModel(thread: OrchestrationReadModel["threads"][number]): Orche
         title: "Project",
         workspaceRoot: "/tmp/project",
         defaultModelSelection: {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5.3-codex",
         },
         createdAt: "2026-02-27T00:00:00.000Z",
@@ -201,7 +201,7 @@ function makeReadModelProject(
     title: "Project",
     workspaceRoot: "/tmp/project",
     defaultModelSelection: {
-      provider: "codex",
+      provider: "pi",
       model: "gpt-5.3-codex",
     },
     createdAt: "2026-02-27T00:00:00.000Z",
@@ -430,7 +430,7 @@ describe("store pure functions", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "error",
-          providerName: "codex",
+          providerName: "pi",
           runtimeMode: "full-access",
           activeTurnId: null,
           lastError: "provider crashed",
@@ -463,7 +463,7 @@ describe("store pure functions", () => {
             title: "Live Project",
             workspaceRoot: "/tmp/live-project",
             defaultModelSelection: {
-              provider: "codex",
+              provider: "pi",
               model: "gpt-5-codex",
             },
             scripts: [],
@@ -717,7 +717,7 @@ describe("store pure functions", () => {
         projectId: ProjectId.makeUnsafe("project-1"),
         title: "Thread",
         modelSelection: {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5.3-codex",
         },
         runtimeMode: DEFAULT_RUNTIME_MODE,
@@ -752,7 +752,7 @@ describe("store pure functions", () => {
     const initialState = makeState(
       makeThread({
         session: {
-          provider: "codex",
+          provider: "pi",
           status: "running",
           orchestrationStatus: "running",
           activeTurnId: TurnId.makeUnsafe("turn-running"),
@@ -963,7 +963,7 @@ describe("store pure functions", () => {
         associatedWorktreeBranch: "peakcode/tmp-working",
         associatedWorktreeRef: "peakcode/tmp-working",
         session: {
-          provider: "codex",
+          provider: "pi",
           status: "ready",
           orchestrationStatus: "ready",
           createdAt: "2026-02-27T00:00:00.000Z",
@@ -1609,7 +1609,7 @@ describe("store read model sync", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "error",
-          providerName: "codex",
+          providerName: "pi",
           runtimeMode: "full-access",
           activeTurnId: null,
           lastError:
@@ -1658,12 +1658,12 @@ describe("store read model sync", () => {
     expect(next.threads[0]?.pendingSourceProposedPlan).toBeUndefined();
   });
 
-  it("preserves claude model slugs without an active session", () => {
+  it("preserves exact pi model slugs from the read model without an active session", () => {
     const initialState = makeState(makeThread());
     const readModel = makeReadModel(
       makeReadModelThread({
         modelSelection: {
-          provider: "claudeAgent",
+          provider: "pi",
           model: "claude-opus-4-6",
         },
       }),
@@ -1674,18 +1674,18 @@ describe("store read model sync", () => {
     expect(next.threads[0]?.modelSelection.model).toBe("claude-opus-4-6");
   });
 
-  it("resolves claude aliases when session provider is claudeAgent", () => {
+  it("preserves pi model slugs verbatim when the session provider is pi", () => {
     const initialState = makeState(makeThread());
     const readModel = makeReadModel(
       makeReadModelThread({
         modelSelection: {
-          provider: "claudeAgent",
+          provider: "pi",
           model: "sonnet",
         },
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
-          providerName: "claudeAgent",
+          providerName: "pi",
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
@@ -1696,33 +1696,7 @@ describe("store read model sync", () => {
 
     const next = syncServerReadModel(initialState, readModel);
 
-    expect(next.threads[0]?.modelSelection.model).toBe("claude-sonnet-4-6");
-  });
-
-  it("preserves OpenCode as the active session provider", () => {
-    const initialState = makeState(makeThread());
-    const readModel = makeReadModel(
-      makeReadModelThread({
-        modelSelection: {
-          provider: "opencode",
-          model: "openrouter/gpt-oss-120b:free",
-        },
-        session: {
-          threadId: ThreadId.makeUnsafe("thread-1"),
-          status: "ready",
-          providerName: "opencode",
-          runtimeMode: "approval-required",
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: "2026-02-27T00:00:00.000Z",
-        },
-      }),
-    );
-
-    const next = syncServerReadModel(initialState, readModel);
-
-    expect(next.threads[0]?.modelSelection.provider).toBe("opencode");
-    expect(next.threads[0]?.session?.provider).toBe("opencode");
+    expect(next.threads[0]?.modelSelection.model).toBe("sonnet");
   });
 
   it("preserves Pi as the active session provider", () => {
@@ -1751,30 +1725,14 @@ describe("store read model sync", () => {
     expect(next.threads[0]?.session?.provider).toBe("pi");
   });
 
-  it("preserves exact OpenCode thread model slugs from the read model", () => {
-    const initialState = makeState(makeThread());
-    const readModel = makeReadModel(
-      makeReadModelThread({
-        modelSelection: {
-          provider: "opencode",
-          model: "openai/gpt-5.4",
-        },
-      }),
-    );
-
-    const next = syncServerReadModel(initialState, readModel);
-
-    expect(next.threads[0]?.modelSelection.model).toBe("openai/gpt-5.4");
-  });
-
-  it("preserves exact OpenCode project default model slugs from the read model", () => {
+  it("preserves exact pi project default model slugs from the read model", () => {
     const initialState = makeState(makeThread());
     const readModel = {
       ...makeReadModel(makeReadModelThread({})),
       projects: [
         makeReadModelProject({
           defaultModelSelection: {
-            provider: "opencode",
+            provider: "pi",
             model: "openai/gpt-5.4",
           },
         }),
@@ -1808,11 +1766,11 @@ describe("store read model sync", () => {
       makeThread({
         id: threadId,
         modelSelection: {
-          provider: "claudeAgent",
+          provider: "pi",
           model: "claude-opus-4-7",
         },
         session: {
-          provider: "claudeAgent",
+          provider: "pi",
           status: "running",
           orchestrationStatus: "running",
           activeTurnId: turnId,
@@ -1854,7 +1812,7 @@ describe("store read model sync", () => {
       makeReadModelThread({
         id: threadId,
         modelSelection: {
-          provider: "claudeAgent",
+          provider: "pi",
           model: "claude-opus-4-7",
         },
         latestTurn: {
@@ -1882,7 +1840,7 @@ describe("store read model sync", () => {
         session: {
           threadId,
           status: "running",
-          providerName: "claudeAgent",
+          providerName: "pi",
           runtimeMode: "full-access",
           activeTurnId: turnId,
           lastError: null,
@@ -1910,11 +1868,11 @@ describe("store read model sync", () => {
       makeThread({
         id: threadId,
         modelSelection: {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5-codex",
         },
         session: {
-          provider: "codex",
+          provider: "pi",
           status: "running",
           orchestrationStatus: "running",
           activeTurnId: turnId,
@@ -1957,7 +1915,7 @@ describe("store read model sync", () => {
       makeReadModelThread({
         id: threadId,
         modelSelection: {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5-codex",
         },
         latestTurn: {
@@ -1996,7 +1954,7 @@ describe("store read model sync", () => {
         session: {
           threadId,
           status: "ready",
-          providerName: "codex",
+          providerName: "pi",
           runtimeMode: "full-access",
           activeTurnId: null,
           lastError: null,
@@ -2595,7 +2553,7 @@ describe("store read model sync", () => {
           session: {
             threadId,
             status: "running",
-            providerName: "codex",
+            providerName: "pi",
             runtimeMode: "full-access",
             activeTurnId: turnId,
             lastError: null,
@@ -2912,7 +2870,7 @@ describe("store read model sync", () => {
       projects: [
         makeReadModelProject({
           defaultModelSelection: {
-            provider: "codex",
+            provider: "pi",
             model: "gpt-5-codex",
           },
           updatedAt: "2026-02-27T00:00:00.000Z",
@@ -2921,7 +2879,7 @@ describe("store read model sync", () => {
       threads: [
         makeReadModelThread({
           modelSelection: {
-            provider: "codex",
+            provider: "pi",
             model: "gpt-5-codex",
           },
           createdAt: "2026-02-13T00:00:00.000Z",

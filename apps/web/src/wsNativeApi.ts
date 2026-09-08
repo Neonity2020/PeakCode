@@ -10,9 +10,6 @@ import {
   type AuthRevokePairingLinkInput,
   type AuthSessionState,
   type AuthWebSocketTokenResult,
-  type GatewayConfigPatch,
-  type GatewaySetApiKeyInput,
-  type GatewayRemoveApiKeyInput,
   type ThreadId,
   type ThreadBrowserState,
   type GitActionProgressEvent,
@@ -799,17 +796,6 @@ export function createWsNativeApi(): NativeApi {
           fallbackBrowserStateListeners.delete(callback);
         };
       },
-    },
-    gateway: {
-      getConfig: () => transport.request(WS_METHODS.gatewayGetConfig, {}),
-      updateConfig: (input) => transport.request(WS_METHODS.gatewayUpdateConfig, input),
-      getSecretStatus: () => transport.request(WS_METHODS.gatewayGetSecretStatus, {}),
-      setApiKey: (input) => transport.request(WS_METHODS.gatewaySetApiKey, input),
-      removeApiKey: (input) => transport.request(WS_METHODS.gatewayRemoveApiKey, input),
-    },
-    agent: {
-      installConfig: (input) => transport.request(WS_METHODS.agentInstallConfig, input),
-      getConfigStatus: () => transport.request(WS_METHODS.agentGetConfigStatus, {}),
     },
     automation: {
       list: (input) => transport.request(WS_METHODS.automationList, input),

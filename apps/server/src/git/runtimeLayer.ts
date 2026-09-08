@@ -4,21 +4,9 @@ import { GitCoreLive } from "./Layers/GitCore";
 import { GitHubCliLive } from "./Layers/GitHubCli";
 import { GitManagerLive } from "./Layers/GitManager";
 import { GitStatusBroadcasterLive } from "./Layers/GitStatusBroadcaster";
-import { CodexTextGenerationServiceLive } from "./Layers/CodexTextGeneration";
-import { CursorTextGenerationServiceLive } from "./Layers/CursorTextGeneration";
-import {
-  KiloTextGenerationServiceLive,
-  OpenCodeTextGenerationServiceLive,
-} from "./Layers/OpenCodeTextGeneration";
-import { ProviderTextGenerationLive } from "./Layers/ProviderTextGeneration";
-import { OpenCodeRuntimeLive } from "../provider/opencodeRuntime";
+import { PiTextGenerationLive } from "./Layers/PiTextGeneration";
 
-export const TextGenerationLayerLive = ProviderTextGenerationLive.pipe(
-  Layer.provide(CodexTextGenerationServiceLive),
-  Layer.provide(CursorTextGenerationServiceLive),
-  Layer.provide(KiloTextGenerationServiceLive.pipe(Layer.provide(OpenCodeRuntimeLive))),
-  Layer.provide(OpenCodeTextGenerationServiceLive.pipe(Layer.provide(OpenCodeRuntimeLive))),
-);
+export const TextGenerationLayerLive = PiTextGenerationLive;
 
 export const GitManagerLayerLive = GitManagerLive.pipe(
   Layer.provideMerge(GitCoreLive),

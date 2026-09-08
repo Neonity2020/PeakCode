@@ -11,7 +11,7 @@ describe("openUsageRateLimits", () => {
   it("normalizes OpenUsage progress lines into shared provider rate limits", () => {
     expect(
       normalizeOpenUsageSnapshot({
-        providerId: "codex",
+        providerId: "pi",
         fetchedAt: "2099-04-08T18:00:00.000Z",
         lines: [
           {
@@ -33,7 +33,7 @@ describe("openUsageRateLimits", () => {
         ],
       }),
     ).toEqual({
-      provider: "codex",
+      provider: "pi",
       updatedAt: "2099-04-08T18:00:00.000Z",
       limits: [
         {
@@ -57,7 +57,7 @@ describe("openUsageRateLimits", () => {
       mergeProviderRateLimits(
         [
           {
-            provider: "codex",
+            provider: "pi",
             updatedAt: "2099-04-08T18:05:00.000Z",
             limits: [
               {
@@ -71,7 +71,7 @@ describe("openUsageRateLimits", () => {
         ],
         [
           {
-            provider: "codex",
+            provider: "pi",
             updatedAt: "2099-04-08T18:00:00.000Z",
             limits: [
               {
@@ -86,7 +86,7 @@ describe("openUsageRateLimits", () => {
       ),
     ).toEqual([
       {
-        provider: "codex",
+        provider: "pi",
         updatedAt: "2099-04-08T18:05:00.000Z",
         limits: [
           {
@@ -109,7 +109,7 @@ describe("openUsageRateLimits", () => {
   it("preserves OpenUsage text lines for daily token usage summaries", () => {
     expect(
       normalizeOpenUsageUsageLines({
-        providerId: "codex",
+        providerId: "pi",
         fetchedAt: "2099-04-08T18:00:00.000Z",
         lines: [
           {
@@ -144,16 +144,16 @@ describe("openUsageRateLimits", () => {
     ]);
   });
 
-  it("maps Gemini provider ids in both directions", () => {
-    expect(openUsageProviderIdForProvider("gemini")).toBe("gemini");
+  it("maps Pi provider ids in both directions", () => {
+    expect(openUsageProviderIdForProvider("pi")).toBe("pi");
     expect(
       normalizeOpenUsageSnapshot({
-        providerId: "gemini",
+        providerId: "pi",
         fetchedAt: "2099-04-08T18:00:00.000Z",
         lines: [{ type: "progress", label: "Daily", used: 5, limit: 10 }],
       }),
     ).toEqual({
-      provider: "gemini",
+      provider: "pi",
       updatedAt: "2099-04-08T18:00:00.000Z",
       limits: [{ window: "Daily", usedPercent: 50 }],
     });

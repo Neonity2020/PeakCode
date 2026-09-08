@@ -7,27 +7,27 @@ import {
   type PackageManagedProviderMaintenanceDefinition,
 } from "./providerMaintenance";
 
-const CODEX_DEFINITION = {
-  provider: "codex",
-  binaryName: "codex",
-  npmPackageName: "@openai/codex",
-  homebrew: { name: "codex", kind: "cask" },
+const PI_DEFINITION = {
+  provider: "pi",
+  binaryName: "pi",
+  npmPackageName: "@earendil-works/pi-coding-agent",
+  homebrew: { name: "pi", kind: "cask" },
   nativeUpdate: null,
 } as const satisfies PackageManagedProviderMaintenanceDefinition;
 
-const OPENCODE_DEFINITION = {
-  provider: "opencode",
-  binaryName: "opencode",
-  npmPackageName: "opencode-ai",
-  homebrew: { name: "anomalyco/tap/opencode", kind: "formula" },
-  latestVersionSource: { kind: "npm", name: "opencode-ai" },
+const PI_NATIVE_DEFINITION = {
+  provider: "pi",
+  binaryName: "pi",
+  npmPackageName: "@earendil-works/pi-coding-agent",
+  homebrew: { name: "pi", kind: "formula" },
+  latestVersionSource: { kind: "npm", name: "@earendil-works/pi-coding-agent" },
   nativeUpdate: {
-    executable: "opencode",
+    executable: "pi",
     args: (installSource) =>
       installSource === "unknown" || installSource === "native"
-        ? ["upgrade"]
-        : ["upgrade", "--method", installSource],
-    lockKey: "opencode-native",
+        ? ["update"]
+        : ["update", "--method", installSource],
+    lockKey: "pi-native",
     strategy: "always",
     excludedInstallSources: ["homebrew"],
   },
@@ -35,84 +35,85 @@ const OPENCODE_DEFINITION = {
 
 describe("providerMaintenance", () => {
   it("parses generic CLI versions", () => {
-    assert.strictEqual(parseGenericCliVersion("codex-cli 0.130.0\n"), "0.130.0");
-    assert.strictEqual(parseGenericCliVersion("claude 2.1\n"), "2.1.0");
+    assert.strictEqual(parseGenericCliVersion("pi-cli 0.130.0\n"), "0.130.0");
+    assert.strictEqual(parseGenericCliVersion("pi 2.1\n"), "2.1.0");
     assert.strictEqual(parseGenericCliVersion("no version here"), null);
   });
 
   it("resolves npm global update commands for unqualified binaries", () => {
-    const capabilities = resolvePackageManagedProviderMaintenance(CODEX_DEFINITION, {
-      binaryPath: "codex",
-      realCommandPath: "/Users/test/.npm-global/lib/node_modules/@openai/codex/bin/codex",
+    const capabilities = resolvePackageManagedProviderMaintenance(PI_DEFINITION, {
+      binaryPath: "pi",
+      realCommandPath:
+        "/Users/test/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/bin/pi",
     });
 
     assert.deepStrictEqual(capabilities.update, {
-      command: "npm install -g @openai/codex@latest",
+      command: "npm install -g @earendil-works/pi-coding-agent@latest",
       executable: "npm",
-      args: ["install", "-g", "@openai/codex@latest"],
+      args: ["install", "-g", "@earendil-works/pi-coding-agent@latest"],
       lockKey: "npm-global",
     });
   });
 
   it("does not guess an update command for unclassified binaries", () => {
-    const capabilities = resolvePackageManagedProviderMaintenance(CODEX_DEFINITION, {
-      binaryPath: "/custom/bin/codex",
-      realCommandPath: "/custom/bin/codex",
+    const capabilities = resolvePackageManagedProviderMaintenance(PI_DEFINITION, {
+      binaryPath: "/custom/bin/pi",
+      realCommandPath: "/custom/bin/pi",
     });
 
     assert.strictEqual(capabilities.update, null);
   });
 
   it("resolves Homebrew cask update commands", () => {
-    const capabilities = resolvePackageManagedProviderMaintenance(CODEX_DEFINITION, {
-      binaryPath: "/opt/homebrew/bin/codex",
-      realCommandPath: "/opt/homebrew/Caskroom/codex/0.130.0/codex",
+    const capabilities = resolvePackageManagedProviderMaintenance(PI_DEFINITION, {
+      binaryPath: "/opt/homebrew/bin/pi",
+      realCommandPath: "/opt/homebrew/Caskroom/pi/0.130.0/pi",
     });
 
     assert.deepStrictEqual(capabilities.update, {
-      command: "brew upgrade --cask codex",
+      command: "brew upgrade --cask pi",
       executable: "brew",
-      args: ["upgrade", "--cask", "codex"],
+      args: ["upgrade", "--cask", "pi"],
       lockKey: "homebrew",
     });
     assert.strictEqual(capabilities.packageName, null);
   });
 
   it("uses provider-native update commands with detected install method", () => {
-    const capabilities = resolvePackageManagedProviderMaintenance(OPENCODE_DEFINITION, {
-      binaryPath: "opencode",
-      realCommandPath: "/Users/test/.local/share/pnpm/opencode",
+    const capabilities = resolvePackageManagedProviderMaintenance(PI_NATIVE_DEFINITION, {
+      binaryPath: "pi",
+      realCommandPath: "/Users/test/.local/share/pnpm/pi",
     });
 
     assert.deepStrictEqual(capabilities.update, {
-      command: "opencode upgrade --method pnpm",
-      executable: "opencode",
-      args: ["upgrade", "--method", "pnpm"],
-      lockKey: "opencode-native",
+      command: "pi update --method pnpm",
+      executable: "pi",
+      args: ["update", "--method", "pnpm"],
+      lockKey: "pi-native",
     });
   });
 
-  it("uses Homebrew directly for tapped OpenCode installs", () => {
-    const capabilities = resolvePackageManagedProviderMaintenance(OPENCODE_DEFINITION, {
-      binaryPath: "opencode",
-      realCommandPath: "/opt/homebrew/Cellar/opencode/1.14.46/bin/opencode",
+  it("uses Homebrew directly for tapped installs", () => {
+    const capabilities = resolvePackageManagedProviderMaintenance(PI_NATIVE_DEFINITION, {
+      binaryPath: "pi",
+      realCommandPath: "/opt/homebrew/Cellar/pi/1.14.46/bin/pi",
     });
 
     assert.deepStrictEqual(capabilities.update, {
-      command: "brew upgrade anomalyco/tap/opencode",
+      command: "brew upgrade pi",
       executable: "brew",
-      args: ["upgrade", "anomalyco/tap/opencode"],
+      args: ["upgrade", "pi"],
       lockKey: "homebrew",
     });
     assert.deepStrictEqual(capabilities.latestVersionSource, {
       kind: "npm",
-      name: "opencode-ai",
+      name: "@earendil-works/pi-coding-agent",
     });
   });
 
   it("marks older semver versions as behind latest", () => {
     const advisory = createProviderVersionAdvisory({
-      provider: "codex",
+      provider: "pi",
       currentVersion: "0.129.0",
       latestVersion: "0.130.0",
     });

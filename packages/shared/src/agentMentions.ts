@@ -1,9 +1,4 @@
-import {
-  resolveAgentAlias,
-  type ClaudeSubagentAliasDefinition,
-  type ProviderKind,
-  type ResolvedAgentAlias,
-} from "@peakcode/contracts";
+import { resolveAgentAlias, type ProviderKind, type ResolvedAgentAlias } from "@peakcode/contracts";
 
 export interface ParsedAgentMentionInvocation {
   readonly alias: string;
@@ -98,51 +93,4 @@ export function parseAgentMentionInvocations(
   }
 
   return invocations;
-}
-
-export function buildClaudeSubagentPrompt(text: string): {
-  readonly prompt: string;
-  readonly invocations: ReadonlyArray<
-    ParsedAgentMentionInvocation & {
-      readonly definition: ResolvedAgentAlias & ClaudeSubagentAliasDefinition;
-    }
-  >;
-} {
-  const invocations = parseAgentMentionInvocations(text, "claudeAgent").filter(
-    (
-      invocation,
-    ): invocation is ParsedAgentMentionInvocation & {
-      readonly definition: ResolvedAgentAlias & ClaudeSubagentAliasDefinition;
-    } => invocation.definition.kind === "claude-subagent",
-  );
-
-  if (invocations.length === 0) {
-    return {
-      prompt: text,
-      invocations,
-    };
-  }
-
-  const directiveLines = invocations
-    .map(
-      (invocation, index) =>
-        `${index + 1}. Use the "${invocation.definition.agentName}" agent for this task:\n${invocation.task}`,
-    )
-    .join("\n\n");
-
-  return {
-    prompt: [
-      "The user included inline subagent directives in the form @alias(task).",
-      "Execute each directive explicitly via the Agent tool using the named subagent below.",
-      "After the delegated work completes, continue with the overall request and synthesize the results.",
-      "Do not echo the literal @alias(task) syntax back to the user unless it is directly relevant.",
-      "",
-      "Inline directives:",
-      directiveLines,
-      "",
-      "Original user prompt:",
-      text,
-    ].join("\n"),
-    invocations,
-  };
 }

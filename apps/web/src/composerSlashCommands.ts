@@ -35,28 +35,11 @@ function normalizeSlashCommandName(value: string): string {
   return value.trim().replace(/^\/+/, "").toLowerCase();
 }
 
-const CLAUDE_NATIVE_COMMAND_ALIASES: Record<string, readonly string[]> = {
-  clear: ["reset", "new"],
-  config: ["settings"],
-  desktop: ["app"],
-  exit: ["quit"],
-  feedback: ["bug"],
-  branch: ["fork"],
-  mobile: ["ios", "android"],
-  permissions: ["allowed-tools"],
-  "remote-control": ["rc"],
-  resume: ["continue"],
-};
-
 function getProviderNativeSlashCommandAliases(
-  provider: ProviderKind,
-  command: string,
+  _provider: ProviderKind,
+  _command: string,
 ): readonly string[] {
-  const normalizedCommand = normalizeSlashCommandName(command);
-  if (provider !== "claudeAgent") {
-    return [];
-  }
-  return CLAUDE_NATIVE_COMMAND_ALIASES[normalizedCommand] ?? [];
+  return [];
 }
 
 function expandProviderNativeSlashCommandNames(
@@ -78,18 +61,17 @@ function expandProviderNativeSlashCommandNames(
 }
 
 function shouldKeepBuiltInSlashCommandDespiteNativeCollision(
-  provider: ProviderKind,
-  command: ComposerSlashCommand,
+  _provider: ProviderKind,
+  _command: ComposerSlashCommand,
 ): boolean {
-  return provider === "codex" && command === "review";
+  return false;
 }
 
 export function shouldHideProviderNativeCommandFromComposerMenu(
-  provider: ProviderKind,
-  command: string,
+  _provider: ProviderKind,
+  _command: string,
 ): boolean {
-  const normalizedCommand = normalizeSlashCommandName(command);
-  return provider === "codex" && normalizedCommand === "review";
+  return false;
 }
 
 export function getProviderNativeSlashCommandSearchTerms(
@@ -359,26 +341,19 @@ export function getAvailableComposerSlashCommands(input: {
     ),
   );
 
-  const availableCommands: ComposerSlashCommand[] =
-    input.provider !== "claudeAgent"
-      ? [
-          "clear",
-          ...(input.canOfferCompactCommand ? (["compact"] as const) : []),
-          "model",
-          ...(input.supportsFastSlashCommand ? (["fast"] as const) : []),
-          "plan",
-          "default",
-          ...(input.canOfferReviewCommand ? (["review"] as const) : []),
-          ...(input.canOfferForkCommand ? (["fork"] as const) : []),
-          ...(input.canOfferSideCommand ? (["side"] as const) : []),
-          "status",
-          "subagents",
-        ]
-      : [
-          // Claude owns most slash-command UX natively; sidechat remains app-level because it
-          // creates a Peak Code split/context clone before the provider sees the first turn.
-          ...(input.canOfferSideCommand ? (["side"] as const) : []),
-        ];
+  const availableCommands: ComposerSlashCommand[] = [
+    "clear",
+    ...(input.canOfferCompactCommand ? (["compact"] as const) : []),
+    "model",
+    ...(input.supportsFastSlashCommand ? (["fast"] as const) : []),
+    "plan",
+    "default",
+    ...(input.canOfferReviewCommand ? (["review"] as const) : []),
+    ...(input.canOfferForkCommand ? (["fork"] as const) : []),
+    ...(input.canOfferSideCommand ? (["side"] as const) : []),
+    "status",
+    "subagents",
+  ];
   return availableCommands.filter((command) => !collidingNativeCommandNames.has(command));
 }
 

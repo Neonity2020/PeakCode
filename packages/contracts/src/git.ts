@@ -1,9 +1,11 @@
 import { Option, Schema } from "effect";
 import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas";
-import { DEFAULT_GIT_TEXT_GENERATION_MODEL } from "./model";
 import { ProviderStartOptions } from "./orchestration";
 
 const TrimmedNonEmptyStringSchema = TrimmedNonEmptyString;
+
+// Pi text generation model used by git helpers (commit message / PR / branch / title / diff summary).
+export const DEFAULT_GIT_TEXT_GENERATION_MODEL = "pi-coding-agent" as const;
 
 // Domain Types
 
@@ -100,7 +102,6 @@ export type GitPullInput = typeof GitPullInput.Type;
 export const GitSummarizeDiffInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
   patch: Schema.String,
-  codexHomePath: Schema.optional(TrimmedNonEmptyStringSchema),
   providerOptions: Schema.optional(ProviderStartOptions),
   textGenerationModel: Schema.optional(TrimmedNonEmptyStringSchema).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_GIT_TEXT_GENERATION_MODEL)),
@@ -117,7 +118,6 @@ export const GitRunStackedActionInput = Schema.Struct({
   filePaths: Schema.optional(
     Schema.Array(TrimmedNonEmptyStringSchema).check(Schema.isMinLength(1)),
   ),
-  codexHomePath: Schema.optional(TrimmedNonEmptyStringSchema),
   providerOptions: Schema.optional(ProviderStartOptions),
   textGenerationModel: Schema.optional(TrimmedNonEmptyStringSchema).pipe(
     Schema.withConstructorDefault(() => Option.some(DEFAULT_GIT_TEXT_GENERATION_MODEL)),

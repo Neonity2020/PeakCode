@@ -1,7 +1,5 @@
 import {
   type ApprovalRequestId,
-  DEFAULT_MODEL_BY_PROVIDER,
-  type ClaudeCodeEffort,
   MessageId,
   type ModelSelection,
   type ProjectScript,
@@ -29,11 +27,7 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
 } from "@peakcode/contracts";
-import {
-  applyClaudePromptEffortPrefix,
-  getModelCapabilities,
-  normalizeModelSlug,
-} from "@peakcode/shared/model";
+import { getModelCapabilities, normalizeModelSlug } from "@peakcode/shared/model";
 import { resolveTailUserMessageEditTarget } from "@peakcode/shared/conversationEdit";
 import { buildTemporaryWorktreeBranchName } from "@peakcode/shared/git";
 import {
@@ -69,7 +63,6 @@ import {
 } from "~/lib/gitReactQuery";
 import { resolveProviderDiscoveryCwd } from "~/lib/providerDiscovery";
 import {
-  providerAgentsQueryOptions,
   providerComposerCapabilitiesQueryOptions,
   providerCommandsQueryOptions,
   providerModelsQueryOptions,
@@ -102,6 +95,7 @@ import {
   maybeResolveBrowserPromptAttachment,
   type BrowserPromptAttachmentResolution,
 } from "../lib/browserPromptContext";
+import { detectCreateAutomationIntent } from "../lib/automationIntent";
 import { dispatchThreadRename } from "../lib/threadRename";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import {
@@ -275,7 +269,6 @@ import {
   deriveContextWindowSelectionStatus,
   deriveCumulativeCostUsd,
   deriveLatestContextWindowSnapshot,
-  deriveSelectedContextWindowSnapshot,
 } from "../lib/contextWindow";
 import { formatVoiceRecordingDuration, useVoiceRecorder } from "../lib/voiceRecorder";
 import { shouldUseCompactComposerFooter } from "./composerFooterLayout";
@@ -358,7 +351,6 @@ import {
 import { useLocalStorage } from "~/hooks/useLocalStorage";
 import { useComposerSlashCommands } from "../hooks/useComposerSlashCommands";
 import { useFeatureFlags } from "../featureFlags";
-import { collapseCursorModelVariants } from "../cursorModelVariants";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import {
   canCreateThreadHandoff,
@@ -453,20 +445,6 @@ function getProviderStartOptionsCustomBinaryPath(
   provider: ProviderKind,
 ): string | null {
   switch (provider) {
-    case "codex":
-      return normalizeCustomBinaryPath(providerOptions?.codex?.binaryPath);
-    case "claudeAgent":
-      return normalizeCustomBinaryPath(providerOptions?.claudeAgent?.binaryPath);
-    case "gemini":
-      return normalizeCustomBinaryPath(providerOptions?.gemini?.binaryPath);
-    case "grok":
-      return normalizeCustomBinaryPath(providerOptions?.grok?.binaryPath);
-    case "kilo":
-      return normalizeCustomBinaryPath(providerOptions?.kilo?.binaryPath);
-    case "opencode":
-      return normalizeCustomBinaryPath(providerOptions?.opencode?.binaryPath);
-    case "cursor":
-      return normalizeCustomBinaryPath(providerOptions?.cursor?.binaryPath);
     case "pi":
       return normalizeCustomBinaryPath(providerOptions?.pi?.binaryPath);
   }
@@ -513,10 +491,6 @@ function formatOutgoingPrompt(params: {
   effort: string | null;
   text: string;
 }): string {
-  const caps = getModelCapabilities(params.provider, params.model);
-  if (params.effort && caps.promptInjectedEffortLevels.includes(params.effort)) {
-    return applyClaudePromptEffortPrefix(params.text, params.effort as ClaudeCodeEffort | null);
-  }
   return params.text;
 }
 
@@ -565,13 +539,6 @@ function escapeRegExp(value: string): string {
 }
 
 function normalizeDynamicModelSlug(provider: ProviderKind, slug: string): string {
-  if (provider === "claudeAgent") {
-    const withoutContextSuffix = slug.replace(/\[[^\]]+\]$/u, "");
-    return normalizeModelSlug(withoutContextSuffix, provider) ?? withoutContextSuffix;
-  }
-  if (provider === "grok") {
-    return slug.trim();
-  }
   return normalizeModelSlug(slug, provider) ?? slug;
 }
 
@@ -591,15 +558,6 @@ function mergeDynamicModelOptions(input: {
 
   for (const dynamicModel of input.dynamicModels) {
     const rawName = dynamicModel.name?.trim() ?? "";
-    const isClaudeDefaultAlias =
-      input.provider === "claudeAgent" &&
-      (rawName.toLowerCase() === "default (recommended)" ||
-        rawName.toLowerCase() === "default recommended" ||
-        dynamicModel.slug.trim().toLowerCase() === "default");
-    if (isClaudeDefaultAlias) {
-      continue;
-    }
-
     const normalizedSlug = normalizeDynamicModelSlug(input.provider, dynamicModel.slug);
     const rawSlug = dynamicModel.slug.trim().toLowerCase();
     const displayNameFallback = formatProviderModelOptionName({
@@ -634,23 +592,17 @@ function mergeDynamicModelOptions(input: {
   const staticBuiltInModels = input.staticOptions.filter(
     (model) => !("isCustom" in model) || model.isCustom !== true,
   );
-  const missingStaticBuiltIns =
-    (input.provider === "kilo" || input.provider === "opencode" || input.provider === "cursor") &&
-    normalizedDynamicOptions.length > 0
-      ? []
-      : staticBuiltInModels.filter((model) => !dynamicNormalizedSlugs.has(model.slug));
+  const missingStaticBuiltIns = staticBuiltInModels.filter(
+    (model) => !dynamicNormalizedSlugs.has(model.slug),
+  );
 
-  const orderedDynamicOptions =
-    input.provider === "claudeAgent"
-      ? normalizedDynamicOptions.toReversed()
-      : normalizedDynamicOptions;
+  const orderedDynamicOptions = normalizedDynamicOptions;
 
   return [...orderedDynamicOptions, ...missingStaticBuiltIns, ...customOnlyModels];
 }
 
-function skillMentionPrefix(provider: string): string {
-  if (provider === "pi") return "/skill:";
-  return provider === "claudeAgent" ? "/" : "$";
+function skillMentionPrefix(_provider: string): string {
+  return "/skill:";
 }
 
 function promptIncludesSkillMention(prompt: string, skillName: string, provider: string): boolean {
@@ -1167,8 +1119,8 @@ export default function ChatView({
             threadId,
             draftThread,
             fallbackDraftProject?.defaultModelSelection ?? {
-              provider: "codex",
-              model: DEFAULT_MODEL_BY_PROVIDER.codex,
+              provider: "pi",
+              model: "",
             },
             localDraftError,
           )
@@ -1417,7 +1369,6 @@ export default function ChatView({
   voiceProviderRef.current = selectedProvider;
   const customModelsByProvider = useMemo(() => getCustomModelsByProvider(settings), [settings]);
   const featureFlags = useFeatureFlags();
-  const showExpandedCursorModelVariants = featureFlags["show-expanded-cursor-model-variants"];
   const showDebugTaskBanner = import.meta.env.DEV && featureFlags["show-debug-task-banner"];
   const composerModelHintByProvider = useMemo<Record<ProviderKind, string | null>>(() => {
     const threadModelSelection = activeThread?.modelSelection ?? null;
@@ -1430,13 +1381,6 @@ export default function ChatView({
       (projectModelSelection?.provider === provider ? projectModelSelection.model : null);
 
     return {
-      codex: resolveHint("codex"),
-      claudeAgent: resolveHint("claudeAgent"),
-      cursor: resolveHint("cursor"),
-      gemini: resolveHint("gemini"),
-      grok: resolveHint("grok"),
-      kilo: resolveHint("kilo"),
-      opencode: resolveHint("opencode"),
       pi: resolveHint("pi"),
     };
   }, [
@@ -1444,45 +1388,6 @@ export default function ChatView({
     activeThread?.modelSelection,
     composerDraft.modelSelectionByProvider,
   ]);
-  const claudeDynamicModelsQuery = useQuery(
-    providerModelsQueryOptions({ provider: "claudeAgent" }),
-  );
-  const codexDynamicModelsQuery = useQuery(providerModelsQueryOptions({ provider: "codex" }));
-  const cursorDynamicModelsQuery = useQuery(
-    providerModelsQueryOptions({
-      provider: "cursor",
-      binaryPath: settings.cursorBinaryPath || null,
-      apiEndpoint: settings.cursorApiEndpoint || null,
-      enabled: selectedProvider === "cursor" || lockedProvider === "cursor" || isModelPickerOpen,
-    }),
-  );
-  const geminiModelsQuery = useQuery(
-    providerModelsQueryOptions({
-      provider: "gemini",
-      binaryPath: settings.geminiBinaryPath || null,
-      enabled: selectedProvider === "gemini" || lockedProvider === "gemini",
-    }),
-  );
-  const grokDynamicModelsQuery = useQuery(
-    providerModelsQueryOptions({
-      provider: "grok",
-      binaryPath: settings.grokBinaryPath || null,
-      enabled: selectedProvider === "grok" || lockedProvider === "grok" || isModelPickerOpen,
-    }),
-  );
-  const openCodeDynamicModelsQuery = useQuery(
-    providerModelsQueryOptions({
-      provider: "opencode",
-      binaryPath: settings.openCodeBinaryPath || null,
-    }),
-  );
-  const kiloDynamicModelsQuery = useQuery(
-    providerModelsQueryOptions({
-      provider: "kilo",
-      binaryPath: settings.kiloBinaryPath || null,
-      enabled: selectedProvider === "kilo" || lockedProvider === "kilo" || isModelPickerOpen,
-    }),
-  );
   const piDynamicModelsQuery = useQuery(
     providerModelsQueryOptions({
       provider: "pi",
@@ -1491,75 +1396,8 @@ export default function ChatView({
       enabled: selectedProvider === "pi" || lockedProvider === "pi" || isModelPickerOpen,
     }),
   );
-  const claudeDynamicAgentsQuery = useQuery(
-    providerAgentsQueryOptions({ provider: "claudeAgent" }),
-  );
-  const codexDynamicAgentsQuery = useQuery(providerAgentsQueryOptions({ provider: "codex" }));
-  const openCodeDynamicAgentsQuery = useQuery(providerAgentsQueryOptions({ provider: "opencode" }));
-  const kiloDynamicAgentsQuery = useQuery(providerAgentsQueryOptions({ provider: "kilo" }));
-  const cursorRuntimeModels = useMemo(
-    () =>
-      showExpandedCursorModelVariants
-        ? (cursorDynamicModelsQuery.data?.models ?? [])
-        : collapseCursorModelVariants(cursorDynamicModelsQuery.data?.models ?? []),
-    [cursorDynamicModelsQuery.data?.models, showExpandedCursorModelVariants],
-  );
-  const cursorModelDiscoveryEnabled =
-    selectedProvider === "cursor" || lockedProvider === "cursor" || isModelPickerOpen;
-  const hasResolvedCursorModelDiscovery =
-    cursorDynamicModelsQuery.data?.source === "cursor.cli" &&
-    (cursorDynamicModelsQuery.data.models.length ?? 0) > 0;
-  const cursorModelDiscoveryPending =
-    cursorModelDiscoveryEnabled &&
-    !hasResolvedCursorModelDiscovery &&
-    (cursorDynamicModelsQuery.isLoading || cursorDynamicModelsQuery.isFetching);
-  const kiloModelDiscoveryEnabled =
-    selectedProvider === "kilo" || lockedProvider === "kilo" || isModelPickerOpen;
-  const hasResolvedKiloModelDiscovery =
-    (kiloDynamicModelsQuery.data?.source === "kilo-cli" ||
-      kiloDynamicModelsQuery.data?.source === "kilo") &&
-    (kiloDynamicModelsQuery.data.models.length ?? 0) > 0;
-  const kiloModelDiscoveryPending =
-    kiloModelDiscoveryEnabled &&
-    !hasResolvedKiloModelDiscovery &&
-    (kiloDynamicModelsQuery.isLoading || kiloDynamicModelsQuery.isFetching);
   const modelOptionsByProvider = useMemo(() => {
     const staticOptions: Record<ProviderKind, ReturnType<typeof getAppModelOptions>> = {
-      codex: getAppModelOptions(
-        "codex",
-        customModelsByProvider.codex,
-        composerModelHintByProvider.codex,
-      ),
-      claudeAgent: getAppModelOptions(
-        "claudeAgent",
-        customModelsByProvider.claudeAgent,
-        composerModelHintByProvider.claudeAgent,
-      ),
-      cursor: getAppModelOptions(
-        "cursor",
-        customModelsByProvider.cursor,
-        composerModelHintByProvider.cursor,
-      ),
-      gemini: getAppModelOptions(
-        "gemini",
-        customModelsByProvider.gemini,
-        composerModelHintByProvider.gemini,
-      ),
-      grok: getAppModelOptions(
-        "grok",
-        customModelsByProvider.grok,
-        composerModelHintByProvider.grok,
-      ),
-      kilo: getAppModelOptions(
-        "kilo",
-        customModelsByProvider.kilo,
-        composerModelHintByProvider.kilo,
-      ),
-      opencode: getAppModelOptions(
-        "opencode",
-        customModelsByProvider.opencode,
-        composerModelHintByProvider.opencode,
-      ),
       pi: getAppModelOptions("pi", customModelsByProvider.pi, composerModelHintByProvider.pi),
     };
     const result: Record<
@@ -1567,30 +1405,11 @@ export default function ChatView({
       ReadonlyArray<ProviderModelOption & { isCustom?: boolean }>
     > = { ...staticOptions };
 
-    const dynamicSources: Record<ProviderKind, typeof claudeDynamicModelsQuery.data> = {
-      claudeAgent: claudeDynamicModelsQuery.data,
-      codex: codexDynamicModelsQuery.data,
-      cursor:
-        cursorDynamicModelsQuery.data === undefined
-          ? undefined
-          : { ...cursorDynamicModelsQuery.data, models: cursorRuntimeModels },
-      gemini: geminiModelsQuery.data,
-      grok: grokDynamicModelsQuery.data,
-      kilo: kiloDynamicModelsQuery.data,
-      opencode: openCodeDynamicModelsQuery.data,
+    const dynamicSources: Record<ProviderKind, typeof piDynamicModelsQuery.data> = {
       pi: piDynamicModelsQuery.data,
     };
 
-    for (const provider of [
-      "claudeAgent",
-      "codex",
-      "cursor",
-      "gemini",
-      "grok",
-      "kilo",
-      "opencode",
-      "pi",
-    ] as const) {
+    for (const provider of ["pi"] as const) {
       const dynamicModels = dynamicSources[provider]?.models;
       if (dynamicModels && dynamicModels.length > 0) {
         result[provider] = mergeDynamicModelOptions({
@@ -1611,19 +1430,7 @@ export default function ChatView({
     }
 
     return result;
-  }, [
-    claudeDynamicModelsQuery.data,
-    composerModelHintByProvider,
-    codexDynamicModelsQuery.data,
-    cursorDynamicModelsQuery.data,
-    cursorRuntimeModels,
-    customModelsByProvider,
-    geminiModelsQuery.data,
-    grokDynamicModelsQuery.data,
-    kiloDynamicModelsQuery.data,
-    openCodeDynamicModelsQuery.data,
-    piDynamicModelsQuery.data,
-  ]);
+  }, [composerModelHintByProvider, customModelsByProvider, piDynamicModelsQuery.data]);
   const { modelOptions: composerModelOptions, selectedModel } = useEffectiveComposerModelState({
     threadId,
     selectedProvider,
@@ -1634,34 +1441,11 @@ export default function ChatView({
   });
   const runtimeModelsByProvider = useMemo(
     () => ({
-      claudeAgent: claudeDynamicModelsQuery.data?.models ?? [],
-      codex: codexDynamicModelsQuery.data?.models ?? [],
-      cursor: cursorRuntimeModels,
-      gemini: geminiModelsQuery.data?.models ?? [],
-      grok: grokDynamicModelsQuery.data?.models ?? [],
-      kilo: kiloDynamicModelsQuery.data?.models ?? [],
-      opencode: openCodeDynamicModelsQuery.data?.models ?? [],
       pi: piDynamicModelsQuery.data?.models ?? [],
     }),
-    [
-      claudeDynamicModelsQuery.data?.models,
-      codexDynamicModelsQuery.data?.models,
-      cursorRuntimeModels,
-      geminiModelsQuery.data?.models,
-      grokDynamicModelsQuery.data?.models,
-      kiloDynamicModelsQuery.data?.models,
-      openCodeDynamicModelsQuery.data?.models,
-      piDynamicModelsQuery.data?.models,
-    ],
+    [piDynamicModelsQuery.data?.models],
   );
   const providerModelsQueryByProvider = {
-    claudeAgent: claudeDynamicModelsQuery,
-    codex: codexDynamicModelsQuery,
-    cursor: cursorDynamicModelsQuery,
-    gemini: geminiModelsQuery,
-    grok: grokDynamicModelsQuery,
-    kilo: kiloDynamicModelsQuery,
-    opencode: openCodeDynamicModelsQuery,
     pi: piDynamicModelsQuery,
   } as const;
   const selectedRuntimeModel = useMemo(
@@ -1722,22 +1506,11 @@ export default function ChatView({
       : (activeThread?.modelSelection ?? activeProject?.defaultModelSelection ?? null);
   const selectedProviderModelsQuery = providerModelsQueryByProvider[selectedProvider];
   const providerModelsLoading =
-    selectedProvider === "cursor"
-      ? cursorModelDiscoveryPending
-      : selectedProvider === "kilo"
-        ? kiloModelDiscoveryPending
-        : selectedProviderModelsQuery !== undefined &&
-          (selectedProviderModelsQuery.isLoading ||
-            (selectedProviderModelsQuery.isFetching &&
-              selectedProviderModelsQuery.data === undefined));
-  const selectedProviderRequiresRuntimeModels =
-    selectedProvider === "cursor" || selectedProvider === "kilo";
-  const selectedProviderRuntimeModelDiscoveryPending =
-    selectedProvider === "cursor"
-      ? cursorModelDiscoveryPending
-      : selectedProvider === "kilo"
-        ? kiloModelDiscoveryPending
-        : false;
+    selectedProviderModelsQuery !== undefined &&
+    (selectedProviderModelsQuery.isLoading ||
+      (selectedProviderModelsQuery.isFetching && selectedProviderModelsQuery.data === undefined));
+  const selectedProviderRequiresRuntimeModels = false;
+  const selectedProviderRuntimeModelDiscoveryPending = false;
   const showComposerModelBootstrapSkeleton = shouldShowComposerModelBootstrapSkeleton({
     selectedProvider,
     selectedModel,
@@ -2536,27 +2309,11 @@ export default function ChatView({
       interactionMode,
       isSidechat: Boolean(activeThread.sidechatSourceThreadId),
     });
-  const dynamicAgents = useMemo(() => {
-    const query =
-      selectedProvider === "claudeAgent"
-        ? claudeDynamicAgentsQuery
-        : selectedProvider === "kilo"
-          ? kiloDynamicAgentsQuery
-          : selectedProvider === "opencode"
-            ? openCodeDynamicAgentsQuery
-            : codexDynamicAgentsQuery;
-    return (query.data?.agents ?? []).map((a) => ({
-      name: a.name,
-      displayName: a.displayName,
-      ...(a.description ? { description: a.description } : {}),
-    }));
-  }, [
-    selectedProvider,
-    claudeDynamicAgentsQuery.data,
-    codexDynamicAgentsQuery.data,
-    kiloDynamicAgentsQuery.data,
-    openCodeDynamicAgentsQuery.data,
-  ]);
+  const dynamicAgents: Array<{
+    name: string;
+    displayName: string;
+    description?: string;
+  }> = [];
   const normalComposerMenuItems = useComposerCommandMenuItems({
     composerTrigger: effectiveComposerTrigger,
     provider: selectedProvider,
@@ -2754,7 +2511,7 @@ export default function ChatView({
       ? null
       : activeProviderStatus;
   const voiceProviderStatus = useMemo(
-    () => providerStatuses.find((status) => status.provider === "codex") ?? null,
+    () => providerStatuses.find((status) => status.provider === "pi") ?? null,
     [providerStatuses],
   );
   const refreshVoiceStatus = useCallback(() => {
@@ -4793,7 +4550,7 @@ export default function ChatView({
         return;
       }
       const result = await api.server.transcribeVoice({
-        provider: "codex",
+        provider: "pi",
         cwd: activeProject.cwd,
         ...(activeThread ? { threadId: activeThread.id } : {}),
         ...payload,
@@ -5288,6 +5045,51 @@ export default function ChatView({
       return false;
     }
     if (!activeProject) return false;
+    const createAutomationIntent =
+      queuedChatTurn === null &&
+      dispatchMode === "queue" &&
+      composerImagesForSend.length === 0 &&
+      composerAssistantSelectionsForSend.length === 0 &&
+      sendableComposerTerminalContexts.length === 0
+        ? detectCreateAutomationIntent(promptForSend)
+        : null;
+    if (createAutomationIntent) {
+      try {
+        const createdAutomation = await api.automation.create({
+          projectId: activeProject.id,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          ...createAutomationIntent,
+          scriptId: null,
+          scriptName: null,
+          scriptCommand: null,
+        });
+        const automationsForProject = await api.automation.list({ projectId: activeProject.id });
+        if (
+          !automationsForProject.some(
+            (automation) => automation.automationId === createdAutomation.automationId,
+          )
+        ) {
+          throw new Error(messages.automations.createFailedDescription);
+        }
+        clearComposerInput(activeThread.id);
+        toastManager.add({
+          type: "success",
+          title: messages.automations.createdFromChatTitle,
+          description: messages.automations.createdFromChatDescription(
+            createAutomationIntent.title,
+          ),
+        });
+        return true;
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: messages.automations.createFailedTitle,
+          description:
+            error instanceof Error ? error.message : messages.automations.createFailedDescription,
+        });
+        return false;
+      }
+    }
     const sendProviderStatus =
       providerStatuses.find(
         (status) => status.provider === selectedModelSelectionForSend.provider,
@@ -5650,9 +5452,7 @@ export default function ChatView({
         selectedProviderForSend,
         selectedModelSelectionForSend.provider === selectedProviderForSend
           ? selectedModelSelectionForSend.model
-          : selectedModelForSend ||
-              targetProjectDefaultModelSelectionForSend?.model ||
-              DEFAULT_MODEL_BY_PROVIDER.codex,
+          : selectedModelForSend || targetProjectDefaultModelSelectionForSend?.model || "",
         selectedModelSelectionForSend.options,
       );
 
@@ -6475,12 +6275,6 @@ export default function ChatView({
         model: resolvedModel,
       };
       setComposerDraftModelSelection(activeThread.id, nextModelSelection);
-      if (provider === "cursor" && !showExpandedCursorModelVariants) {
-        setComposerDraftProviderModelOptions(activeThread.id, provider, undefined, {
-          persistSticky: true,
-          model: resolvedModel,
-        });
-      }
       setStickyComposerModelSelection(nextModelSelection);
       scheduleComposerFocus();
     },
@@ -6489,9 +6283,7 @@ export default function ChatView({
       lockedProvider,
       scheduleComposerFocus,
       setComposerDraftModelSelection,
-      setComposerDraftProviderModelOptions,
       setStickyComposerModelSelection,
-      showExpandedCursorModelVariants,
       customModelsByProvider,
       modelOptionsByProvider,
     ],
@@ -6520,22 +6312,14 @@ export default function ChatView({
     selectedProviderModelOptions,
     selectedRuntimeModel,
   );
-  const runtimeUsageContextWindow = useMemo(
-    () =>
-      activeContextWindow ??
-      (selectedProvider === "claudeAgent"
-        ? deriveSelectedContextWindowSnapshot(composerTraitSelection.contextWindow)
-        : null),
-    [activeContextWindow, composerTraitSelection.contextWindow, selectedProvider],
-  );
+  const runtimeUsageContextWindow = activeContextWindow ?? null;
   const contextWindowSelectionStatus = useMemo(
     () =>
       deriveContextWindowSelectionStatus({
         activeSnapshot: runtimeUsageContextWindow,
-        selectedValue:
-          selectedProvider === "claudeAgent" ? composerTraitSelection.contextWindow : null,
+        selectedValue: null,
       }),
-    [runtimeUsageContextWindow, composerTraitSelection.contextWindow, selectedProvider],
+    [runtimeUsageContextWindow],
   );
   const providerTraitsPicker = renderProviderTraitsPicker({
     provider: selectedProvider,
@@ -6546,7 +6330,7 @@ export default function ChatView({
     runtimeAgents: dynamicAgents,
     modelOptions: selectedProviderModelOptions,
     prompt,
-    includeFastMode: selectedProvider === "cursor",
+    includeFastMode: false,
     open: isTraitsPickerOpen,
     onOpenChange: handleTraitsPickerOpenChange,
     shortcutLabel: traitsPickerShortcutLabel,
@@ -6566,8 +6350,7 @@ export default function ChatView({
         providers={providerStatuses}
         modelOptionsByProvider={modelOptionsByProvider}
         loadingModelProviders={{
-          cursor: cursorModelDiscoveryPending,
-          kilo: kiloModelDiscoveryPending,
+          pi: selectedProviderRuntimeModelDiscoveryPending,
         }}
         hiddenProviders={settings.hiddenProviders}
         providerOrder={settings.providerOrder}
@@ -7026,12 +6809,6 @@ export default function ChatView({
         return;
       }
       if (item.type === "provider-native-command") {
-        if (selectedProvider === "codex" && item.command.toLowerCase() === "review") {
-          setComposerCommandPicker("review-target");
-          setComposerHighlightedItemId("review-target:changes");
-          scheduleComposerFocus();
-          return;
-        }
         applyComposerTriggerReplacement({
           snapshot,
           trigger,

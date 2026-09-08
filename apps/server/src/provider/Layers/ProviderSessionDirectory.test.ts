@@ -39,16 +39,16 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       const initialThreadId = ThreadId.makeUnsafe("thread-1");
 
       yield* directory.upsert({
-        provider: "codex",
+        provider: "pi",
         threadId: initialThreadId,
       });
 
       const provider = yield* directory.getProvider(initialThreadId);
-      assert.equal(provider, "codex");
+      assert.equal(provider, "pi");
       const resolvedBinding = yield* directory.getBinding(initialThreadId);
       assertSome(resolvedBinding, {
         threadId: initialThreadId,
-        provider: "codex",
+        provider: "pi",
       });
       if (Option.isSome(resolvedBinding)) {
         assert.equal(resolvedBinding.value.threadId, initialThreadId);
@@ -57,7 +57,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       const nextThreadId = ThreadId.makeUnsafe("thread-2");
 
       yield* directory.upsert({
-        provider: "codex",
+        provider: "pi",
         threadId: nextThreadId,
       });
       const updatedBinding = yield* directory.getBinding(nextThreadId);
@@ -71,7 +71,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       if (Option.isSome(runtime)) {
         assert.equal(runtime.value.threadId, nextThreadId);
         assert.equal(runtime.value.status, "running");
-        assert.equal(runtime.value.providerName, "codex");
+        assert.equal(runtime.value.providerName, "pi");
       }
 
       const threadIds = yield* directory.listThreadIds();
@@ -96,7 +96,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       const threadId = ThreadId.makeUnsafe("thread-runtime");
 
       yield* directory.upsert({
-        provider: "codex",
+        provider: "pi",
         threadId,
         status: "starting",
         resumeCursor: {
@@ -104,12 +104,12 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
         },
         runtimePayload: {
           cwd: "/tmp/project",
-          model: "gpt-5-codex",
+          model: "anthropic/claude-opus-4-5",
         },
       });
 
       yield* directory.upsert({
-        provider: "codex",
+        provider: "pi",
         threadId,
         status: "running",
         runtimePayload: {
@@ -127,7 +127,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
         });
         assert.deepEqual(runtime.value.runtimePayload, {
           cwd: "/tmp/project",
-          model: "gpt-5-codex",
+          model: "anthropic/claude-opus-4-5",
           activeTurnId: "turn-1",
         });
       }
@@ -141,8 +141,8 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
 
       yield* runtimeRepository.upsert({
         threadId,
-        providerName: "claudeAgent",
-        adapterKey: "claudeAgent",
+        providerName: "pi",
+        adapterKey: "legacy-adapter",
         runtimeMode: "full-access",
         status: "running",
         lastSeenAt: new Date().toISOString(),
@@ -151,15 +151,15 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       });
 
       yield* directory.upsert({
-        provider: "codex",
+        provider: "pi",
         threadId,
       });
 
       const runtime = yield* runtimeRepository.getByThreadId({ threadId });
       assert.equal(Option.isSome(runtime), true);
       if (Option.isSome(runtime)) {
-        assert.equal(runtime.value.providerName, "codex");
-        assert.equal(runtime.value.adapterKey, "codex");
+        assert.equal(runtime.value.providerName, "pi");
+        assert.equal(runtime.value.adapterKey, "pi");
       }
     }));
 
@@ -174,7 +174,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       yield* Effect.gen(function* () {
         const directory = yield* ProviderSessionDirectory;
         yield* directory.upsert({
-          provider: "codex",
+          provider: "pi",
           threadId,
         });
       }).pipe(Effect.provide(directoryLayer));
@@ -183,12 +183,12 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
         const directory = yield* ProviderSessionDirectory;
         const sql = yield* SqlClient.SqlClient;
         const provider = yield* directory.getProvider(threadId);
-        assert.equal(provider, "codex");
+        assert.equal(provider, "pi");
 
         const resolvedBinding = yield* directory.getBinding(threadId);
         assertSome(resolvedBinding, {
           threadId,
-          provider: "codex",
+          provider: "pi",
         });
         if (Option.isSome(resolvedBinding)) {
           assert.equal(resolvedBinding.value.threadId, threadId);
@@ -216,7 +216,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       yield* Effect.gen(function* () {
         const directory = yield* ProviderSessionDirectory;
         yield* directory.upsert({
-          provider: "opencode",
+          provider: "pi",
           threadId,
         });
       }).pipe(Effect.provide(directoryLayer));
@@ -225,12 +225,12 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
         const directory = yield* ProviderSessionDirectory;
 
         const provider = yield* directory.getProvider(threadId);
-        assert.equal(provider, "opencode");
+        assert.equal(provider, "pi");
 
         const resolvedBinding = yield* directory.getBinding(threadId);
         assertSome(resolvedBinding, {
           threadId,
-          provider: "opencode",
+          provider: "pi",
         });
       }).pipe(Effect.provide(directoryLayer));
 
@@ -243,7 +243,7 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
       const runtimeRepository = yield* ProviderSessionRuntimeRepository;
 
       const legacyThreadId = ThreadId.makeUnsafe("thread-legacy-provider");
-      const codexThreadId = ThreadId.makeUnsafe("thread-known-provider");
+      const piThreadId = ThreadId.makeUnsafe("thread-known-provider");
 
       yield* runtimeRepository.upsert({
         threadId: legacyThreadId,
@@ -256,14 +256,14 @@ it.layer(makeDirectoryLayer(SqlitePersistenceMemory))("ProviderSessionDirectoryL
         runtimePayload: null,
       });
       yield* directory.upsert({
-        provider: "codex",
-        threadId: codexThreadId,
+        provider: "pi",
+        threadId: piThreadId,
       });
 
       const bindings = yield* directory.listBindings();
       assert.deepEqual(
         bindings.map((binding) => binding.threadId),
-        [codexThreadId],
+        [piThreadId],
       );
     }));
 });

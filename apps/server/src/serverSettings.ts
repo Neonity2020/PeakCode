@@ -6,10 +6,7 @@
  * and process-authoritative on the server.
  */
 import {
-  DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_SERVER_SETTINGS,
-  type ModelSelection,
-  type ProviderWithDefaultModel,
   ServerSettings,
   ServerSettingsError,
   type ServerSettingsPatch,
@@ -79,32 +76,9 @@ export class ServerSettingsService extends ServiceMap.Service<
     );
 }
 
-const PROVIDER_ORDER: readonly ProviderWithDefaultModel[] = [
-  "codex",
-  "claudeAgent",
-  "gemini",
-  "kilo",
-  "opencode",
-];
-
+// Pi is the only provider, so the text-generation provider selection is stable.
 function resolveTextGenerationProvider(settings: ServerSettings): ServerSettings {
-  const selection = settings.textGenerationModelSelection;
-  if (settings.providers[selection.provider].enabled) {
-    return settings;
-  }
-
-  const fallback = PROVIDER_ORDER.find((provider) => settings.providers[provider].enabled);
-  if (!fallback) {
-    return settings;
-  }
-
-  return {
-    ...settings,
-    textGenerationModelSelection: {
-      provider: fallback,
-      model: DEFAULT_MODEL_BY_PROVIDER[fallback],
-    } as ModelSelection,
-  };
+  return settings;
 }
 
 function normalizeSettings(

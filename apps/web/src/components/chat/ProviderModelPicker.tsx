@@ -109,28 +109,21 @@ function filterProviderOptionsByVisibility<T extends { value: ProviderKind }>(
 }
 
 function providerIconClassName(
-  provider: ProviderKind | ProviderPickerKind,
-  fallbackClassName: string,
+  _provider: ProviderKind | ProviderPickerKind,
+  _fallbackClassName: string,
 ): string {
-  return provider === "claudeAgent" || provider === "gemini" || provider === "pi"
-    ? "text-foreground"
-    : fallbackClassName;
+  return "text-foreground";
 }
 
 const SEARCHABLE_MODEL_PICKER_THRESHOLD = 15;
 const FAVORITE_MODEL_STORAGE_KEYS = {
-  cursor: "peakcode:cursor-favourite-models:v1",
-  kilo: "peakcode:kilo-favourite-models:v1",
-  opencode: "peakcode:opencode-favourite-models:v1",
   pi: "peakcode:pi-favourite-models:v1",
 } as const;
 const FavoriteModelSlugs = Schema.Array(Schema.String);
 type FavoriteModelProvider = keyof typeof FAVORITE_MODEL_STORAGE_KEYS;
 
 function supportsModelFavorites(provider: ProviderKind): provider is FavoriteModelProvider {
-  return (
-    provider === "cursor" || provider === "kilo" || provider === "opencode" || provider === "pi"
-  );
+  return provider === "pi";
 }
 
 // Keeps persisted favorite slugs compact and stable while preserving the user's order.
@@ -141,10 +134,6 @@ function toggleFavoriteModelSlug(current: ReadonlyArray<string>, slug: string): 
     : [...normalizedCurrent, slug];
 }
 
-function stripParameterizedModelSuffix(model: string): string {
-  return model.trim().replace(/\[[^\]]*\]$/u, "");
-}
-
 function resolveSelectedModelLabel(input: {
   provider: ProviderKind;
   model: string;
@@ -153,15 +142,6 @@ function resolveSelectedModelLabel(input: {
   const exact = input.options.find((option) => option.slug === input.model);
   if (exact) {
     return exact.name;
-  }
-  if (input.provider === "cursor") {
-    const baseModel = stripParameterizedModelSuffix(input.model);
-    const baseMatch = input.options.find(
-      (option) => stripParameterizedModelSuffix(option.slug) === baseModel,
-    );
-    if (baseMatch) {
-      return baseMatch.name;
-    }
   }
   return formatProviderModelOptionName({
     provider: input.provider,
@@ -198,21 +178,6 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const [uncontrolledMenuOpen, setUncontrolledMenuOpen] = useState(false);
   const selectionCommitTimerRef = useRef<number | null>(null);
   const [modelSearchQuery, setModelSearchQuery] = useState("");
-  const [kiloFavoriteModelSlugs, setKiloFavoriteModelSlugs] = useLocalStorage(
-    FAVORITE_MODEL_STORAGE_KEYS.kilo,
-    [],
-    FavoriteModelSlugs,
-  );
-  const [cursorFavoriteModelSlugs, setCursorFavoriteModelSlugs] = useLocalStorage(
-    FAVORITE_MODEL_STORAGE_KEYS.cursor,
-    [],
-    FavoriteModelSlugs,
-  );
-  const [openCodeFavoriteModelSlugs, setOpenCodeFavoriteModelSlugs] = useLocalStorage(
-    FAVORITE_MODEL_STORAGE_KEYS.opencode,
-    [],
-    FavoriteModelSlugs,
-  );
   const [piFavoriteModelSlugs, setPiFavoriteModelSlugs] = useLocalStorage(
     FAVORITE_MODEL_STORAGE_KEYS.pi,
     [],
@@ -256,35 +221,13 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
       ),
     [hiddenProviderSet, protectedProviderSet, providerOrder],
   );
-  const kiloFavoriteModelSlugSet = useMemo(
-    () => new Set(kiloFavoriteModelSlugs),
-    [kiloFavoriteModelSlugs],
-  );
-  const openCodeFavoriteModelSlugSet = useMemo(
-    () => new Set(openCodeFavoriteModelSlugs),
-    [openCodeFavoriteModelSlugs],
-  );
-  const cursorFavoriteModelSlugSet = useMemo(
-    () => new Set(cursorFavoriteModelSlugs),
-    [cursorFavoriteModelSlugs],
-  );
   const piFavoriteModelSlugSet = useMemo(
     () => new Set(piFavoriteModelSlugs),
     [piFavoriteModelSlugs],
   );
   const favoriteModelSlugSets = useMemo(
-    () => ({
-      cursor: cursorFavoriteModelSlugSet,
-      kilo: kiloFavoriteModelSlugSet,
-      opencode: openCodeFavoriteModelSlugSet,
-      pi: piFavoriteModelSlugSet,
-    }),
-    [
-      cursorFavoriteModelSlugSet,
-      kiloFavoriteModelSlugSet,
-      openCodeFavoriteModelSlugSet,
-      piFavoriteModelSlugSet,
-    ],
+    () => ({ pi: piFavoriteModelSlugSet }),
+    [piFavoriteModelSlugSet],
   );
   const selectedProviderOptions = props.modelOptionsByProvider[activeProvider];
   const selectedModelLabel = resolveSelectedModelLabel({
@@ -337,23 +280,10 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     scheduleSelectionCommitted();
   };
   const toggleFavoriteModel = useCallback(
-    (provider: FavoriteModelProvider, slug: string) => {
-      const setFavoriteModelSlugs =
-        provider === "cursor"
-          ? setCursorFavoriteModelSlugs
-          : provider === "kilo"
-            ? setKiloFavoriteModelSlugs
-            : provider === "pi"
-              ? setPiFavoriteModelSlugs
-              : setOpenCodeFavoriteModelSlugs;
-      setFavoriteModelSlugs((current) => toggleFavoriteModelSlug(current, slug));
+    (_provider: FavoriteModelProvider, slug: string) => {
+      setPiFavoriteModelSlugs((current) => toggleFavoriteModelSlug(current, slug));
     },
-    [
-      setCursorFavoriteModelSlugs,
-      setKiloFavoriteModelSlugs,
-      setOpenCodeFavoriteModelSlugs,
-      setPiFavoriteModelSlugs,
-    ],
+    [setPiFavoriteModelSlugs],
   );
 
   const renderModelRadioGroup = (provider: ProviderKind) => {
@@ -371,12 +301,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     }
 
     const providerOptions = props.modelOptionsByProvider[provider];
-    const shouldShowSearch =
-      (provider === "kilo" ||
-        provider === "opencode" ||
-        provider === "cursor" ||
-        provider === "pi") &&
-      providerOptions.length >= SEARCHABLE_MODEL_PICKER_THRESHOLD;
+    const shouldShowSearch = providerOptions.length >= SEARCHABLE_MODEL_PICKER_THRESHOLD;
     const normalizedModelSearchQuery = deferredModelSearchQuery.trim().toLowerCase();
     const filteredOptions =
       shouldShowSearch && normalizedModelSearchQuery.length > 0

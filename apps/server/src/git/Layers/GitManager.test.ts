@@ -49,7 +49,6 @@ interface FakeGitTextGeneration {
     branch: string | null;
     stagedSummary: string;
     stagedPatch: string;
-    codexHomePath?: string;
     providerOptions?: ProviderStartOptions;
     includeBranch?: boolean;
     model?: string;
@@ -65,7 +64,6 @@ interface FakeGitTextGeneration {
     commitSummary: string;
     diffSummary: string;
     diffPatch: string;
-    codexHomePath?: string;
     providerOptions?: ProviderStartOptions;
     model?: string;
     modelSelection?: ModelSelection;
@@ -73,7 +71,6 @@ interface FakeGitTextGeneration {
   generateDiffSummary: (input: {
     cwd: string;
     patch: string;
-    codexHomePath?: string;
     providerOptions?: ProviderStartOptions;
     model?: string;
     modelSelection?: ModelSelection;

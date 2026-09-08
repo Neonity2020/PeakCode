@@ -9,16 +9,9 @@
 import { ServerProviderStatus } from "@peakcode/contracts";
 import { Cause, Effect, FileSystem, Path, Schema } from "effect";
 
-const PROVIDER_STATUS_CACHE_IDS = [
-  "codex",
-  "claudeAgent",
-  "cursor",
-  "gemini",
-  "grok",
-  "kilo",
-  "opencode",
-  "pi",
-] as const satisfies ReadonlyArray<ServerProviderStatus["provider"]>;
+const PROVIDER_STATUS_CACHE_IDS = ["pi"] as const satisfies ReadonlyArray<
+  ServerProviderStatus["provider"]
+>;
 
 const decodeProviderStatusCache = Schema.decodeUnknownEffect(
   Schema.fromJsonString(ServerProviderStatus),

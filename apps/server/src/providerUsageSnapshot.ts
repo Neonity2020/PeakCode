@@ -1,6 +1,9 @@
 // FILE: providerUsageSnapshot.ts
 // Purpose: Read provider-specific local usage archives so the UI can show
 // recent usage even when the active thread has no fresh rate-limit events.
+//
+// Pi-only: Pi sessions are JSONL transcripts under ~/.pi/agent/sessions (with a
+// year/month/day directory layout) carrying `event_msg`/`token_count` records.
 
 import type { Dirent, Stats } from "node:fs";
 import fs from "node:fs/promises";
@@ -34,17 +37,10 @@ interface CachedUsageSnapshot {
   pending: Promise<ServerGetProviderUsageSnapshotResult> | null;
 }
 
-interface CodexSessionSummary {
+interface PiSessionSummary {
   timestampMs: number;
   totalTokens: number;
   limits: ReadonlyArray<ServerProviderUsageLimit>;
-}
-
-interface ClaudeUsageSample {
-  sessionId: string;
-  timestampMs: number;
-  totalTokens: number;
-  model: string | null;
 }
 
 const usageSnapshotCache = new Map<string, CachedUsageSnapshot>();
@@ -100,15 +96,6 @@ function formatRecentSessionsSubtitle(sessionCount: number): string | undefined 
   return `${new Intl.NumberFormat(undefined).format(sessionCount)} recent ${sessionCount === 1 ? "session" : "sessions"}`;
 }
 
-function formatUsageTimestamp(timestampMs: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "short",
-  }).format(timestampMs);
-}
-
 async function safeReadDir(path: string): Promise<ReadonlyArray<Dirent>> {
   try {
     return await fs.readdir(path, { withFileTypes: true });
@@ -134,7 +121,7 @@ async function listRecentFiles(paths: ReadonlyArray<string>): Promise<ReadonlyAr
   );
 
   return filesWithStats
-    .sort((left, right) => right.mtimeMs - left.mtimeMs)
+    .toSorted((left, right) => right.mtimeMs - left.mtimeMs)
     .slice(0, MAX_RECENT_USAGE_FILES)
     .map((entry) => entry.path);
 }
@@ -172,7 +159,7 @@ function buildUsageLines(input: {
   ];
 }
 
-function normalizeCodexUsageLimits(value: unknown): ReadonlyArray<ServerProviderUsageLimit> {
+function normalizePiUsageLimits(value: unknown): ReadonlyArray<ServerProviderUsageLimit> {
   const rateLimits = asRecord(value);
   if (!rateLimits) {
     return [];
@@ -209,7 +196,7 @@ function normalizeCodexUsageLimits(value: unknown): ReadonlyArray<ServerProvider
   return [primary, secondary].filter((limit): limit is ServerProviderUsageLimit => limit !== null);
 }
 
-function readCodexTotalTokens(payload: Record<string, unknown>): number {
+function readPiTotalTokens(payload: Record<string, unknown>): number {
   const info = asRecord(payload.info);
   const totalUsage =
     asRecord(info?.total_token_usage) ??
@@ -230,7 +217,7 @@ function readCodexTotalTokens(payload: Record<string, unknown>): number {
   );
 }
 
-async function listRecentCodexSessionFiles(sessionsRoot: string): Promise<ReadonlyArray<string>> {
+async function listRecentPiSessionFiles(sessionsRoot: string): Promise<ReadonlyArray<string>> {
   const now = new Date();
   const candidates: string[] = [];
 
@@ -254,7 +241,7 @@ async function listRecentCodexSessionFiles(sessionsRoot: string): Promise<Readon
   return listRecentFiles(candidates);
 }
 
-async function readCodexSessionSummary(path: string): Promise<CodexSessionSummary | null> {
+async function readPiSessionSummary(path: string): Promise<PiSessionSummary | null> {
   let fileContents: string;
   try {
     fileContents = await fs.readFile(path, "utf8");
@@ -262,7 +249,7 @@ async function readCodexSessionSummary(path: string): Promise<CodexSessionSummar
     return null;
   }
 
-  let latestSummary: CodexSessionSummary | null = null;
+  let latestSummary: PiSessionSummary | null = null;
   const lines = fileContents.split(/\r?\n/u);
   for (const line of lines) {
     if (!line.trim()) {
@@ -293,9 +280,9 @@ async function readCodexSessionSummary(path: string): Promise<CodexSessionSummar
 
     const summary = {
       timestampMs,
-      totalTokens: readCodexTotalTokens(payload),
-      limits: normalizeCodexUsageLimits(payload.rate_limits ?? payload.rateLimits),
-    } satisfies CodexSessionSummary;
+      totalTokens: readPiTotalTokens(payload),
+      limits: normalizePiUsageLimits(payload.rate_limits ?? payload.rateLimits),
+    } satisfies PiSessionSummary;
 
     if (!latestSummary || summary.timestampMs > latestSummary.timestampMs) {
       latestSummary = summary;
@@ -305,172 +292,21 @@ async function readCodexSessionSummary(path: string): Promise<CodexSessionSummar
   return latestSummary;
 }
 
-function readClaudeTotalTokens(value: unknown): number {
-  const usage = asRecord(value);
-  if (!usage) {
-    return 0;
-  }
-
-  const inputTokens =
-    (asNonNegativeNumber(usage.input_tokens) ?? 0) +
-    (asNonNegativeNumber(usage.cache_creation_input_tokens) ?? 0) +
-    (asNonNegativeNumber(usage.cache_read_input_tokens) ?? 0);
-  const outputTokens = asNonNegativeNumber(usage.output_tokens) ?? 0;
-  return asNonNegativeNumber(usage.total_tokens) ?? inputTokens + outputTokens;
-}
-
-function readClaudeAssistantSample(input: {
-  record: Record<string, unknown>;
-  fallbackKey: string;
-}): { dedupeKey: string; sample: ClaudeUsageSample } | null {
-  if (input.record.type !== "assistant") {
-    return null;
-  }
-
-  const message = asRecord(input.record.message);
-  const usage = asRecord(message?.usage);
-  const totalTokens = readClaudeTotalTokens(usage);
-  const timestampMs = parseTimestampMs(input.record.timestamp);
-  if (!usage || totalTokens <= 0 || timestampMs === null) {
-    return null;
-  }
-
-  const sessionId = asString(input.record.sessionId) ?? input.fallbackKey;
-  const model = asString(message?.model) ?? null;
-  const dedupeKey =
-    `${sessionId}:assistant:` +
-    (asString(input.record.requestId) ??
-      asString(message?.id) ??
-      asString(input.record.uuid) ??
-      input.fallbackKey);
-
-  return {
-    dedupeKey,
-    sample: {
-      sessionId,
-      timestampMs,
-      totalTokens,
-      model,
-    },
-  };
-}
-
-function readClaudeToolResultSample(input: {
-  record: Record<string, unknown>;
-  fallbackKey: string;
-}): { dedupeKey: string; sample: ClaudeUsageSample } | null {
-  const toolUseResult = asRecord(input.record.toolUseResult);
-  const usage = asRecord(toolUseResult?.usage);
-  const totalTokens = readClaudeTotalTokens(usage);
-  const timestampMs = parseTimestampMs(input.record.timestamp);
-  if (!toolUseResult || !usage || totalTokens <= 0 || timestampMs === null) {
-    return null;
-  }
-
-  const sessionId = asString(input.record.sessionId) ?? input.fallbackKey;
-  const dedupeKey =
-    `${sessionId}:tool-result:` +
-    (asString(input.record.uuid) ??
-      asString(toolUseResult.agentId) ??
-      asString(input.record.requestId) ??
-      input.fallbackKey);
-
-  return {
-    dedupeKey,
-    sample: {
-      sessionId,
-      timestampMs,
-      totalTokens,
-      model: null,
-    },
-  };
-}
-
-async function listRecentClaudeTranscriptFiles(
-  projectsRoot: string,
-): Promise<ReadonlyArray<string>> {
-  const candidates: string[] = [];
-  const projectEntries = await safeReadDir(projectsRoot);
-
-  for (const projectEntry of projectEntries) {
-    if (!projectEntry.isDirectory()) {
-      continue;
-    }
-
-    const projectDir = nodePath.join(projectsRoot, projectEntry.name);
-    const transcriptEntries = await safeReadDir(projectDir);
-    for (const transcriptEntry of transcriptEntries) {
-      if (transcriptEntry.isFile() && transcriptEntry.name.endsWith(".jsonl")) {
-        candidates.push(nodePath.join(projectDir, transcriptEntry.name));
-      }
-    }
-  }
-
-  return listRecentFiles(candidates);
-}
-
-async function readClaudeUsageSamples(path: string): Promise<ReadonlyArray<ClaudeUsageSample>> {
-  let fileContents: string;
-  try {
-    fileContents = await fs.readFile(path, "utf8");
-  } catch {
-    return [];
-  }
-
-  const samples: ClaudeUsageSample[] = [];
-  const seenKeys = new Set<string>();
-  const lines = fileContents.split(/\r?\n/u);
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (!line || !line.trim()) {
-      continue;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      continue;
-    }
-
-    const record = asRecord(parsed);
-    if (!record) {
-      continue;
-    }
-
-    const fallbackKey = `${path}:${index}`;
-    const assistantSample = readClaudeAssistantSample({ record, fallbackKey });
-    if (assistantSample && !seenKeys.has(assistantSample.dedupeKey)) {
-      seenKeys.add(assistantSample.dedupeKey);
-      samples.push(assistantSample.sample);
-    }
-
-    const toolResultSample = readClaudeToolResultSample({ record, fallbackKey });
-    if (toolResultSample && !seenKeys.has(toolResultSample.dedupeKey)) {
-      seenKeys.add(toolResultSample.dedupeKey);
-      samples.push(toolResultSample.sample);
-    }
-  }
-
-  return samples;
-}
-
-async function loadCodexUsageSnapshot(input: {
+async function loadPiUsageSnapshot(input: {
   homeDir: string;
   homePath?: string;
 }): Promise<UsageSnapshot | null> {
-  const codexHomeDir =
-    input.homePath?.trim() || process.env.CODEX_HOME || nodePath.join(input.homeDir, ".codex");
-  const sessionsRoot = nodePath.join(codexHomeDir, "sessions");
-  const sessionFiles = await listRecentCodexSessionFiles(sessionsRoot);
+  const piHomeDir =
+    input.homePath?.trim() || process.env.PI_HOME || nodePath.join(input.homeDir, ".pi");
+  const sessionsRoot = nodePath.join(piHomeDir, "agent", "sessions");
+  const sessionFiles = await listRecentPiSessionFiles(sessionsRoot);
   if (sessionFiles.length === 0) {
     return null;
   }
 
-  const sessionSummaries: CodexSessionSummary[] = [];
+  const sessionSummaries: PiSessionSummary[] = [];
   for (const sessionFile of sessionFiles) {
-    const summary = await readCodexSessionSummary(sessionFile);
+    const summary = await readPiSessionSummary(sessionFile);
     if (summary) {
       sessionSummaries.push(summary);
     }
@@ -493,7 +329,7 @@ async function loadCodexUsageSnapshot(input: {
   const recent30d = sessionSummaries.filter((summary) => summary.timestampMs >= cutoff30d);
 
   return {
-    provider: "codex",
+    provider: "pi",
     updatedAt: toIsoString(latestSummary.timestampMs),
     limits: latestSummary.limits,
     usageLines: buildUsageLines({
@@ -504,50 +340,7 @@ async function loadCodexUsageSnapshot(input: {
       sessions7d: recent7d.length,
       sessions30d: recent30d.length,
     }),
-    source: "codex-session-archive",
-  };
-}
-
-async function loadClaudeUsageSnapshot(input: { homeDir: string }): Promise<UsageSnapshot | null> {
-  const projectsRoot = nodePath.join(input.homeDir, ".claude", "projects");
-  const transcriptFiles = await listRecentClaudeTranscriptFiles(projectsRoot);
-  if (transcriptFiles.length === 0) {
-    return null;
-  }
-
-  const usageSamples: ClaudeUsageSample[] = [];
-  for (const transcriptFile of transcriptFiles) {
-    usageSamples.push(...(await readClaudeUsageSamples(transcriptFile)));
-  }
-
-  if (usageSamples.length === 0) {
-    return null;
-  }
-
-  const nowMs = Date.now();
-  const cutoff24h = nowMs - ONE_DAY_MS;
-  const cutoff7d = nowMs - LOOKBACK_7D_MS;
-  const cutoff30d = nowMs - LOOKBACK_30D_MS;
-  const recent24h = usageSamples.filter((sample) => sample.timestampMs >= cutoff24h);
-  const recent7d = usageSamples.filter((sample) => sample.timestampMs >= cutoff7d);
-  const recent30d = usageSamples.filter((sample) => sample.timestampMs >= cutoff30d);
-  const latestSample = usageSamples.reduce((latest, current) =>
-    current.timestampMs > latest.timestampMs ? current : latest,
-  );
-
-  return {
-    provider: "claudeAgent",
-    updatedAt: toIsoString(latestSample.timestampMs),
-    limits: [],
-    usageLines: buildUsageLines({
-      tokens24h: recent24h.reduce((total, sample) => total + sample.totalTokens, 0),
-      tokens7d: recent7d.reduce((total, sample) => total + sample.totalTokens, 0),
-      tokens30d: recent30d.reduce((total, sample) => total + sample.totalTokens, 0),
-      sessions24h: new Set(recent24h.map((sample) => sample.sessionId)).size,
-      sessions7d: new Set(recent7d.map((sample) => sample.sessionId)).size,
-      sessions30d: new Set(recent30d.map((sample) => sample.sessionId)).size,
-    }),
-    source: "claude-project-transcripts",
+    source: "pi-session-archive",
   };
 }
 
@@ -557,14 +350,11 @@ async function loadProviderUsageSnapshot(input: {
   homePath?: string;
 }): Promise<ServerGetProviderUsageSnapshotResult> {
   switch (input.provider) {
-    case "codex":
-      return loadCodexUsageSnapshot({
+    case "pi":
+      return loadPiUsageSnapshot({
         homeDir: input.homeDir,
         ...(input.homePath ? { homePath: input.homePath } : {}),
       });
-    case "claudeAgent":
-      return loadClaudeUsageSnapshot({ homeDir: input.homeDir });
-    case "gemini":
     default:
       return null;
   }

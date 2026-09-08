@@ -17,16 +17,7 @@ import { type Thread } from "../types";
 import { stripEmbeddedAssistantSelections } from "./assistantSelections";
 import { randomUUID } from "./utils";
 
-const HANDOFF_PROVIDER_ORDER: ReadonlyArray<ProviderKind> = [
-  "codex",
-  "claudeAgent",
-  "cursor",
-  "gemini",
-  "grok",
-  "kilo",
-  "opencode",
-  "pi",
-];
+const HANDOFF_PROVIDER_ORDER: ReadonlyArray<ProviderKind> = ["pi"];
 const IMPORTABLE_THREAD_ACTIVITY_KINDS = new Set([
   "account.rate-limits.updated",
   "account.rate-limited",
@@ -158,10 +149,7 @@ export function resolveThreadHandoffModelSelection(input: {
   const isCompatibleSelection = (
     selection: ModelSelection | null | undefined,
   ): selection is ModelSelection => {
-    if (!selection || selection.provider !== input.targetProvider) {
-      return false;
-    }
-    return input.targetProvider !== "kilo" || selection.model.startsWith("kilo/");
+    return !!selection && selection.provider === input.targetProvider;
   };
 
   const stickySelection = input.stickyModelSelectionByProvider[input.targetProvider];

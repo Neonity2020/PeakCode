@@ -120,18 +120,6 @@ import type {
 } from "./providerDiscovery";
 import type { ProviderCompactThreadInput } from "./provider";
 import type {
-  GatewayConfig,
-  GatewayConfigPatch,
-  GatewaySecretStatusResult,
-  GatewaySetApiKeyInput,
-  GatewayRemoveApiKeyInput,
-} from "./gateway";
-import type {
-  AgentInstallInput,
-  AgentInstallResult,
-  AgentProvisionStatusResult,
-} from "./agentProvision";
-import type {
   Automation,
   AutomationRun,
   CreateAutomationInput,
@@ -444,17 +432,6 @@ export interface NativeApi {
     readPlugin: (input: ProviderReadPluginInput) => Promise<ProviderReadPluginResult>;
     listModels: (input: ProviderListModelsInput) => Promise<ProviderListModelsResult>;
     listAgents: (input: ProviderListAgentsInput) => Promise<ProviderListAgentsResult>;
-  };
-  gateway: {
-    getConfig: () => Promise<GatewayConfig>;
-    updateConfig: (input: GatewayConfigPatch) => Promise<GatewayConfig>;
-    getSecretStatus: () => Promise<GatewaySecretStatusResult>;
-    setApiKey: (input: GatewaySetApiKeyInput) => Promise<GatewaySecretStatusResult>;
-    removeApiKey: (input: GatewayRemoveApiKeyInput) => Promise<GatewaySecretStatusResult>;
-  };
-  agent: {
-    installConfig: (input: AgentInstallInput) => Promise<AgentInstallResult>;
-    getConfigStatus: () => Promise<AgentProvisionStatusResult>;
   };
   automation: {
     list: (input: ListAutomationsInput) => Promise<ReadonlyArray<Automation>>;

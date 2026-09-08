@@ -64,7 +64,7 @@ function createProviderServiceHarness(
   cwd: string,
   hasSession = true,
   sessionCwd = cwd,
-  providerName: ProviderSession["provider"] = "codex",
+  providerName: ProviderSession["provider"] = "pi",
 ) {
   const now = new Date().toISOString();
   const runtimeEventPubSub = Effect.runSync(PubSub.unbounded<ProviderRuntimeEvent>());
@@ -263,7 +263,7 @@ describe("CheckpointReactor", () => {
       cwd,
       options?.hasSession ?? true,
       options?.providerSessionCwd ?? cwd,
-      options?.providerName ?? "codex",
+      options?.providerName ?? "pi",
     );
     const orchestrationLayer = OrchestrationEngineLive.pipe(
       Layer.provide(OrchestrationProjectionPipelineLive),
@@ -304,7 +304,7 @@ describe("CheckpointReactor", () => {
         title: "Test Project",
         workspaceRoot: options?.projectWorkspaceRoot ?? cwd,
         defaultModelSelection: {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5-codex",
         },
         createdAt,
@@ -318,7 +318,7 @@ describe("CheckpointReactor", () => {
         projectId: asProjectId("project-1"),
         title: "Thread",
         modelSelection: {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5-codex",
         },
         interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
@@ -372,7 +372,7 @@ describe("CheckpointReactor", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
-          providerName: "codex",
+          providerName: "pi",
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
@@ -385,7 +385,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.started",
       eventId: EventId.makeUnsafe("evt-turn-started-1"),
-      provider: "codex",
+      provider: "pi",
 
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
@@ -404,7 +404,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.completed",
       eventId: EventId.makeUnsafe("evt-turn-completed-1"),
-      provider: "codex",
+      provider: "pi",
 
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
@@ -475,7 +475,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.started",
       eventId: EventId.makeUnsafe("evt-turn-a-started"),
-      provider: "codex",
+      provider: "pi",
       createdAt,
       threadId,
       turnId: firstTurnId,
@@ -485,7 +485,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.completed",
       eventId: EventId.makeUnsafe("evt-turn-a-completed"),
-      provider: "codex",
+      provider: "pi",
       createdAt: new Date().toISOString(),
       threadId,
       turnId: firstTurnId,
@@ -521,7 +521,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.started",
       eventId: EventId.makeUnsafe("evt-turn-b-started"),
-      provider: "codex",
+      provider: "pi",
       createdAt: new Date().toISOString(),
       threadId,
       turnId: secondTurnId,
@@ -531,7 +531,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.completed",
       eventId: EventId.makeUnsafe("evt-turn-b-completed"),
-      provider: "codex",
+      provider: "pi",
       createdAt: new Date().toISOString(),
       threadId,
       turnId: secondTurnId,
@@ -566,7 +566,7 @@ describe("CheckpointReactor", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "running",
-          providerName: "codex",
+          providerName: "pi",
           runtimeMode: "approval-required",
           activeTurnId: turnId,
           lastError: null,
@@ -579,7 +579,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.started",
       eventId: EventId.makeUnsafe("evt-turn-started-assistant-race"),
-      provider: "codex",
+      provider: "pi",
       createdAt,
       threadId: ThreadId.makeUnsafe("thread-1"),
       turnId,
@@ -608,7 +608,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.completed",
       eventId: EventId.makeUnsafe("evt-turn-completed-assistant-race"),
-      provider: "codex",
+      provider: "pi",
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
       turnId,
@@ -661,7 +661,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.started",
       eventId: EventId.makeUnsafe("evt-turn-started-placeholder-race"),
-      provider: "codex",
+      provider: "pi",
       createdAt,
       threadId: ThreadId.makeUnsafe("thread-1"),
       turnId,
@@ -715,7 +715,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.completed",
       eventId: EventId.makeUnsafe("evt-turn-completed-placeholder-race"),
-      provider: "codex",
+      provider: "pi",
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
       turnId,
@@ -761,7 +761,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.started",
       eventId: EventId.makeUnsafe("evt-turn-started-placeholder-final"),
-      provider: "codex",
+      provider: "pi",
       createdAt,
       threadId,
       turnId,
@@ -789,7 +789,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.completed",
       eventId: EventId.makeUnsafe("evt-turn-completed-placeholder-final"),
-      provider: "codex",
+      provider: "pi",
       createdAt: new Date().toISOString(),
       threadId,
       turnId,
@@ -826,7 +826,7 @@ describe("CheckpointReactor", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "running",
-          providerName: "codex",
+          providerName: "pi",
           runtimeMode: "approval-required",
           activeTurnId: asTurnId("turn-main"),
           lastError: null,
@@ -839,7 +839,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.started",
       eventId: EventId.makeUnsafe("evt-turn-started-main"),
-      provider: "codex",
+      provider: "pi",
 
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
@@ -855,7 +855,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.completed",
       eventId: EventId.makeUnsafe("evt-turn-completed-aux"),
-      provider: "codex",
+      provider: "pi",
 
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
@@ -873,7 +873,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.completed",
       eventId: EventId.makeUnsafe("evt-turn-completed-main"),
-      provider: "codex",
+      provider: "pi",
 
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
@@ -891,7 +891,7 @@ describe("CheckpointReactor", () => {
   it("captures pre-turn and completion checkpoints for claude runtime events", async () => {
     const harness = await createHarness({
       seedFilesystemCheckpoints: false,
-      providerName: "claudeAgent",
+      providerName: "pi",
     });
     const createdAt = new Date().toISOString();
 
@@ -903,7 +903,7 @@ describe("CheckpointReactor", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
-          providerName: "claudeAgent",
+          providerName: "pi",
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
@@ -916,7 +916,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.started",
       eventId: EventId.makeUnsafe("evt-turn-started-claude-1"),
-      provider: "claudeAgent",
+      provider: "pi",
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
       turnId: asTurnId("turn-claude-1"),
@@ -930,7 +930,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.completed",
       eventId: EventId.makeUnsafe("evt-turn-completed-claude-1"),
-      provider: "claudeAgent",
+      provider: "pi",
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
       turnId: asTurnId("turn-claude-1"),
@@ -961,7 +961,7 @@ describe("CheckpointReactor", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
-          providerName: "codex",
+          providerName: "pi",
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
@@ -974,7 +974,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.completed",
       eventId: EventId.makeUnsafe("evt-turn-completed-missing-baseline"),
-      provider: "codex",
+      provider: "pi",
 
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
@@ -1049,7 +1049,7 @@ describe("CheckpointReactor", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "running",
-          providerName: "codex",
+          providerName: "pi",
           runtimeMode: "approval-required",
           activeTurnId: asTurnId("turn-missing-cwd"),
           lastError: null,
@@ -1063,7 +1063,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.completed",
       eventId: EventId.makeUnsafe("evt-turn-completed-missing-provider-cwd"),
-      provider: "codex",
+      provider: "pi",
 
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
@@ -1096,7 +1096,7 @@ describe("CheckpointReactor", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
-          providerName: "codex",
+          providerName: "pi",
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
@@ -1109,7 +1109,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "checkpoint.captured",
       eventId: EventId.makeUnsafe("evt-checkpoint-captured-3"),
-      provider: "codex",
+      provider: "pi",
 
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
@@ -1146,7 +1146,7 @@ describe("CheckpointReactor", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
-          providerName: "codex",
+          providerName: "pi",
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
@@ -1159,7 +1159,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.completed",
       eventId: EventId.makeUnsafe("evt-runtime-capture-failure"),
-      provider: "codex",
+      provider: "pi",
 
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
@@ -1170,7 +1170,7 @@ describe("CheckpointReactor", () => {
     harness.provider.emit({
       type: "turn.started",
       eventId: EventId.makeUnsafe("evt-turn-started-after-runtime-failure"),
-      provider: "codex",
+      provider: "pi",
 
       createdAt: new Date().toISOString(),
       threadId: ThreadId.makeUnsafe("thread-1"),
@@ -1198,7 +1198,7 @@ describe("CheckpointReactor", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
-          providerName: "codex",
+          providerName: "pi",
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
@@ -1265,7 +1265,7 @@ describe("CheckpointReactor", () => {
   });
 
   it("executes provider revert and emits thread.reverted for claude sessions", async () => {
-    const harness = await createHarness({ providerName: "claudeAgent" });
+    const harness = await createHarness({ providerName: "pi" });
     const createdAt = new Date().toISOString();
 
     await Effect.runPromise(
@@ -1276,7 +1276,7 @@ describe("CheckpointReactor", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
-          providerName: "claudeAgent",
+          providerName: "pi",
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,
@@ -1345,7 +1345,7 @@ describe("CheckpointReactor", () => {
         session: {
           threadId: ThreadId.makeUnsafe("thread-1"),
           status: "ready",
-          providerName: "codex",
+          providerName: "pi",
           runtimeMode: "approval-required",
           activeTurnId: null,
           lastError: null,

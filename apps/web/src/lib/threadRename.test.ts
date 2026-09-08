@@ -41,8 +41,8 @@ describe("dispatchThreadRename", () => {
       createIfMissing: {
         projectId: "project-chat" as never,
         modelSelection: {
-          provider: "codex",
-          model: "gpt-5",
+          provider: "pi",
+          model: "pi-default",
         },
         runtimeMode: "full-access",
         interactionMode: "default",

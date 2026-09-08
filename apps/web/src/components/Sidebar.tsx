@@ -1867,8 +1867,8 @@ export default function Sidebar() {
           workspaceRoot: cwd,
           createWorkspaceRootIfMissing: options.createIfMissing === true,
           defaultModelSelection: {
-            provider: "codex",
-            model: getDefaultModel("codex"),
+            provider: "pi",
+            model: "",
           },
           createdAt,
         });
@@ -2046,16 +2046,7 @@ export default function Sidebar() {
       const createdAt = new Date().toISOString();
       const trimmedExternalId = externalId.trim();
       const suffix = trimmedExternalId.slice(-8);
-      const title =
-        provider === "claudeAgent"
-          ? `Imported Claude session${suffix ? ` ${suffix}` : ""}`
-          : provider === "cursor"
-            ? `Imported Cursor session${suffix ? ` ${suffix}` : ""}`
-            : provider === "kilo"
-              ? `Imported Kilo session${suffix ? ` ${suffix}` : ""}`
-              : provider === "opencode"
-                ? `Imported OpenCode session${suffix ? ` ${suffix}` : ""}`
-                : `Imported Codex thread${suffix ? ` ${suffix}` : ""}`;
+      const title = `Imported Pi thread${suffix ? ` ${suffix}` : ""}`;
       let createdThread = false;
 
       try {
@@ -3351,7 +3342,7 @@ export default function Sidebar() {
           thread,
           draftPrompt: threadId ? (composerDraftsByThreadId[threadId]?.prompt ?? null) : null,
         }),
-        provider: thread?.modelSelection.provider ?? draftProvider ?? "codex",
+        provider: thread?.modelSelection.provider ?? draftProvider ?? "pi",
       };
     },
     [composerDraftsByThreadId, sidebarThreadSummaryById],
@@ -6013,15 +6004,15 @@ function SidebarSearchPaletteController(props: {
   const selectAllThreads = useMemo(() => createAllThreadsSelector(), []);
   const selectSidebarDisplayThreads = useMemo(() => createSidebarDisplayThreadsSelector(), []);
   const importProviderCapabilityQueries = useQueries({
-    queries: (["codex", "claudeAgent", "cursor", "kilo", "opencode"] as const).map((provider) =>
+    queries: (["pi"] as const).map((provider) =>
       providerComposerCapabilitiesQueryOptions(provider),
     ),
   });
   const threads = useStore(selectAllThreads);
   const sidebarDisplayThreads = useStore(selectSidebarDisplayThreads);
-  const importProviders: ReadonlyArray<ImportProviderKind> = (
-    ["codex", "claudeAgent", "cursor", "kilo", "opencode"] as const
-  ).filter((provider, index) => supportsThreadImport(importProviderCapabilityQueries[index]?.data));
+  const importProviders: ReadonlyArray<ImportProviderKind> = (["pi"] as const).filter(
+    (provider, index) => supportsThreadImport(importProviderCapabilityQueries[index]?.data),
+  );
   const searchPaletteThreads = useMemo<SidebarSearchThread[]>(() => {
     const threadById = new Map(threads.map((thread) => [thread.id, thread] as const));
     return sidebarDisplayThreads.flatMap((threadSummary) => {

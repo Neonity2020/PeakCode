@@ -1,19 +1,6 @@
-import { formatModelDisplayName, geminiModelOptionsFromEffortValue } from "@peakcode/shared/model";
+import { formatModelDisplayName } from "@peakcode/shared/model";
 import type {
-  ClaudeModelOptions,
-  ClaudeModelSelection,
-  CodexModelOptions,
-  CodexModelSelection,
-  CursorModelOptions,
-  CursorModelSelection,
-  GeminiModelOptions,
-  GeminiModelSelection,
-  GrokModelOptions,
-  GrokModelSelection,
-  KiloModelSelection,
   ModelSelection,
-  OpenCodeModelOptions,
-  OpenCodeModelSelection,
   PiModelOptions,
   PiModelSelection,
   ProviderKind,
@@ -47,23 +34,18 @@ export function formatProviderModelOptionName(input: {
   provider: ProviderKind;
   slug: string;
 }): string {
-  const trimmedSlug =
-    input.provider === "cursor" ? input.slug.trim().replace(/\[[^\]]*\]$/u, "") : input.slug.trim();
+  const trimmedSlug = input.slug.trim();
   if (trimmedSlug.length === 0) {
     return trimmedSlug;
   }
 
-  if (input.provider === "kilo" || input.provider === "opencode" || input.provider === "pi") {
-    const modelIdentifier = trimmedSlug.includes("/")
-      ? trimmedSlug.slice(trimmedSlug.lastIndexOf("/") + 1)
-      : trimmedSlug;
-    const sharedDisplayName = formatModelDisplayName(modelIdentifier);
-    return sharedDisplayName && sharedDisplayName !== modelIdentifier
-      ? sharedDisplayName
-      : humanizeModelIdentifier(modelIdentifier);
-  }
-
-  return formatModelDisplayName(trimmedSlug) ?? trimmedSlug;
+  const modelIdentifier = trimmedSlug.includes("/")
+    ? trimmedSlug.slice(trimmedSlug.lastIndexOf("/") + 1)
+    : trimmedSlug;
+  const sharedDisplayName = formatModelDisplayName(modelIdentifier);
+  return sharedDisplayName && sharedDisplayName !== modelIdentifier
+    ? sharedDisplayName
+    : humanizeModelIdentifier(modelIdentifier);
 }
 
 export function mergeProviderModelOptions(
@@ -153,35 +135,6 @@ export function buildNextProviderOptions(
   modelOptions: ProviderOptions | null | undefined,
   patch: Record<string, unknown>,
 ): ProviderOptions {
-  if (provider === "codex") {
-    return { ...(modelOptions as CodexModelOptions | undefined), ...patch } as CodexModelOptions;
-  }
-  if (provider === "claudeAgent") {
-    return { ...(modelOptions as ClaudeModelOptions | undefined), ...patch } as ClaudeModelOptions;
-  }
-  if (provider === "cursor") {
-    return { ...(modelOptions as CursorModelOptions | undefined), ...patch } as CursorModelOptions;
-  }
-  if (provider === "gemini") {
-    return {
-      ...(modelOptions as GeminiModelOptions | undefined),
-      thinkingLevel: undefined,
-      thinkingBudget: undefined,
-      ...patch,
-    } as GeminiModelOptions;
-  }
-  if (provider === "grok") {
-    return {
-      ...(modelOptions as GrokModelOptions | undefined),
-      ...patch,
-    } as GrokModelOptions;
-  }
-  if (provider === "opencode") {
-    return {
-      ...(modelOptions as OpenCodeModelOptions | undefined),
-      ...patch,
-    } as OpenCodeModelOptions;
-  }
   return {
     ...(modelOptions as PiModelOptions | undefined),
     ...patch,
@@ -193,51 +146,9 @@ export function buildProviderOptionPatch(
   optionId: string,
   value: string | boolean,
 ): Record<string, unknown> {
-  if (
-    provider === "gemini" &&
-    typeof value === "string" &&
-    (optionId === "thinkingLevel" || optionId === "thinkingBudget")
-  ) {
-    return geminiModelOptionsFromEffortValue(value) ?? {};
-  }
   return { [optionId]: value };
 }
 
-export function buildModelSelection(
-  provider: "codex",
-  model: string,
-  options?: CodexModelOptions | null | undefined,
-): CodexModelSelection;
-export function buildModelSelection(
-  provider: "claudeAgent",
-  model: string,
-  options?: ClaudeModelOptions | null | undefined,
-): ClaudeModelSelection;
-export function buildModelSelection(
-  provider: "cursor",
-  model: string,
-  options?: CursorModelOptions | null | undefined,
-): CursorModelSelection;
-export function buildModelSelection(
-  provider: "gemini",
-  model: string,
-  options?: GeminiModelOptions | null | undefined,
-): GeminiModelSelection;
-export function buildModelSelection(
-  provider: "grok",
-  model: string,
-  options?: GrokModelOptions | null | undefined,
-): GrokModelSelection;
-export function buildModelSelection(
-  provider: "opencode",
-  model: string,
-  options?: OpenCodeModelOptions | null | undefined,
-): OpenCodeModelSelection;
-export function buildModelSelection(
-  provider: "kilo",
-  model: string,
-  options?: OpenCodeModelOptions | null | undefined,
-): KiloModelSelection;
 export function buildModelSelection(
   provider: "pi",
   model: string,
@@ -254,62 +165,6 @@ export function buildModelSelection(
   options?: ProviderOptions | null | undefined,
 ): ModelSelection {
   switch (provider) {
-    case "codex":
-      return options
-        ? {
-            provider,
-            model,
-            options: options as CodexModelOptions,
-          }
-        : { provider, model };
-    case "claudeAgent":
-      return options
-        ? {
-            provider,
-            model,
-            options: options as ClaudeModelOptions,
-          }
-        : { provider, model };
-    case "cursor":
-      return options
-        ? {
-            provider,
-            model,
-            options: options as CursorModelOptions,
-          }
-        : { provider, model };
-    case "gemini":
-      return options
-        ? {
-            provider,
-            model,
-            options: options as GeminiModelOptions,
-          }
-        : { provider, model };
-    case "grok":
-      return options
-        ? {
-            provider,
-            model,
-            options: options as GrokModelOptions,
-          }
-        : { provider, model };
-    case "kilo":
-      return options
-        ? {
-            provider,
-            model,
-            options: options as OpenCodeModelOptions,
-          }
-        : { provider, model };
-    case "opencode":
-      return options
-        ? {
-            provider,
-            model,
-            options: options as OpenCodeModelOptions,
-          }
-        : { provider, model };
     case "pi":
       return options
         ? {

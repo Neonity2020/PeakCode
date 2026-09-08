@@ -79,12 +79,12 @@ function makeQueuedTurn(id: string): QueuedComposerTurn {
     previewText: `queued ${id}`,
     text: `queued ${id}`,
     interactionMode: "plan",
-    selectedProvider: "codex",
-    selectedModel: "gpt-5",
+    selectedProvider: "pi",
+    selectedModel: "pi-coder-xl",
     selectedPromptEffort: null,
     modelSelection: {
-      provider: "codex",
-      model: "gpt-5",
+      provider: "pi",
+      model: "pi-coder-xl",
     },
     runtimeMode: "full-access",
   };
@@ -102,12 +102,12 @@ function makeQueuedChatTurn(id: string, image?: ComposerImageAttachment): Queued
     terminalContexts: [makeTerminalContext({ id: `ctx-${id}` })],
     skills: [{ name: "check-code", path: "/skills/check-code" }],
     mentions: [{ name: "repo", path: "/mentions/repo" }],
-    selectedProvider: "codex",
-    selectedModel: "gpt-5",
+    selectedProvider: "pi",
+    selectedModel: "pi-coder-xl",
     selectedPromptEffort: null,
     modelSelection: {
-      provider: "codex",
-      model: "gpt-5",
+      provider: "pi",
+      model: "pi-coder-xl",
     },
     runtimeMode: "full-access",
     interactionMode: "default",
@@ -147,35 +147,30 @@ describe("resolvePreferredComposerModelSelection", () => {
       resolvePreferredComposerModelSelection({
         draft: {
           modelSelectionByProvider: {
-            claudeAgent: modelSelection("claudeAgent", "claude-opus-4-6", {
-              effort: "max",
+            pi: modelSelection("pi", "pi-coder-xl", {
+              thinkingLevel: "high",
             }),
           },
-          activeProvider: "claudeAgent",
+          activeProvider: "pi",
         },
-        threadModelSelection: modelSelection("codex", "gpt-5"),
-        projectModelSelection: modelSelection("codex", "gpt-5.4"),
+        threadModelSelection: modelSelection("pi", "pi-coder-s"),
+        projectModelSelection: modelSelection("pi", "pi-coder-m"),
       }),
     ).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
-        effort: "max",
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "high",
       }),
     );
   });
 
-  it("can prefer Grok draft selections", () => {
+  it("falls back to the thread model selection when no draft selection exists", () => {
     expect(
       resolvePreferredComposerModelSelection({
-        draft: {
-          modelSelectionByProvider: {
-            grok: modelSelection("grok", "grok-build"),
-          },
-          activeProvider: "grok",
-        },
-        threadModelSelection: modelSelection("codex", "gpt-5"),
-        projectModelSelection: modelSelection("codex", "gpt-5.4"),
+        draft: null,
+        threadModelSelection: modelSelection("pi", "pi-coder-s"),
+        projectModelSelection: modelSelection("pi", "pi-coder-m"),
       }),
-    ).toEqual(modelSelection("grok", "grok-build"));
+    ).toEqual(modelSelection("pi", "pi-coder-s"));
   });
 });
 
@@ -339,8 +334,8 @@ describe("composerDraftStore copyTransferableComposerState", () => {
     useComposerDraftStore.getState().setPrompt(sourceThreadId, "follow-up for the other provider");
     useComposerDraftStore.getState().setModelSelection(
       targetThreadId,
-      modelSelection("claudeAgent", "claude-sonnet-4-6", {
-        effort: "high",
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "high",
       }),
     );
 
@@ -349,15 +344,15 @@ describe("composerDraftStore copyTransferableComposerState", () => {
     expect(useComposerDraftStore.getState().draftsByThreadId[targetThreadId]).toMatchObject({
       prompt: "follow-up for the other provider",
       modelSelectionByProvider: {
-        claudeAgent: {
-          provider: "claudeAgent",
-          model: "claude-sonnet-4-6",
+        pi: {
+          provider: "pi",
+          model: "pi-coder-xl",
           options: {
-            effort: "high",
+            thinkingLevel: "high",
           },
         },
       },
-      activeProvider: "claudeAgent",
+      activeProvider: "pi",
     });
   });
 });
@@ -595,7 +590,7 @@ describe("composerDraftStore terminal contexts", () => {
     expect(mergedState.projectDraftThreadIdByProjectId).toEqual({});
   });
 
-  it("drops unsupported restored Grok reasoning efforts from legacy draft storage", () => {
+  it("restores supported Pi model options from legacy draft storage", () => {
     const persistApi = useComposerDraftStore.persist as unknown as {
       getOptions: () => {
         merge: (
@@ -608,11 +603,11 @@ describe("composerDraftStore terminal contexts", () => {
       {
         draftsByThreadId: {
           [threadId]: {
-            provider: "grok",
-            model: "grok-build",
+            provider: "pi",
+            model: "pi-coder-xl",
             modelOptions: {
-              grok: {
-                reasoningEffort: "xhigh",
+              pi: {
+                thinkingLevel: "high",
               },
             },
           },
@@ -623,8 +618,8 @@ describe("composerDraftStore terminal contexts", () => {
       useComposerDraftStore.getInitialState(),
     );
 
-    expect(mergedState.draftsByThreadId[threadId]?.modelSelectionByProvider.grok).toEqual(
-      modelSelection("grok", "grok-build"),
+    expect(mergedState.draftsByThreadId[threadId]?.modelSelectionByProvider.pi).toEqual(
+      modelSelection("pi", "pi-coder-xl", { thinkingLevel: "high" }),
     );
   });
 });
@@ -947,44 +942,42 @@ describe("composerDraftStore modelSelection", () => {
     const store = useComposerDraftStore.getState();
     store.setModelSelection(
       threadId,
-      modelSelection("codex", "gpt-5.3-codex", {
-        reasoningEffort: "xhigh",
-        fastMode: true,
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "high",
       }),
     );
 
     expect(
-      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.codex,
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.pi,
     ).toEqual(
-      modelSelection("codex", "gpt-5.3-codex", {
-        reasoningEffort: "xhigh",
-        fastMode: true,
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "high",
       }),
     );
   });
 
   it("keeps default-only model selections on the draft", () => {
     const store = useComposerDraftStore.getState();
-    store.setModelSelection(threadId, modelSelection("codex", "gpt-5.4"));
+    store.setModelSelection(threadId, modelSelection("pi", "pi-coder-xl"));
 
     expect(
-      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.codex,
-    ).toEqual(modelSelection("codex", "gpt-5.4"));
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.pi,
+    ).toEqual(modelSelection("pi", "pi-coder-xl"));
   });
 
-  it("stores Grok selections instead of dropping them during normalization", () => {
+  it("stores Pi selections instead of dropping them during normalization", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setModelSelection(threadId, modelSelection("grok", "grok-build"));
-    store.setStickyModelSelection(modelSelection("grok", "grok-build"));
+    store.setModelSelection(threadId, modelSelection("pi", "pi-coder-xl"));
+    store.setStickyModelSelection(modelSelection("pi", "pi-coder-xl"));
 
     const state = useComposerDraftStore.getState();
-    expect(state.draftsByThreadId[threadId]?.modelSelectionByProvider.grok).toEqual(
-      modelSelection("grok", "grok-build"),
+    expect(state.draftsByThreadId[threadId]?.modelSelectionByProvider.pi).toEqual(
+      modelSelection("pi", "pi-coder-xl"),
     );
-    expect(state.draftsByThreadId[threadId]?.activeProvider).toBe("grok");
-    expect(state.stickyModelSelectionByProvider.grok).toEqual(modelSelection("grok", "grok-build"));
-    expect(state.stickyActiveProvider).toBe("grok");
+    expect(state.draftsByThreadId[threadId]?.activeProvider).toBe("pi");
+    expect(state.stickyModelSelectionByProvider.pi).toEqual(modelSelection("pi", "pi-coder-xl"));
+    expect(state.stickyActiveProvider).toBe("pi");
   });
 
   it("replaces only the targeted provider options on the current model selection", () => {
@@ -992,38 +985,35 @@ describe("composerDraftStore modelSelection", () => {
 
     store.setModelSelection(
       threadId,
-      modelSelection("claudeAgent", "claude-opus-4-6", {
-        effort: "max",
-        fastMode: true,
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "high",
       }),
     );
     store.setStickyModelSelection(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
-        effort: "max",
-        fastMode: true,
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "high",
       }),
     );
 
     store.setProviderModelOptions(
       threadId,
-      "claudeAgent",
+      "pi",
       {
-        thinking: false,
+        thinkingLevel: "medium",
       },
       { persistSticky: true },
     );
 
     expect(
-      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider
-        .claudeAgent,
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.pi,
     ).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
-        thinking: false,
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "medium",
       }),
     );
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
-        thinking: false,
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.pi).toEqual(
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "medium",
       }),
     );
   });
@@ -1033,42 +1023,42 @@ describe("composerDraftStore modelSelection", () => {
 
     store.setModelSelection(
       threadId,
-      modelSelection("claudeAgent", "claude-opus-4-6", {
-        effort: "max",
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "high",
       }),
     );
 
-    store.setProviderModelOptions(threadId, "claudeAgent", {
-      thinking: true,
+    store.setProviderModelOptions(threadId, "pi", {
+      thinkingLevel: "low",
     });
 
     expect(
-      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider
-        .claudeAgent,
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.pi,
     ).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
-        thinking: true,
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "low",
       }),
     );
     expect(useComposerDraftStore.getState().stickyModelSelectionByProvider).toEqual({});
   });
 
-  it("keeps explicit off/default codex overrides on the selection", () => {
+  it("keeps explicit off/default Pi overrides on the selection", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setModelSelection(threadId, modelSelection("codex", "gpt-5.4", { fastMode: true }));
+    store.setModelSelection(
+      threadId,
+      modelSelection("pi", "pi-coder-xl", { thinkingLevel: "off" }),
+    );
 
-    store.setProviderModelOptions(threadId, "codex", {
-      reasoningEffort: "high",
-      fastMode: false,
+    store.setProviderModelOptions(threadId, "pi", {
+      thinkingLevel: "high",
     });
 
     expect(
-      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.codex,
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.pi,
     ).toEqual(
-      modelSelection("codex", "gpt-5.4", {
-        reasoningEffort: "high",
-        fastMode: false,
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "high",
       }),
     );
   });
@@ -1076,182 +1066,149 @@ describe("composerDraftStore modelSelection", () => {
   it("updates only the draft when sticky persistence is omitted", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setStickyModelSelection(
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
-    );
+    store.setStickyModelSelection(modelSelection("pi", "pi-coder-xl", { thinkingLevel: "high" }));
     store.setModelSelection(
       threadId,
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
+      modelSelection("pi", "pi-coder-xl", { thinkingLevel: "high" }),
     );
 
-    store.setProviderModelOptions(threadId, "claudeAgent", {
-      thinking: false,
+    store.setProviderModelOptions(threadId, "pi", {
+      thinkingLevel: "off",
     });
 
     expect(
-      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider
-        .claudeAgent,
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.pi,
     ).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
-        thinking: false,
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "off",
       }),
     );
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.pi).toEqual(
+      modelSelection("pi", "pi-coder-xl", { thinkingLevel: "high" }),
     );
   });
 
-  it("does not clear other provider options when setting options for a single provider", () => {
+  it("does not clear Pi options when drilling down through setModelOptions", () => {
     const store = useComposerDraftStore.getState();
-
-    // Set options for both providers
-    store.setModelOptions(
-      threadId,
-      providerModelOptions({
-        codex: { fastMode: true },
-        claudeAgent: { effort: "max" },
-      }),
-    );
-
-    // Now set options for only codex — claudeAgent should be untouched
-    store.setModelOptions(threadId, providerModelOptions({ codex: { reasoningEffort: "xhigh" } }));
-
-    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
-    expect(draft?.modelSelectionByProvider.codex?.options).toEqual({ reasoningEffort: "xhigh" });
-    expect(draft?.modelSelectionByProvider.claudeAgent?.options).toEqual({ effort: "max" });
-  });
-
-  it("preserves other provider options when switching the active model selection", () => {
-    const store = useComposerDraftStore.getState();
+    store.setModelSelection(threadId, modelSelection("pi", "pi-coder-xl"));
 
     store.setModelOptions(
       threadId,
       providerModelOptions({
-        codex: { fastMode: true },
-        claudeAgent: { effort: "max" },
+        pi: { thinkingLevel: "high" },
       }),
     );
 
-    store.setModelSelection(threadId, modelSelection("claudeAgent", "claude-opus-4-6"));
+    store.setModelOptions(threadId, providerModelOptions({ pi: { thinkingLevel: "xhigh" } }));
 
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
-    expect(draft?.modelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
+    expect(draft?.modelSelectionByProvider.pi?.options).toEqual({ thinkingLevel: "xhigh" });
+  });
+
+  it("preserves Pi options when switching the active model selection", () => {
+    const store = useComposerDraftStore.getState();
+
+    store.setModelSelection(
+      threadId,
+      modelSelection("pi", "pi-coder-xl", { thinkingLevel: "high" }),
     );
-    expect(draft?.modelSelectionByProvider.codex?.options).toEqual({ fastMode: true });
-    expect(draft?.activeProvider).toBe("claudeAgent");
+
+    store.setModelSelection(threadId, modelSelection("pi", "pi-coder-2"));
+
+    const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
+    expect(draft?.modelSelectionByProvider.pi).toEqual(
+      modelSelection("pi", "pi-coder-2", { thinkingLevel: "high" }),
+    );
+    expect(draft?.activeProvider).toBe("pi");
   });
 
   it("creates the first sticky snapshot from provider option changes", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setModelSelection(threadId, modelSelection("codex", "gpt-5.4"));
+    store.setModelSelection(threadId, modelSelection("pi", "pi-coder-xl"));
 
     store.setProviderModelOptions(
       threadId,
-      "codex",
+      "pi",
       {
-        fastMode: true,
+        thinkingLevel: "high",
       },
       { persistSticky: true },
     );
 
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toEqual(
-      modelSelection("codex", "gpt-5.4", {
-        fastMode: true,
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.pi).toEqual(
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "high",
       }),
     );
   });
 
-  it("prefers the active OpenCode thread model over a stale draft default when runtime models are available", () => {
+  it("prefers the active Pi thread model over a stale draft default when runtime models are available", () => {
     const state = deriveEffectiveComposerModelState({
       draft: {
         modelSelectionByProvider: {
-          opencode: modelSelection("opencode", "openai/gpt-5"),
+          pi: modelSelection("pi", "pi-coder-xl"),
         },
-        activeProvider: "opencode",
+        activeProvider: "pi",
       },
-      selectedProvider: "opencode",
-      threadModelSelection: modelSelection("opencode", "opencode/gpt-5-nano"),
+      selectedProvider: "pi",
+      threadModelSelection: modelSelection("pi", "pi-coder-s"),
       projectModelSelection: null,
       customModelsByProvider: {
-        codex: [],
-        claudeAgent: [],
-        cursor: [],
-        gemini: [],
-        grok: [],
-        kilo: [],
-        opencode: [],
         pi: [],
       },
       availableModelOptionsByProvider: {
-        opencode: [{ slug: "opencode/gpt-5-nano", name: "GPT-5 Nano" }],
+        pi: [{ slug: "pi-coder-s", name: "Pi Coder S" }],
       },
     });
 
-    expect(state.selectedModel).toBe("opencode/gpt-5-nano");
+    expect(state.selectedModel).toBe("pi-coder-s");
   });
 
-  it("preserves the persisted OpenCode thread model when discovery omits it", () => {
+  it("preserves the persisted Pi thread model when discovery omits it", () => {
     const state = deriveEffectiveComposerModelState({
       draft: {
         modelSelectionByProvider: {},
-        activeProvider: "opencode",
+        activeProvider: "pi",
       },
-      selectedProvider: "opencode",
-      threadModelSelection: modelSelection("opencode", "openai/gpt-5.4"),
+      selectedProvider: "pi",
+      threadModelSelection: modelSelection("pi", "pi-coder-xl"),
       projectModelSelection: null,
       customModelsByProvider: {
-        codex: [],
-        claudeAgent: [],
-        cursor: [],
-        gemini: [],
-        grok: [],
-        kilo: [],
-        opencode: [],
         pi: [],
       },
       availableModelOptionsByProvider: {
-        opencode: [
-          { slug: "openai/gpt-5-codex", name: "GPT-5-Codex" },
-          { slug: "openai/gpt-5.4-mini", name: "GPT-5.4 Mini" },
+        pi: [
+          { slug: "pi-coder-m", name: "Pi Coder M" },
+          { slug: "pi-coder-s", name: "Pi Coder S" },
         ],
       },
     });
 
-    expect(state.selectedModel).toBe("openai/gpt-5.4");
+    expect(state.selectedModel).toBe("pi-coder-xl");
   });
 
-  it("falls back to the first exposed OpenCode runtime model when the draft selection is stale", () => {
+  it("falls back to the first exposed Pi runtime model when no draft selection is present", () => {
     const state = deriveEffectiveComposerModelState({
       draft: {
-        modelSelectionByProvider: {
-          opencode: modelSelection("opencode", "openai/gpt-5"),
-        },
-        activeProvider: "opencode",
+        modelSelectionByProvider: {},
+        activeProvider: "pi",
       },
-      selectedProvider: "opencode",
+      selectedProvider: "pi",
       threadModelSelection: null,
       projectModelSelection: null,
       customModelsByProvider: {
-        codex: [],
-        claudeAgent: [],
-        cursor: [],
-        gemini: [],
-        grok: [],
-        kilo: [],
-        opencode: [],
         pi: [],
       },
       availableModelOptionsByProvider: {
-        opencode: [
-          { slug: "opencode/gpt-5-nano", name: "GPT-5 Nano" },
-          { slug: "opencode/big-pickle", name: "Big Pickle" },
+        pi: [
+          { slug: "pi-coder-s", name: "Pi Coder S" },
+          { slug: "pi-coder-m", name: "Pi Coder M" },
         ],
       },
     });
 
-    expect(state.selectedModel).toBe("opencode/gpt-5-nano");
+    expect(state.selectedModel).toBe("pi-coder-s");
   });
 
   it("preserves a selected Pi custom model when discovery omits it", () => {
@@ -1266,13 +1223,6 @@ describe("composerDraftStore modelSelection", () => {
       threadModelSelection: null,
       projectModelSelection: null,
       customModelsByProvider: {
-        codex: [],
-        claudeAgent: [],
-        cursor: [],
-        gemini: [],
-        grok: [],
-        kilo: [],
-        opencode: [],
         pi: [],
       },
       availableModelOptionsByProvider: {
@@ -1289,33 +1239,30 @@ describe("composerDraftStore modelSelection", () => {
   it("updates only the draft when sticky persistence is disabled", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setStickyModelSelection(
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
-    );
+    store.setStickyModelSelection(modelSelection("pi", "pi-coder-xl", { thinkingLevel: "high" }));
     store.setModelSelection(
       threadId,
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
+      modelSelection("pi", "pi-coder-xl", { thinkingLevel: "high" }),
     );
 
     store.setProviderModelOptions(
       threadId,
-      "claudeAgent",
+      "pi",
       {
-        thinking: false,
+        thinkingLevel: "off",
       },
       { persistSticky: false },
     );
 
     expect(
-      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider
-        .claudeAgent,
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.pi,
     ).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", {
-        thinking: false,
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "off",
       }),
     );
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.pi).toEqual(
+      modelSelection("pi", "pi-coder-xl", { thinkingLevel: "high" }),
     );
   });
 });
@@ -1445,11 +1392,11 @@ describe("composerDraftStore setModelSelection", () => {
   it("keeps explicit model overrides instead of coercing to null", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setModelSelection(threadId, modelSelection("codex", "gpt-5.3-codex"));
+    store.setModelSelection(threadId, modelSelection("pi", "pi-coder-xl"));
 
     expect(
-      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.codex,
-    ).toEqual(modelSelection("codex", "gpt-5.3-codex"));
+      useComposerDraftStore.getState().draftsByThreadId[threadId]?.modelSelectionByProvider.pi,
+    ).toEqual(modelSelection("pi", "pi-coder-xl"));
   });
 });
 
@@ -1462,44 +1409,42 @@ describe("composerDraftStore sticky composer settings", () => {
     const store = useComposerDraftStore.getState();
 
     store.setStickyModelSelection(
-      modelSelection("codex", "gpt-5.3-codex", {
-        reasoningEffort: "medium",
-        fastMode: true,
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "high",
       }),
     );
 
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toEqual(
-      modelSelection("codex", "gpt-5.3-codex", {
-        reasoningEffort: "medium",
-        fastMode: true,
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.pi).toEqual(
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "high",
       }),
     );
-    expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("codex");
+    expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("pi");
   });
 
   it("normalizes empty sticky model options by dropping selection options", () => {
     const store = useComposerDraftStore.getState();
 
-    store.setStickyModelSelection(modelSelection("codex", "gpt-5.4"));
+    store.setStickyModelSelection(modelSelection("pi", "pi-coder-xl"));
 
-    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.codex).toEqual(
-      modelSelection("codex", "gpt-5.4"),
+    expect(useComposerDraftStore.getState().stickyModelSelectionByProvider.pi).toEqual(
+      modelSelection("pi", "pi-coder-xl"),
     );
-    expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("codex");
+    expect(useComposerDraftStore.getState().stickyActiveProvider).toBe("pi");
   });
 
   it("applies sticky activeProvider to new drafts", () => {
     const store = useComposerDraftStore.getState();
     const threadId = ThreadId.makeUnsafe("thread-sticky-active-provider");
 
-    store.setStickyModelSelection(modelSelection("claudeAgent", "claude-opus-4-6"));
+    store.setStickyModelSelection(modelSelection("pi", "pi-coder-xl"));
     store.applyStickyState(threadId);
 
     expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toMatchObject({
       modelSelectionByProvider: {
-        claudeAgent: modelSelection("claudeAgent", "claude-opus-4-6"),
+        pi: modelSelection("pi", "pi-coder-xl"),
       },
-      activeProvider: "claudeAgent",
+      activeProvider: "pi",
     });
   });
 });
@@ -1511,55 +1456,54 @@ describe("composerDraftStore provider-scoped option updates", () => {
     resetComposerDraftStore();
   });
 
-  it("retains off-provider option memory without changing the active selection", () => {
+  it("retains explicit option memory when updating provider-scoped options", () => {
     const store = useComposerDraftStore.getState();
     store.setModelSelection(
       threadId,
-      modelSelection("codex", "gpt-5.3-codex", {
-        reasoningEffort: "medium",
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "high",
       }),
     );
-    store.setProviderModelOptions(threadId, "claudeAgent", { effort: "max" });
+    store.setProviderModelOptions(threadId, "pi", { thinkingLevel: "medium" });
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
-    expect(draft?.modelSelectionByProvider.codex).toEqual(
-      modelSelection("codex", "gpt-5.3-codex", { reasoningEffort: "medium" }),
+    expect(draft?.modelSelectionByProvider.pi).toEqual(
+      modelSelection("pi", "pi-coder-xl", { thinkingLevel: "medium" }),
     );
-    expect(draft?.modelSelectionByProvider.claudeAgent?.options).toEqual({ effort: "max" });
-    expect(draft?.activeProvider).toBe("codex");
+    expect(draft?.activeProvider).toBe("pi");
   });
 
-  it("retains Claude xhigh effort in provider-scoped options", () => {
+  it("retains explicit thinking-level in provider-scoped options", () => {
     const store = useComposerDraftStore.getState();
 
     store.setProviderModelOptions(
       threadId,
-      "claudeAgent",
-      { effort: "xhigh" },
-      { model: "claude-opus-4-7" },
+      "pi",
+      { thinkingLevel: "xhigh" },
+      { model: "pi-coder-2" },
     );
 
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
-    expect(draft?.modelSelectionByProvider.claudeAgent).toEqual(
-      modelSelection("claudeAgent", "claude-opus-4-7", {
-        effort: "xhigh",
+    expect(draft?.modelSelectionByProvider.pi).toEqual(
+      modelSelection("pi", "pi-coder-2", {
+        thinkingLevel: "xhigh",
       }),
     );
   });
 
-  it("retains Grok reasoning effort in provider-scoped options", () => {
+  it("retains off thinking-level in provider-scoped options", () => {
     const store = useComposerDraftStore.getState();
 
     store.setProviderModelOptions(
       threadId,
-      "grok",
-      { reasoningEffort: "high" },
-      { model: "grok-build" },
+      "pi",
+      { thinkingLevel: "off" },
+      { model: "pi-coder-xl" },
     );
 
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
-    expect(draft?.modelSelectionByProvider.grok).toEqual(
-      modelSelection("grok", "grok-build", {
-        reasoningEffort: "high",
+    expect(draft?.modelSelectionByProvider.pi).toEqual(
+      modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "off",
       }),
     );
   });

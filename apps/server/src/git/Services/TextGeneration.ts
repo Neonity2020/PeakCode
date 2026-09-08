@@ -17,7 +17,6 @@ export interface CommitMessageGenerationInput {
   branch: string | null;
   stagedSummary: string;
   stagedPatch: string;
-  codexHomePath?: string;
   /** When true, the model also returns a semantic branch name for the change. */
   includeBranch?: boolean;
   /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
@@ -42,7 +41,6 @@ export interface PrContentGenerationInput {
   commitSummary: string;
   diffSummary: string;
   diffPatch: string;
-  codexHomePath?: string;
   /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
   model?: string;
   /** Optional provider-aware selection for providers that need more than a raw model slug. */
@@ -59,7 +57,6 @@ export interface PrContentGenerationResult {
 export interface DiffSummaryGenerationInput {
   cwd: string;
   patch: string;
-  codexHomePath?: string;
   /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
   model?: string;
   /** Optional provider-aware selection for providers that need more than a raw model slug. */
@@ -155,36 +152,11 @@ export interface TextGenerationShape {
 }
 
 /**
- * CodexTextGeneration - Provider-specific Codex implementation for git text generation.
+ * PiTextGeneration - Provider-specific Pi implementation for git text generation.
  */
-export class CodexTextGeneration extends ServiceMap.Service<
-  CodexTextGeneration,
-  TextGenerationShape
->()("t3/git/Services/TextGeneration/CodexTextGeneration") {}
-
-/**
- * OpenCodeTextGeneration - Provider-specific OpenCode implementation for git text generation.
- */
-export class OpenCodeTextGeneration extends ServiceMap.Service<
-  OpenCodeTextGeneration,
-  TextGenerationShape
->()("t3/git/Services/TextGeneration/OpenCodeTextGeneration") {}
-
-/**
- * KiloTextGeneration - Provider-specific Kilo implementation for git text generation.
- */
-export class KiloTextGeneration extends ServiceMap.Service<
-  KiloTextGeneration,
-  TextGenerationShape
->()("t3/git/Services/TextGeneration/KiloTextGeneration") {}
-
-/**
- * CursorTextGeneration - Provider-specific Cursor implementation for git text generation.
- */
-export class CursorTextGeneration extends ServiceMap.Service<
-  CursorTextGeneration,
-  TextGenerationShape
->()("t3/git/Services/TextGeneration/CursorTextGeneration") {}
+export class PiTextGeneration extends ServiceMap.Service<PiTextGeneration, TextGenerationShape>()(
+  "t3/git/Services/TextGeneration/PiTextGeneration",
+) {}
 
 /**
  * TextGeneration - Service tag for commit and PR text generation.

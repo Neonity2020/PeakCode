@@ -201,23 +201,7 @@ export function useComposerCommandMenuItems(input: {
           label: `/${command.name}`,
           description: command.description ?? `Run ${provider} native command`,
         }));
-      // For the Claude provider, skills use `/` prefix just like slash commands,
-      // so merge them into the same dropdown.
-      const skillItems: ComposerCommandItem[] =
-        provider === "claudeAgent"
-          ? providerSkills
-              .filter((skill) => {
-                if (!query) return true;
-                return buildSkillSearchBlob(skill).includes(query);
-              })
-              .map((skill) => ({
-                id: `skill:${skill.path}`,
-                type: "skill" as const,
-                skill,
-                label: skill.interface?.displayName ?? skill.name,
-                description: skill.interface?.shortDescription ?? skill.description ?? skill.path,
-              }))
-          : [];
+      const skillItems: ComposerCommandItem[] = [];
       return [...builtInItems, ...providerCommandItems, ...skillItems];
     }
 

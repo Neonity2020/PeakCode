@@ -783,12 +783,10 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         ...(sourceProposedPlan !== undefined ? { sourceProposedPlan } : {}),
         createdAt: command.createdAt,
       } as const;
-      const activeProvider =
-        targetThread.session?.providerName ?? targetThread.modelSelection.provider;
       const isThreadRunning =
         targetThread.session?.status === "running" && targetThread.session.activeTurnId !== null;
-      const shouldQueue =
-        isThreadRunning && (dispatchMode === "queue" || activeProvider !== "codex");
+      // Pi is the only provider; running threads always queue turns.
+      const shouldQueue = isThreadRunning;
       const queuedEvent: Omit<OrchestrationEvent, "sequence"> = {
         ...withEventBase({
           aggregateKind: "thread",

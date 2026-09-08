@@ -131,7 +131,7 @@ function createBaseServerConfig(): ServerConfig {
     issues: [],
     providers: [
       {
-        provider: "codex",
+        provider: "pi",
         status: "ready",
         available: true,
         authStatus: "authenticated",
@@ -273,7 +273,7 @@ function createSnapshotForTargetUser(options: {
         title: "Project",
         workspaceRoot: "/repo/project",
         defaultModelSelection: {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5",
         },
         scripts: [],
@@ -288,7 +288,7 @@ function createSnapshotForTargetUser(options: {
         projectId: PROJECT_ID,
         title: THREAD_TITLE,
         modelSelection: {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5",
         },
         interactionMode: "default",
@@ -436,7 +436,7 @@ function addThreadToSnapshot(
         projectId: PROJECT_ID,
         title: "New thread",
         modelSelection: {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5",
         },
         interactionMode: "default",
@@ -2233,11 +2233,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
         terminalContexts: [],
         skills: [],
         mentions: [],
-        selectedProvider: "codex",
+        selectedProvider: "pi",
         selectedModel: "gpt-5",
         selectedPromptEffort: null,
         modelSelection: {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5",
         },
         runtimeMode: "full-access",
@@ -2255,11 +2255,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
         terminalContexts: [],
         skills: [],
         mentions: [],
-        selectedProvider: "codex",
+        selectedProvider: "pi",
         selectedModel: "gpt-5",
         selectedPromptEffort: null,
         modelSelection: {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5",
         },
         runtimeMode: "full-access",
@@ -2363,19 +2363,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("snapshots sticky codex settings into a new draft thread", async () => {
+  it("snapshots sticky Pi settings into a new draft thread", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
-        codex: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
+        pi: {
+          provider: "pi",
+          model: "pi-coder-xl",
           options: {
-            reasoningEffort: "medium",
-            fastMode: true,
+            thinkingLevel: "high",
           },
         },
       },
-      stickyActiveProvider: "codex",
+      stickyActiveProvider: "pi",
     });
 
     const mounted = await mountChatView({
@@ -2401,15 +2400,15 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]).toMatchObject({
         modelSelectionByProvider: {
-          codex: {
-            provider: "codex",
-            model: "gpt-5.3-codex",
+          pi: {
+            provider: "pi",
+            model: "pi-coder-xl",
             options: {
-              fastMode: true,
+              thinkingLevel: "high",
             },
           },
         },
-        activeProvider: "codex",
+        activeProvider: "pi",
       });
     } finally {
       await mounted.cleanup();
@@ -2534,19 +2533,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("hydrates the provider alongside a sticky claude model", async () => {
+  it("hydrates the provider alongside a sticky Pi model", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
-        claudeAgent: {
-          provider: "claudeAgent",
-          model: "claude-opus-4-6",
+        pi: {
+          provider: "pi",
+          model: "pi-coder-xl",
           options: {
-            effort: "max",
-            fastMode: true,
+            thinkingLevel: "high",
           },
         },
       },
-      stickyActiveProvider: "claudeAgent",
+      stickyActiveProvider: "pi",
     });
 
     const mounted = await mountChatView({
@@ -2566,22 +2564,21 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const newThreadPath = await waitForURL(
         mounted.router,
         (path) => UUID_ROUTE_RE.test(path),
-        "Route should have changed to a new sticky claude draft thread UUID.",
+        "Route should have changed to a new sticky Pi draft thread UUID.",
       );
       const newThreadId = newThreadPath.slice(1) as ThreadId;
 
       expect(useComposerDraftStore.getState().draftsByThreadId[newThreadId]).toMatchObject({
         modelSelectionByProvider: {
-          claudeAgent: {
-            provider: "claudeAgent",
-            model: "claude-opus-4-6",
+          pi: {
+            provider: "pi",
+            model: "pi-coder-xl",
             options: {
-              effort: "max",
-              fastMode: true,
+              thinkingLevel: "high",
             },
           },
         },
-        activeProvider: "claudeAgent",
+        activeProvider: "pi",
       });
     } finally {
       await mounted.cleanup();
@@ -2619,16 +2616,15 @@ describe("ChatView timeline estimator parity (full app)", () => {
   it("reuses the existing draft thread when the user clicks new thread again", async () => {
     useComposerDraftStore.setState({
       stickyModelSelectionByProvider: {
-        codex: {
-          provider: "codex",
-          model: "gpt-5.3-codex",
+        pi: {
+          provider: "pi",
+          model: "pi-coder-xl",
           options: {
-            reasoningEffort: "medium",
-            fastMode: true,
+            thinkingLevel: "high",
           },
         },
       },
-      stickyActiveProvider: "codex",
+      stickyActiveProvider: "pi",
     });
 
     const mounted = await mountChatView({
@@ -2654,39 +2650,37 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toMatchObject({
         modelSelectionByProvider: {
-          codex: {
-            provider: "codex",
-            model: "gpt-5.3-codex",
+          pi: {
+            provider: "pi",
+            model: "pi-coder-xl",
             options: {
-              fastMode: true,
+              thinkingLevel: "high",
             },
           },
         },
-        activeProvider: "codex",
+        activeProvider: "pi",
       });
 
       useComposerDraftStore.getState().setModelSelection(threadId, {
-        provider: "codex",
-        model: "gpt-5.4",
+        provider: "pi",
+        model: "pi-coder-2",
         options: {
-          reasoningEffort: "low",
-          fastMode: true,
+          thinkingLevel: "medium",
         },
       });
       await vi.waitFor(
         () => {
           expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toMatchObject({
             modelSelectionByProvider: {
-              codex: {
-                provider: "codex",
-                model: "gpt-5.4",
+              pi: {
+                provider: "pi",
+                model: "pi-coder-2",
                 options: {
-                  reasoningEffort: "low",
-                  fastMode: true,
+                  thinkingLevel: "medium",
                 },
               },
             },
-            activeProvider: "codex",
+            activeProvider: "pi",
           });
         },
         { timeout: 8_000, interval: 16 },
@@ -2845,15 +2839,15 @@ describe("ChatView timeline estimator parity (full app)", () => {
           terminalContexts: [],
           queuedTurns: [],
           modelSelectionByProvider: {
-            claudeAgent: {
-              provider: "claudeAgent",
-              model: "claude-opus-4-6",
+            pi: {
+              provider: "pi",
+              model: "pi-coder-xl",
               options: {
-                effort: "max",
+                thinkingLevel: "high",
               },
             },
           },
-          activeProvider: "claudeAgent",
+          activeProvider: "pi",
           runtimeMode: null,
           interactionMode: null,
         },
@@ -2939,10 +2933,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
             worktreePath: "/repo/project/.worktrees/terminal-title",
             runtimeMode: "approval-required",
             modelSelection: {
-              provider: "claudeAgent",
-              model: "claude-opus-4-6",
+              provider: "pi",
+              model: "pi-coder-xl",
               options: {
-                effort: "max",
+                thinkingLevel: "high",
               },
             },
           });

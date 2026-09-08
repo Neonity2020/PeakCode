@@ -5,11 +5,6 @@
 
 import {
   PROVIDER_DISPLAY_NAMES,
-  type GatewayChannelConfig,
-  type AgentProvisionId,
-  type AgentProvisionStatus,
-  type GatewayChannelId,
-  type GatewayConfigPatch,
   type ProviderKind,
   type ServerProviderStatus,
   type ThreadId,
@@ -47,17 +42,7 @@ import {
 import { APP_VERSION } from "../branding";
 import { SidebarHeaderNavigationControls } from "../components/SidebarHeaderNavigationControls";
 import { useDesktopTopBarTrafficLightGutterClassName } from "../hooks/useDesktopTopBarGutter";
-import {
-  ClaudeAI,
-  CursorIcon,
-  DotGrid2x3Icon,
-  Gemini,
-  GrokIcon,
-  KiloIcon,
-  OpenAI,
-  OpenCodeIcon,
-  PiIcon,
-} from "../components/Icons";
+import { DotGrid2x3Icon, PiIcon } from "../components/Icons";
 import { Button } from "../components/ui/button";
 import { Collapsible, CollapsibleContent } from "../components/ui/collapsible";
 import { Input } from "../components/ui/input";
@@ -89,16 +74,12 @@ import {
   XIcon,
 } from "../lib/icons";
 import {
-  agentConfigStatusQueryOptions,
-  gatewayConfigQueryOptions,
-  gatewaySecretStatusQueryOptions,
   serverConfigQueryOptions,
   serverQueryKeys,
   serverWorktreesQueryOptions,
 } from "../lib/serverReactQuery";
 import { cn, isMacPlatform } from "../lib/utils";
 import { newCommandId } from "../lib/utils";
-import { resolveWsHttpUrl } from "../lib/wsHttpUrl";
 import { ensureNativeApi, readNativeApi } from "../nativeApi";
 import {
   buildNotificationSettingsSupportText,
@@ -116,140 +97,7 @@ import { sameProviderOrder } from "../providerOrdering";
 
 // ── Settings taxonomy ──────────────────────────────────────────────────────
 
-// ── Model Channels (Service Gateways) ──────────────────────────────────────
-
-type ModelChannelId =
-  | "deepseek"
-  | "siliconflow"
-  | "volcano"
-  | "tongyi"
-  | "kimi"
-  | "minimax"
-  | "mimo";
-
-type ModelChannel = {
-  readonly id: ModelChannelId;
-  readonly name: string;
-  readonly subtitle: string;
-  readonly balance?: string;
-  readonly iconColor: string;
-};
-
-const MODEL_CHANNELS: ReadonlyArray<ModelChannel> = [
-  {
-    id: "deepseek",
-    name: "DeepSeek",
-    subtitle: "深度求索 · DeepSeek",
-    balance: "¥177.52",
-    iconColor: "#4D6BFA",
-  },
-  {
-    id: "siliconflow",
-    name: "硅基流动",
-    subtitle: "硅基流动 · SiliconFlow",
-    balance: "¥110.87",
-    iconColor: "#6366F1",
-  },
-  {
-    id: "volcano",
-    name: "火山方舟",
-    subtitle: "字节跳动 · 火山方舟",
-    iconColor: "#3B82F6",
-  },
-  {
-    id: "tongyi",
-    name: "通义千问",
-    subtitle: "阿里云 · 百炼平台",
-    iconColor: "#F97316",
-  },
-  {
-    id: "kimi",
-    name: "Kimi",
-    subtitle: "月之暗面 · Kimi",
-    balance: "¥13.96",
-    iconColor: "#1F2937",
-  },
-  {
-    id: "minimax",
-    name: "MiniMax",
-    subtitle: "MiniMax · 海螺 AI",
-    iconColor: "#10B981",
-  },
-  {
-    id: "mimo",
-    name: "小米 MiMo",
-    subtitle: "小米 · MiMo（Cookie 认证）",
-    iconColor: "#FF6900",
-  },
-];
-
-const AGENT_SETUP_CATALOG: ReadonlyArray<{
-  id: AgentProvisionId;
-  name: string;
-  iconClassName: string;
-}> = [
-  { id: "opencode", name: "OpenCode", iconClassName: "bg-slate-700" },
-  { id: "cursor", name: "VS Code", iconClassName: "bg-blue-500" },
-  { id: "kilo", name: "Kilo Code", iconClassName: "bg-neutral-900" },
-  { id: "claude", name: "Claude Code", iconClassName: "bg-orange-500" },
-  { id: "codex", name: "Codex", iconClassName: "bg-emerald-600" },
-  { id: "cline", name: "Cline", iconClassName: "bg-violet-600" },
-  { id: "pi", name: "pi", iconClassName: "bg-rose-500" },
-];
-
-function channelSecretStatuses(
-  channelId: GatewayChannelId,
-  statuses: ReadonlyArray<{ channelId: GatewayChannelId; secretId: string; hasApiKey: boolean }>,
-) {
-  return statuses
-    .filter((status) => status.channelId === channelId)
-    .map((status) => ({ secretId: status.secretId, hasApiKey: status.hasApiKey }));
-}
-
-function channelHasRequiredSecrets(
-  channel: GatewayChannelConfig | undefined,
-  statuses: ReadonlyArray<{ secretId: string; hasApiKey: boolean }>,
-): boolean {
-  if (!channel) return false;
-  return channel.secrets.every((secret) =>
-    statuses.some((status) => status.secretId === secret.id && status.hasApiKey),
-  );
-}
-
-function channelHasModel(channel: GatewayChannelConfig | undefined): boolean {
-  if (!channel) return false;
-  if (channel.models.some((model) => model.id.trim().length > 0)) return true;
-  return channel.model.trim().length > 0;
-}
-
-function channelIsComplete(
-  channel: GatewayChannelConfig | undefined,
-  statuses: ReadonlyArray<{ secretId: string; hasApiKey: boolean }>,
-): boolean {
-  return Boolean(
-    channel &&
-    channel.baseUrl.trim().length > 0 &&
-    channelHasModel(channel) &&
-    channelHasRequiredSecrets(channel, statuses),
-  );
-}
-
-function editableChannelModels(
-  channel: GatewayChannelConfig,
-): Array<{ id: string; label: string }> {
-  if (channel.models.length > 0) return [...channel.models];
-  return channel.model.trim() ? [{ id: channel.model, label: channel.model }] : [];
-}
-
-type InstallBinarySettingsKey =
-  | "claudeBinaryPath"
-  | "codexBinaryPath"
-  | "cursorBinaryPath"
-  | "geminiBinaryPath"
-  | "grokBinaryPath"
-  | "kiloBinaryPath"
-  | "openCodeBinaryPath"
-  | "piBinaryPath";
+type InstallBinarySettingsKey = "piBinaryPath";
 type InstallProviderSettings = {
   provider: ProviderKind;
   title: string;
@@ -261,31 +109,12 @@ type InstallProviderSettings = {
   binaryPlaceholder: string;
   binaryDescription: string;
   binaryCommand: string;
-  homePathKey?: "codexHomePath";
-  homePlaceholder?: string;
-  homeDescription?: ReactNode;
-  apiEndpointKey?: "cursorApiEndpoint";
-  apiEndpointPlaceholder?: string;
-  apiEndpointDescription?: ReactNode;
-  serverUrlKey?: "kiloServerUrl" | "openCodeServerUrl";
-  serverUrlPlaceholder?: string;
-  serverUrlDescription?: ReactNode;
-  serverPasswordKey?: "kiloServerPassword" | "openCodeServerPassword";
-  serverPasswordPlaceholder?: string;
-  serverPasswordDescription?: ReactNode;
   agentDirKey?: "piAgentDir";
   agentDirPlaceholder?: string;
   agentDirDescription?: ReactNode;
 };
 
 const PROVIDER_VISIBILITY_OPTIONS: ReadonlyArray<{ provider: ProviderKind; title: string }> = [
-  { provider: "codex", title: PROVIDER_DISPLAY_NAMES.codex },
-  { provider: "claudeAgent", title: PROVIDER_DISPLAY_NAMES.claudeAgent },
-  { provider: "cursor", title: PROVIDER_DISPLAY_NAMES.cursor },
-  { provider: "gemini", title: PROVIDER_DISPLAY_NAMES.gemini },
-  { provider: "grok", title: PROVIDER_DISPLAY_NAMES.grok },
-  { provider: "kilo", title: PROVIDER_DISPLAY_NAMES.kilo },
-  { provider: "opencode", title: PROVIDER_DISPLAY_NAMES.opencode },
   { provider: "pi", title: PROVIDER_DISPLAY_NAMES.pi },
 ];
 
@@ -356,82 +185,6 @@ const INSTALL_PROVIDER_DOCS: ReadonlyArray<{
   title: string;
 }> = [
   {
-    provider: "codex",
-    title: "Codex",
-    command: "codex",
-    docs: [
-      { docKey: "install", href: "https://help.openai.com/en/articles/11096431" },
-      { docKey: "update", href: "https://help.openai.com/en/articles/11096431" },
-      { docKey: "config", href: "https://github.com/openai/codex/blob/main/docs/config.md" },
-    ],
-  },
-  {
-    provider: "claudeAgent",
-    title: "Claude",
-    command: "claude",
-    docs: [
-      { docKey: "install", href: "https://code.claude.com/docs/en/installation" },
-      {
-        docKey: "update",
-        href: "https://code.claude.com/docs/en/installation#update-claude-code",
-      },
-      { docKey: "config", href: "https://code.claude.com/docs/en/settings" },
-    ],
-  },
-  {
-    provider: "cursor",
-    title: "Cursor",
-    command: "cursor-agent",
-    docs: [
-      { docKey: "install", href: "https://docs.cursor.com/en/cli/installation" },
-      { docKey: "update", href: "https://docs.cursor.com/en/cli/installation#updates" },
-      { docKey: "config", href: "https://docs.cursor.com/en/cli/overview" },
-    ],
-  },
-  {
-    provider: "gemini",
-    title: "Gemini",
-    command: "gemini",
-    docs: [
-      { docKey: "install", href: "https://google-gemini.github.io/gemini-cli/docs/get-started/" },
-      { docKey: "update", href: "https://github.com/google-gemini/gemini-cli" },
-      {
-        docKey: "config",
-        href: "https://google-gemini.github.io/gemini-cli/docs/get-started/configuration.html",
-      },
-    ],
-  },
-  {
-    provider: "grok",
-    title: "Grok",
-    command: "grok",
-    docs: [
-      { docKey: "install", href: "https://docs.x.ai/build/overview" },
-      { docKey: "headless", href: "https://docs.x.ai/build/cli/headless-scripting" },
-      { docKey: "config", href: "https://docs.x.ai/build/overview" },
-    ],
-  },
-  {
-    provider: "kilo",
-    title: "Kilo",
-    command: "kilo",
-    docs: [
-      { docKey: "install", href: "https://kilo.ai/docs/cli" },
-      { docKey: "update", href: "https://kilo.ai/docs/cli" },
-      { docKey: "config", href: "https://kilo.ai/docs/cli#configuration" },
-    ],
-  },
-  {
-    provider: "opencode",
-    title: "OpenCode",
-    command: "opencode",
-    docs: [
-      { docKey: "install", href: "https://opencode.ai/docs/" },
-      { docKey: "update", href: "https://opencode.ai/docs/cli/" },
-      { docKey: "config", href: "https://opencode.ai/docs/config/" },
-    ],
-  },
-  {
     provider: "pi",
     title: "Pi",
     command: "pi",
@@ -456,68 +209,13 @@ function buildInstallProviderSettings(
     provider: entry.provider,
     title: entry.title,
     docs: entry.docs.map((doc) => ({ label: docsLabel(doc.docKey), href: doc.href })),
-    binaryPathKey:
-      entry.provider === "claudeAgent"
-        ? "claudeBinaryPath"
-        : entry.provider === "cursor"
-          ? "cursorBinaryPath"
-          : entry.provider === "gemini"
-            ? "geminiBinaryPath"
-            : entry.provider === "grok"
-              ? "grokBinaryPath"
-              : entry.provider === "kilo"
-                ? "kiloBinaryPath"
-                : entry.provider === "opencode"
-                  ? "openCodeBinaryPath"
-                  : entry.provider === "pi"
-                    ? "piBinaryPath"
-                    : "codexBinaryPath",
+    binaryPathKey: "piBinaryPath",
     binaryPlaceholder: messages.settings.providers.tools.binaryPathPlaceholder(entry.title),
     binaryDescription: messages.settings.providers.tools.binaryPathDescription(entry.command),
     binaryCommand: entry.command,
-    ...(entry.provider === "codex"
-      ? {
-          homePathKey: "codexHomePath" as const,
-          homePlaceholder: messages.settings.providers.tools.homePathPlaceholder,
-          homeDescription: messages.settings.providers.tools.homePathDescription,
-        }
-      : {}),
-    ...(entry.provider === "pi"
-      ? {
-          agentDirKey: "piAgentDir" as const,
-          agentDirPlaceholder: messages.settings.providers.tools.agentDirPlaceholder,
-          agentDirDescription: messages.settings.providers.tools.agentDirDescription,
-        }
-      : {}),
-    ...(entry.provider === "cursor"
-      ? {
-          apiEndpointKey: "cursorApiEndpoint" as const,
-          apiEndpointPlaceholder: messages.settings.providers.tools.apiEndpointPlaceholder,
-          apiEndpointDescription: messages.settings.providers.tools.apiEndpointDescription,
-        }
-      : {}),
-    ...(entry.provider === "kilo" || entry.provider === "opencode"
-      ? {
-          serverUrlKey:
-            entry.provider === "kilo" ? ("kiloServerUrl" as const) : ("openCodeServerUrl" as const),
-          serverUrlPlaceholder: messages.settings.providers.tools.serverUrlPlaceholder,
-          serverUrlDescription: messages.settings.providers.tools.serverUrlDescription(entry.title),
-        }
-      : {}),
-    ...(entry.provider === "kilo" || entry.provider === "opencode"
-      ? {
-          serverPasswordKey:
-            entry.provider === "kilo"
-              ? ("kiloServerPassword" as const)
-              : ("openCodeServerPassword" as const),
-          serverPasswordPlaceholder: messages.settings.providers.tools.serverPasswordPlaceholder(
-            entry.title,
-          ),
-          serverPasswordDescription: messages.settings.providers.tools.serverPasswordDescription(
-            entry.title,
-          ),
-        }
-      : {}),
+    agentDirKey: "piAgentDir",
+    agentDirPlaceholder: messages.settings.providers.tools.agentDirPlaceholder,
+    agentDirDescription: messages.settings.providers.tools.agentDirDescription,
   }));
 }
 
@@ -716,102 +414,6 @@ function SettingsRouteView() {
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const serverWorktreesQuery = useQuery(serverWorktreesQueryOptions());
   const removeWorktreeMutation = useMutation(gitRemoveWorktreeMutationOptions({ queryClient }));
-  const gatewayConfigQuery = useQuery(gatewayConfigQueryOptions());
-  const gatewaySecretStatusQuery = useQuery(gatewaySecretStatusQueryOptions());
-  const agentConfigStatusQuery = useQuery(agentConfigStatusQueryOptions());
-  const gatewaySecretStatuses = gatewaySecretStatusQuery.data?.secrets ?? [];
-  const agentSetupRows = useMemo(() => {
-    const liveStatuses = new Map<AgentProvisionId, AgentProvisionStatus>(
-      (agentConfigStatusQuery.data?.agents ?? []).map((agent) => [agent.id, agent]),
-    );
-    return AGENT_SETUP_CATALOG.map((agent) => {
-      const liveStatus = liveStatuses.get(agent.id);
-      return {
-        id: agent.id,
-        name: agent.name,
-        iconClassName: agent.iconClassName,
-        installed: liveStatus?.installed ?? false,
-        detail:
-          liveStatus?.detail ??
-          (agentConfigStatusQuery.isError ? "Status unavailable" : "Provider needs update"),
-        configPath: liveStatus?.configPath ?? "",
-      };
-    });
-  }, [agentConfigStatusQuery.data?.agents, agentConfigStatusQuery.isError]);
-  const enabledChannelCount =
-    gatewayConfigQuery.data?.channels.filter(
-      (channel) =>
-        channel.enabled &&
-        channelIsComplete(channel, channelSecretStatuses(channel.id, gatewaySecretStatuses)),
-    ).length ?? 0;
-  const updateGatewayConfigMutation = useMutation({
-    mutationFn: async (patch: GatewayConfigPatch) => {
-      const api = ensureNativeApi();
-      return api.gateway.updateConfig(patch);
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.gateway.config() });
-      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.agent.configStatus() });
-    },
-    onError: (error) => {
-      toastManager.add({
-        title: "网关配置更新失败",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    },
-  });
-  const setGatewayApiKeyMutation = useMutation({
-    mutationFn: async (input: { channelId: string; secretId: string; apiKey: string }) => {
-      const api = ensureNativeApi();
-      return api.gateway.setApiKey(
-        input as {
-          channelId: GatewayChannelId;
-          secretId: string;
-          apiKey: string;
-        },
-      );
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.gateway.secretStatus() });
-    },
-    onError: (error) => {
-      toastManager.add({
-        title: "密钥保存失败",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    },
-  });
-  const removeGatewayApiKeyMutation = useMutation({
-    mutationFn: async (input: { channelId: string; secretId: string }) => {
-      const api = ensureNativeApi();
-      return api.gateway.removeApiKey({
-        channelId: input.channelId as GatewayChannelId,
-        secretId: input.secretId,
-      });
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.gateway.secretStatus() });
-    },
-    onError: (error) => {
-      toastManager.add({
-        title: "密钥清除失败",
-        description: error instanceof Error ? error.message : String(error),
-        type: "error",
-      });
-    },
-  });
-  const installAgentConfigMutation = useMutation({
-    mutationFn: async (agent: string) => {
-      const api = ensureNativeApi();
-      return api.agent.installConfig({ agent: agent as AgentProvisionId });
-    },
-    onSuccess: (data) => {
-      queryClient.setQueryData(serverQueryKeys.agent.configStatus(), data);
-      void queryClient.invalidateQueries({ queryKey: serverQueryKeys.agent.configStatus() });
-    },
-  });
   const syncServerReadModel = useStore((store) => store.syncServerReadModel);
   const threads = useStore(useMemo(() => createAllThreadsSelector(), []));
   const projects = useStore((store) => store.projects);
@@ -832,15 +434,6 @@ function SettingsRouteView() {
   const providerUpdatesRef = useRef<HTMLDivElement | null>(null);
   const providerInstallsRef = useRef<HTMLDivElement | null>(null);
   const [openInstallProviders, setOpenInstallProviders] = useState<Record<ProviderKind, boolean>>({
-    codex: Boolean(settings.codexBinaryPath || settings.codexHomePath),
-    claudeAgent: Boolean(settings.claudeBinaryPath),
-    cursor: Boolean(settings.cursorBinaryPath || settings.cursorApiEndpoint),
-    gemini: Boolean(settings.geminiBinaryPath),
-    grok: Boolean(settings.grokBinaryPath),
-    kilo: Boolean(settings.kiloBinaryPath || settings.kiloServerUrl || settings.kiloServerPassword),
-    opencode: Boolean(
-      settings.openCodeBinaryPath || settings.openCodeServerUrl || settings.openCodeServerPassword,
-    ),
     pi: Boolean(settings.piBinaryPath || settings.piAgentDir),
   });
   const [updatingProviders, setUpdatingProviders] = useState<ReadonlySet<ProviderKind>>(
@@ -878,19 +471,6 @@ function SettingsRouteView() {
     }),
   );
   const isProviderOrderDirty = !sameProviderOrder(settings.providerOrder, defaults.providerOrder);
-  const codexBinaryPath = settings.codexBinaryPath;
-  const codexHomePath = settings.codexHomePath;
-  const claudeBinaryPath = settings.claudeBinaryPath;
-  const cursorBinaryPath = settings.cursorBinaryPath;
-  const cursorApiEndpoint = settings.cursorApiEndpoint;
-  const geminiBinaryPath = settings.geminiBinaryPath;
-  const grokBinaryPath = settings.grokBinaryPath;
-  const kiloBinaryPath = settings.kiloBinaryPath;
-  const kiloServerUrl = settings.kiloServerUrl;
-  const kiloServerPassword = settings.kiloServerPassword;
-  const openCodeBinaryPath = settings.openCodeBinaryPath;
-  const openCodeServerUrl = settings.openCodeServerUrl;
-  const openCodeServerPassword = settings.openCodeServerPassword;
   const piBinaryPath = settings.piBinaryPath;
   const piAgentDir = settings.piAgentDir;
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
@@ -978,21 +558,7 @@ function SettingsRouteView() {
         option.slug === currentGitTextGenerationModel,
     )?.name ?? currentGitTextGenerationModel;
   const isInstallSettingsDirty =
-    settings.claudeBinaryPath !== defaults.claudeBinaryPath ||
-    settings.cursorBinaryPath !== defaults.cursorBinaryPath ||
-    settings.cursorApiEndpoint !== defaults.cursorApiEndpoint ||
-    settings.geminiBinaryPath !== defaults.geminiBinaryPath ||
-    settings.grokBinaryPath !== defaults.grokBinaryPath ||
-    settings.kiloBinaryPath !== defaults.kiloBinaryPath ||
-    settings.kiloServerUrl !== defaults.kiloServerUrl ||
-    settings.kiloServerPassword !== defaults.kiloServerPassword ||
-    settings.codexBinaryPath !== defaults.codexBinaryPath ||
-    settings.codexHomePath !== defaults.codexHomePath ||
-    settings.openCodeBinaryPath !== defaults.openCodeBinaryPath ||
-    settings.openCodeServerUrl !== defaults.openCodeServerUrl ||
-    settings.openCodeServerPassword !== defaults.openCodeServerPassword ||
-    settings.piBinaryPath !== defaults.piBinaryPath ||
-    settings.piAgentDir !== defaults.piAgentDir;
+    settings.piBinaryPath !== defaults.piBinaryPath || settings.piAgentDir !== defaults.piAgentDir;
 
   const changedSettingLabels = [
     ...(theme !== "system" ? [messages.settings.changedSettingLabel.theme] : []),
@@ -1059,14 +625,7 @@ function SettingsRouteView() {
     ...(isGitTextGenerationModelDirty
       ? [messages.settings.changedSettingLabel.gitWritingModel]
       : []),
-    ...(settings.customCodexModels.length > 0 ||
-    settings.customClaudeModels.length > 0 ||
-    settings.customCursorModels.length > 0 ||
-    settings.customGeminiModels.length > 0 ||
-    settings.customGrokModels.length > 0 ||
-    settings.customKiloModels.length > 0 ||
-    settings.customOpenCodeModels.length > 0 ||
-    settings.customPiModels.length > 0
+    ...(settings.customPiModels.length > 0
       ? [messages.settings.changedSettingLabel.customModels]
       : []),
     ...(isInstallSettingsDirty ? [messages.settings.changedSettingLabel.providerInstalls] : []),
@@ -1177,13 +736,6 @@ function SettingsRouteView() {
     resetAllThemes();
     resetSettings();
     setOpenInstallProviders({
-      codex: false,
-      claudeAgent: false,
-      cursor: false,
-      gemini: false,
-      grok: false,
-      kilo: false,
-      opencode: false,
       pi: false,
     });
     setShowRecoveryTools(false);
@@ -1511,16 +1063,7 @@ function SettingsRouteView() {
               <Select
                 value={settings.defaultProvider}
                 onValueChange={(value) => {
-                  if (
-                    value !== "codex" &&
-                    value !== "claudeAgent" &&
-                    value !== "cursor" &&
-                    value !== "gemini" &&
-                    value !== "grok" &&
-                    value !== "kilo" &&
-                    value !== "opencode" &&
-                    value !== "pi"
-                  ) {
+                  if (value !== "pi") {
                     return;
                   }
                   updateSettings({ defaultProvider: value });
@@ -1532,70 +1075,12 @@ function SettingsRouteView() {
                 >
                   <SelectValue>
                     <span className="flex items-center gap-2">
-                      {settings.defaultProvider === "claudeAgent" ? (
-                        <ClaudeAI className="size-3.5 text-foreground" />
-                      ) : settings.defaultProvider === "cursor" ? (
-                        <CursorIcon className="size-3.5 text-foreground" />
-                      ) : settings.defaultProvider === "gemini" ? (
-                        <Gemini className="size-3.5 text-foreground" />
-                      ) : settings.defaultProvider === "grok" ? (
-                        <GrokIcon className="size-3.5 text-foreground" />
-                      ) : settings.defaultProvider === "kilo" ? (
-                        <KiloIcon className="size-3.5 text-muted-foreground/70" />
-                      ) : settings.defaultProvider === "opencode" ? (
-                        <OpenCodeIcon className="size-3.5 text-muted-foreground/70" />
-                      ) : settings.defaultProvider === "pi" ? (
-                        <PiIcon className="size-3.5 text-foreground" />
-                      ) : (
-                        <OpenAI className="size-3.5" />
-                      )}
+                      <PiIcon className="size-3.5 text-foreground" />
                       {PROVIDER_DISPLAY_NAMES[settings.defaultProvider]}
                     </span>
                   </SelectValue>
                 </SelectTrigger>
                 <SelectPopup align="end" alignItemWithTrigger={false}>
-                  <SelectItem hideIndicator value="codex">
-                    <span className="flex items-center gap-2">
-                      <OpenAI className="size-3.5" />
-                      Codex
-                    </span>
-                  </SelectItem>
-                  <SelectItem hideIndicator value="claudeAgent">
-                    <span className="flex items-center gap-2">
-                      <ClaudeAI className="size-3.5 text-foreground" />
-                      Claude
-                    </span>
-                  </SelectItem>
-                  <SelectItem hideIndicator value="cursor">
-                    <span className="flex items-center gap-2">
-                      <CursorIcon className="size-3.5 text-foreground" />
-                      Cursor
-                    </span>
-                  </SelectItem>
-                  <SelectItem hideIndicator value="gemini">
-                    <span className="flex items-center gap-2">
-                      <Gemini className="size-3.5 text-foreground" />
-                      Gemini
-                    </span>
-                  </SelectItem>
-                  <SelectItem hideIndicator value="grok">
-                    <span className="flex items-center gap-2">
-                      <GrokIcon className="size-3.5 text-foreground" />
-                      Grok
-                    </span>
-                  </SelectItem>
-                  <SelectItem hideIndicator value="opencode">
-                    <span className="flex items-center gap-2">
-                      <OpenCodeIcon className="size-3.5 text-muted-foreground/70" />
-                      OpenCode
-                    </span>
-                  </SelectItem>
-                  <SelectItem hideIndicator value="kilo">
-                    <span className="flex items-center gap-2">
-                      <KiloIcon className="size-3.5 text-muted-foreground/70" />
-                      Kilo
-                    </span>
-                  </SelectItem>
                   <SelectItem hideIndicator value="pi">
                     <span className="flex items-center gap-2">
                       <PiIcon className="size-3.5 text-foreground" />
@@ -2562,331 +2047,6 @@ function SettingsRouteView() {
           />
         </div>
       </SettingsSection>
-
-      <SettingsSection title="网关代理">
-        <div className="space-y-2">
-          <SettingsRow
-            title="本地 API 网关"
-            description={
-              enabledChannelCount > 0
-                ? `已启用 ${enabledChannelCount} 个渠道。打开开关后即可通过本地端点访问。`
-                : "启动后可通过统一本地端点访问所有已启用的模型渠道。请先在下方启用至少一个渠道。"
-            }
-            control={
-              <Switch
-                checked={gatewayConfigQuery.data?.enabled ?? false}
-                disabled={updateGatewayConfigMutation.isPending}
-                onCheckedChange={(checked) => {
-                  if (checked && enabledChannelCount === 0) {
-                    toastManager.add({
-                      title: "请先启用至少一个渠道",
-                      description: "在下方「模型渠道接入」配置密钥并启用一个渠道后再打开网关。",
-                      type: "info",
-                    });
-                    return;
-                  }
-                  const config = gatewayConfigQuery.data;
-                  if (checked && config) {
-                    const activeComplete = config.channels.some(
-                      (channel) =>
-                        channel.id === config.activeChannelId &&
-                        channel.enabled &&
-                        channelIsComplete(
-                          channel,
-                          channelSecretStatuses(channel.id, gatewaySecretStatuses),
-                        ),
-                    );
-                    if (!activeComplete) {
-                      const firstComplete = config.channels.find(
-                        (channel) =>
-                          channel.enabled &&
-                          channelIsComplete(
-                            channel,
-                            channelSecretStatuses(channel.id, gatewaySecretStatuses),
-                          ),
-                      );
-                      updateGatewayConfigMutation.mutate({
-                        enabled: checked,
-                        ...(firstComplete ? { activeChannelId: firstComplete.id } : {}),
-                      });
-                      return;
-                    }
-                  }
-                  updateGatewayConfigMutation.mutate({ enabled: checked });
-                }}
-              />
-            }
-          />
-          {gatewayConfigQuery.data?.enabled ? (
-            <div className="mt-4 space-y-5 border-t border-border pt-4">
-              {/* ── Local API ── */}
-              <div>
-                <h4 className="mb-2 text-sm font-semibold text-foreground">Local API</h4>
-                <p className="mb-2 text-xs text-muted-foreground">
-                  Listening on {resolveWsHttpUrl("/gateway/openai/v1").replace(/\?token=.*/u, "")}
-                </p>
-                <div className="space-y-1">
-                  {[
-                    {
-                      label: "Root",
-                      url: resolveWsHttpUrl("/gateway/openai/v1").replace(/\?token=.*/u, ""),
-                    },
-                    {
-                      label: "Chat",
-                      url: resolveWsHttpUrl("/gateway/openai/v1/chat/completions").replace(
-                        /\?token=.*/u,
-                        "",
-                      ),
-                    },
-                    {
-                      label: "Models",
-                      url: resolveWsHttpUrl("/gateway/openai/v1/models").replace(/\?token=.*/u, ""),
-                    },
-                    {
-                      label: "Responses",
-                      url: resolveWsHttpUrl("/gateway/openai/v1/responses").replace(
-                        /\?token=.*/u,
-                        "",
-                      ),
-                    },
-                    {
-                      label: "Anthropic",
-                      url: resolveWsHttpUrl("/gateway/anthropic").replace(/\?token=.*/u, ""),
-                    },
-                  ].map((ep) => (
-                    <div
-                      key={ep.label}
-                      className="flex items-center justify-between rounded-md px-3 py-1.5 text-sm hover:bg-[var(--sidebar-accent)]"
-                    >
-                      <div className="flex items-center gap-4">
-                        <span className="w-20 text-xs text-muted-foreground">{ep.label}</span>
-                        <span className="font-mono text-xs text-foreground">{ep.url}</span>
-                      </div>
-                      <button
-                        type="button"
-                        className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-[var(--color-background-elevated-secondary)] hover:text-foreground"
-                        onClick={() => {
-                          void navigator.clipboard.writeText(ep.url);
-                          toastManager.add({ title: "Copied to clipboard", type: "success" });
-                        }}
-                        aria-label={`Copy ${ep.label} URL`}
-                      >
-                        <svg
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                        </svg>
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* ── Agent Setup ── */}
-              <div>
-                <h4 className="mb-1 text-sm font-semibold text-foreground">Agent Setup</h4>
-                <p className="mb-3 text-xs text-muted-foreground">
-                  将网关配置写入各 Agent 的本地配置文件。Codex / Claude Code
-                  经网关协议转换；OpenCode / Kilo / Cursor / pi / Cline 经 OpenAI
-                  标准协议转发。点击写入后，手动启动对应 Agent 即可用网关。
-                </p>
-                {agentConfigStatusQuery.isError ? (
-                  <p className="mb-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-300">
-                    当前无法读取本地 Agent 配置状态，但仍可点击 Update 重新写入网关配置。
-                  </p>
-                ) : null}
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {agentSetupRows.map((agent) => {
-                    const statusType = agent.installed ? "ok" : "warn";
-                    const installing =
-                      installAgentConfigMutation.isPending &&
-                      installAgentConfigMutation.variables === agent.id;
-                    return (
-                      <div
-                        key={agent.id}
-                        className="flex items-center justify-between rounded-lg border border-border/40 bg-[var(--color-background-panel)] px-3 py-2.5"
-                      >
-                        <div className="flex min-w-0 items-center gap-2.5">
-                          <div
-                            className={cn(
-                              "flex size-7 shrink-0 items-center justify-center rounded-md text-xs font-bold text-white",
-                              agent.iconClassName,
-                            )}
-                          >
-                            {agent.name.slice(0, 2).toUpperCase()}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium">{agent.name}</div>
-                            <div
-                              className={cn(
-                                "flex items-center gap-1 text-xs",
-                                statusType === "ok" && "text-emerald-500",
-                                statusType === "warn" && "text-amber-500",
-                              )}
-                            >
-                              <span
-                                className={cn(
-                                  "inline-block size-1.5 shrink-0 rounded-full",
-                                  statusType === "ok" && "bg-emerald-500",
-                                  statusType === "warn" && "bg-amber-500",
-                                )}
-                              />
-                              <span className="truncate" title={agent.configPath}>
-                                {agent.detail}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <Button
-                          size="xs"
-                          variant={agent.installed ? "outline" : "secondary"}
-                          disabled={installing}
-                          onClick={() => {
-                            installAgentConfigMutation.mutate(agent.id, {
-                              onSuccess: () => {
-                                toastManager.add({
-                                  title: `${agent.name} 配置已写入`,
-                                  description: agent.configPath,
-                                  type: "success",
-                                });
-                              },
-                              onError: (error) => {
-                                toastManager.add({
-                                  title: `${agent.name} 写入失败`,
-                                  description:
-                                    error instanceof Error ? error.message : String(error),
-                                  type: "error",
-                                });
-                              },
-                            });
-                          }}
-                        >
-                          {installing ? "Updating…" : "Update"}
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </SettingsSection>
-
-      <SettingsSection title="模型渠道接入">
-        <div className="space-y-2">
-          <SettingsRow
-            title="服务渠道"
-            description="管理第三方模型 API 渠道接入，启用网关后自动暴露对应模型。"
-            status={
-              <span className="text-[11px] text-muted-foreground">
-                ({enabledChannelCount}/{MODEL_CHANNELS.length} 已启用)
-              </span>
-            }
-          >
-            <div className="mt-4 border-t border-border pt-4">
-              <div className="space-y-1.5">
-                {MODEL_CHANNELS.map((channel) => {
-                  const serverChannel = gatewayConfigQuery.data?.channels?.find(
-                    (c) => c.id === channel.id,
-                  );
-                  const channelSecrets = channelSecretStatuses(channel.id, gatewaySecretStatuses);
-                  // A channel is enabled only when it has a key AND was
-                  // explicitly enabled. Defaults to disabled so the user can
-                  // edit base URL / models / mappings before turning it on.
-                  const channelEnabled = serverChannel ? serverChannel.enabled : false;
-                  return (
-                    <GatewayChannelCard
-                      key={channel.id}
-                      channel={channel}
-                      serverChannel={serverChannel}
-                      secretsStatus={channelSecrets}
-                      isActive={gatewayConfigQuery.data?.activeChannelId === channel.id}
-                      enabled={channelEnabled}
-                      togglePending={updateGatewayConfigMutation.isPending}
-                      onToggle={(checked) => {
-                        const config = gatewayConfigQuery.data;
-                        if (!config || !serverChannel) return;
-                        if (checked && !channelIsComplete(serverChannel, channelSecrets)) {
-                          toastManager.add({
-                            title: "渠道配置未完成",
-                            description:
-                              "请先配置 Base URL、至少一个模型，以及该渠道要求的全部密钥。",
-                            type: "info",
-                          });
-                          return;
-                        }
-                        const channels = config.channels.map((c) =>
-                          c.id === channel.id ? { ...c, enabled: checked } : c,
-                        );
-                        const isCurrentActiveComplete = channels.some((candidate) => {
-                          if (candidate.id !== config.activeChannelId) return false;
-                          return (
-                            candidate.enabled &&
-                            channelIsComplete(
-                              candidate,
-                              channelSecretStatuses(candidate.id, gatewaySecretStatuses),
-                            )
-                          );
-                        });
-                        const nextActiveChannelId =
-                          checked && !isCurrentActiveComplete
-                            ? channel.id
-                            : !checked && config.activeChannelId === channel.id
-                              ? (channels.find((candidate) => {
-                                  if (!candidate.enabled) return false;
-                                  return channelIsComplete(
-                                    candidate,
-                                    channelSecretStatuses(candidate.id, gatewaySecretStatuses),
-                                  );
-                                })?.id ?? config.activeChannelId)
-                              : config.activeChannelId;
-                        updateGatewayConfigMutation.mutate({
-                          activeChannelId: nextActiveChannelId,
-                          channels,
-                        });
-                      }}
-                      onSetActive={() => {
-                        if (!serverChannel) return;
-                        updateGatewayConfigMutation.mutate({ activeChannelId: serverChannel.id });
-                      }}
-                      onSetSecret={(secretId, apiKey) => {
-                        setGatewayApiKeyMutation.mutate({
-                          channelId: channel.id,
-                          secretId,
-                          apiKey,
-                        });
-                      }}
-                      onRemoveSecret={(secretId) => {
-                        removeGatewayApiKeyMutation.mutate({
-                          channelId: channel.id,
-                          secretId,
-                        });
-                      }}
-                      onUpdateChannel={(patch) => {
-                        // deepMerge replaces arrays, so send the full channel
-                        // list with the patched channel merged in.
-                        const channels = (gatewayConfigQuery.data?.channels ?? []).map((c) =>
-                          c.id === channel.id ? { ...c, ...patch } : c,
-                        );
-                        updateGatewayConfigMutation.mutate({ channels });
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          </SettingsRow>
-        </div>
-      </SettingsSection>
     </div>
   );
 
@@ -3061,30 +2221,10 @@ function SettingsRouteView() {
                   label={messages.settings.providers.tools.resetLabel}
                   onClick={() => {
                     updateSettings({
-                      claudeBinaryPath: defaults.claudeBinaryPath,
-                      codexBinaryPath: defaults.codexBinaryPath,
-                      codexHomePath: defaults.codexHomePath,
-                      cursorBinaryPath: defaults.cursorBinaryPath,
-                      cursorApiEndpoint: defaults.cursorApiEndpoint,
-                      geminiBinaryPath: defaults.geminiBinaryPath,
-                      grokBinaryPath: defaults.grokBinaryPath,
-                      kiloBinaryPath: defaults.kiloBinaryPath,
-                      kiloServerUrl: defaults.kiloServerUrl,
-                      kiloServerPassword: defaults.kiloServerPassword,
-                      openCodeBinaryPath: defaults.openCodeBinaryPath,
-                      openCodeServerUrl: defaults.openCodeServerUrl,
-                      openCodeServerPassword: defaults.openCodeServerPassword,
                       piAgentDir: defaults.piAgentDir,
                       piBinaryPath: defaults.piBinaryPath,
                     });
                     setOpenInstallProviders({
-                      codex: false,
-                      claudeAgent: false,
-                      cursor: false,
-                      gemini: false,
-                      grok: false,
-                      kilo: false,
-                      opencode: false,
                       pi: false,
                     });
                   }}
@@ -3097,45 +2237,8 @@ function SettingsRouteView() {
                 {buildInstallProviderSettings(messages).map((providerSettings) => {
                   const isOpen = openInstallProviders[providerSettings.provider];
                   const isDirty =
-                    providerSettings.provider === "codex"
-                      ? settings.codexBinaryPath !== defaults.codexBinaryPath ||
-                        settings.codexHomePath !== defaults.codexHomePath
-                      : providerSettings.provider === "claudeAgent"
-                        ? settings.claudeBinaryPath !== defaults.claudeBinaryPath
-                        : providerSettings.provider === "cursor"
-                          ? settings.cursorBinaryPath !== defaults.cursorBinaryPath ||
-                            settings.cursorApiEndpoint !== defaults.cursorApiEndpoint
-                          : providerSettings.provider === "gemini"
-                            ? settings.geminiBinaryPath !== defaults.geminiBinaryPath
-                            : providerSettings.provider === "grok"
-                              ? settings.grokBinaryPath !== defaults.grokBinaryPath
-                              : providerSettings.provider === "kilo"
-                                ? settings.kiloBinaryPath !== defaults.kiloBinaryPath ||
-                                  settings.kiloServerUrl !== defaults.kiloServerUrl ||
-                                  settings.kiloServerPassword !== defaults.kiloServerPassword
-                                : providerSettings.provider === "pi"
-                                  ? settings.piBinaryPath !== defaults.piBinaryPath ||
-                                    settings.piAgentDir !== defaults.piAgentDir
-                                  : settings.openCodeBinaryPath !== defaults.openCodeBinaryPath ||
-                                    settings.openCodeServerUrl !== defaults.openCodeServerUrl ||
-                                    settings.openCodeServerPassword !==
-                                      defaults.openCodeServerPassword;
-                  const binaryPathValue =
-                    providerSettings.binaryPathKey === "claudeBinaryPath"
-                      ? claudeBinaryPath
-                      : providerSettings.binaryPathKey === "cursorBinaryPath"
-                        ? cursorBinaryPath
-                        : providerSettings.binaryPathKey === "geminiBinaryPath"
-                          ? geminiBinaryPath
-                          : providerSettings.binaryPathKey === "grokBinaryPath"
-                            ? grokBinaryPath
-                            : providerSettings.binaryPathKey === "kiloBinaryPath"
-                              ? kiloBinaryPath
-                              : providerSettings.binaryPathKey === "openCodeBinaryPath"
-                                ? openCodeBinaryPath
-                                : providerSettings.binaryPathKey === "piBinaryPath"
-                                  ? piBinaryPath
-                                  : codexBinaryPath;
+                    settings.piBinaryPath !== defaults.piBinaryPath ||
+                    settings.piAgentDir !== defaults.piAgentDir;
                   const providerStatus = providerStatusByProvider.get(providerSettings.provider);
                   const providerUpdateLabel = providerStatus
                     ? providerUpdateStatusLabel(providerStatus)
@@ -3268,27 +2371,9 @@ function SettingsRouteView() {
                                 <Input
                                   id={`provider-install-${providerSettings.binaryPathKey}`}
                                   className="mt-1"
-                                  value={binaryPathValue}
+                                  value={piBinaryPath}
                                   onChange={(event) =>
-                                    updateSettings(
-                                      providerSettings.binaryPathKey === "claudeBinaryPath"
-                                        ? { claudeBinaryPath: event.target.value }
-                                        : providerSettings.binaryPathKey === "cursorBinaryPath"
-                                          ? { cursorBinaryPath: event.target.value }
-                                          : providerSettings.binaryPathKey === "geminiBinaryPath"
-                                            ? { geminiBinaryPath: event.target.value }
-                                            : providerSettings.binaryPathKey === "grokBinaryPath"
-                                              ? { grokBinaryPath: event.target.value }
-                                              : providerSettings.binaryPathKey === "kiloBinaryPath"
-                                                ? { kiloBinaryPath: event.target.value }
-                                                : providerSettings.binaryPathKey ===
-                                                    "openCodeBinaryPath"
-                                                  ? { openCodeBinaryPath: event.target.value }
-                                                  : providerSettings.binaryPathKey ===
-                                                      "piBinaryPath"
-                                                    ? { piBinaryPath: event.target.value }
-                                                    : { codexBinaryPath: event.target.value },
-                                    )
+                                    updateSettings({ piBinaryPath: event.target.value })
                                   }
                                   placeholder={providerSettings.binaryPlaceholder}
                                   spellCheck={false}
@@ -3308,34 +2393,6 @@ function SettingsRouteView() {
                                     )}
                                 </span>
                               </label>
-
-                              {providerSettings.homePathKey ? (
-                                <label
-                                  htmlFor={`provider-install-${providerSettings.homePathKey}`}
-                                  className="block"
-                                >
-                                  <span className="block text-xs font-medium text-foreground">
-                                    {messages.settings.providers.tools.homePathLabel}
-                                  </span>
-                                  <Input
-                                    id={`provider-install-${providerSettings.homePathKey}`}
-                                    className="mt-1"
-                                    value={codexHomePath}
-                                    onChange={(event) =>
-                                      updateSettings({
-                                        codexHomePath: event.target.value,
-                                      })
-                                    }
-                                    placeholder={providerSettings.homePlaceholder}
-                                    spellCheck={false}
-                                  />
-                                  {providerSettings.homeDescription ? (
-                                    <span className="mt-1 block text-xs text-muted-foreground">
-                                      {providerSettings.homeDescription}
-                                    </span>
-                                  ) : null}
-                                </label>
-                              ) : null}
 
                               {providerSettings.agentDirKey ? (
                                 <label
@@ -3360,106 +2417,6 @@ function SettingsRouteView() {
                                   {providerSettings.agentDirDescription ? (
                                     <span className="mt-1 block text-xs text-muted-foreground">
                                       {providerSettings.agentDirDescription}
-                                    </span>
-                                  ) : null}
-                                </label>
-                              ) : null}
-
-                              {providerSettings.apiEndpointKey ? (
-                                <label
-                                  htmlFor={`provider-install-${providerSettings.apiEndpointKey}`}
-                                  className="block"
-                                >
-                                  <span className="block text-xs font-medium text-foreground">
-                                    {messages.settings.providers.tools.apiEndpointLabel}
-                                  </span>
-                                  <Input
-                                    id={`provider-install-${providerSettings.apiEndpointKey}`}
-                                    className="mt-1"
-                                    value={cursorApiEndpoint}
-                                    onChange={(event) =>
-                                      updateSettings({
-                                        cursorApiEndpoint: event.target.value,
-                                      })
-                                    }
-                                    placeholder={providerSettings.apiEndpointPlaceholder}
-                                    spellCheck={false}
-                                  />
-                                  {providerSettings.apiEndpointDescription ? (
-                                    <span className="mt-1 block text-xs text-muted-foreground">
-                                      {providerSettings.apiEndpointDescription}
-                                    </span>
-                                  ) : null}
-                                </label>
-                              ) : null}
-
-                              {providerSettings.serverUrlKey ? (
-                                <label
-                                  htmlFor={`provider-install-${providerSettings.serverUrlKey}`}
-                                  className="block"
-                                >
-                                  <span className="block text-xs font-medium text-foreground">
-                                    {messages.settings.providers.tools.serverUrlLabel(
-                                      providerSettings.title,
-                                    )}
-                                  </span>
-                                  <Input
-                                    id={`provider-install-${providerSettings.serverUrlKey}`}
-                                    className="mt-1"
-                                    value={
-                                      providerSettings.serverUrlKey === "kiloServerUrl"
-                                        ? kiloServerUrl
-                                        : openCodeServerUrl
-                                    }
-                                    onChange={(event) =>
-                                      updateSettings(
-                                        providerSettings.serverUrlKey === "kiloServerUrl"
-                                          ? { kiloServerUrl: event.target.value }
-                                          : { openCodeServerUrl: event.target.value },
-                                      )
-                                    }
-                                    placeholder={providerSettings.serverUrlPlaceholder}
-                                    spellCheck={false}
-                                  />
-                                  {providerSettings.serverUrlDescription ? (
-                                    <span className="mt-1 block text-xs text-muted-foreground">
-                                      {providerSettings.serverUrlDescription}
-                                    </span>
-                                  ) : null}
-                                </label>
-                              ) : null}
-
-                              {providerSettings.serverPasswordKey ? (
-                                <label
-                                  htmlFor={`provider-install-${providerSettings.serverPasswordKey}`}
-                                  className="block"
-                                >
-                                  <span className="block text-xs font-medium text-foreground">
-                                    {messages.settings.providers.tools.serverPasswordLabel(
-                                      providerSettings.title,
-                                    )}
-                                  </span>
-                                  <Input
-                                    id={`provider-install-${providerSettings.serverPasswordKey}`}
-                                    className="mt-1"
-                                    value={
-                                      providerSettings.serverPasswordKey === "kiloServerPassword"
-                                        ? kiloServerPassword
-                                        : openCodeServerPassword
-                                    }
-                                    onChange={(event) =>
-                                      updateSettings(
-                                        providerSettings.serverPasswordKey === "kiloServerPassword"
-                                          ? { kiloServerPassword: event.target.value }
-                                          : { openCodeServerPassword: event.target.value },
-                                      )
-                                    }
-                                    placeholder={providerSettings.serverPasswordPlaceholder}
-                                    spellCheck={false}
-                                  />
-                                  {providerSettings.serverPasswordDescription ? (
-                                    <span className="mt-1 block text-xs text-muted-foreground">
-                                      {providerSettings.serverPasswordDescription}
                                     </span>
                                   ) : null}
                                 </label>
@@ -3680,457 +2637,6 @@ function SettingsRouteView() {
         defaultExpandedVersion={APP_VERSION}
       />
     </SidebarInset>
-  );
-}
-
-/**
- * One gateway-channel row in the "模型渠道接入" section. The header carries the
- * icon, name, status hint, an explicit configure button, and the enable toggle.
- * Disabled channels are editable in the inline panel; enabled channels are
- * locked until the user turns them off.
- *
- * This is the single place channel secrets are edited — there is no separate
- * "API Keys" section anymore, so the channel list and its credentials stay in
- * one place.
- */
-function GatewayChannelCard(props: {
-  channel: ModelChannel;
-  serverChannel: GatewayChannelConfig | undefined;
-  secretsStatus: ReadonlyArray<{ secretId: string; hasApiKey: boolean }>;
-  isActive: boolean;
-  enabled: boolean;
-  togglePending: boolean;
-  onToggle: (enabled: boolean) => void;
-  onSetActive: () => void;
-  onSetSecret: (secretId: string, value: string) => void;
-  onRemoveSecret: (secretId: string) => void;
-  onUpdateChannel: (patch: Partial<GatewayChannelConfig>) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const totalSecrets = props.serverChannel?.secrets.length ?? 0;
-  const configuredSecrets = props.secretsStatus.filter((s) => s.hasApiKey).length;
-  const hasAllSecrets =
-    Boolean(props.serverChannel) &&
-    channelHasRequiredSecrets(props.serverChannel, props.secretsStatus);
-  const hasModel = channelHasModel(props.serverChannel);
-  const hasBaseUrl = Boolean(props.serverChannel?.baseUrl.trim());
-  const canEnable = Boolean(props.serverChannel) && hasAllSecrets && hasModel && hasBaseUrl;
-  // Once a channel is enabled, its config (base URL / models / mappings) is
-  // locked — the user must disable it first to avoid editing a live channel.
-  // This matches the workflow: disable → edit → re-enable.
-  const locked = props.enabled;
-  const hint = !props.serverChannel
-    ? "未加载"
-    : !hasBaseUrl
-      ? "未配置 Base URL"
-      : !hasModel
-        ? "未配置模型"
-        : hasAllSecrets
-          ? "配置已就绪"
-          : totalSecrets > 1
-            ? `${configuredSecrets}/${totalSecrets} 密钥已设置`
-            : "未配置密钥";
-  return (
-    <div className="overflow-hidden rounded-lg border border-border/40">
-      <div
-        role="button"
-        tabIndex={0}
-        className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 transition-colors hover:bg-[var(--sidebar-accent)]"
-        onClick={() => setExpanded((value) => !value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setExpanded((value) => !value);
-          }
-        }}
-      >
-        <div
-          className="flex size-8 shrink-0 items-center justify-center rounded-md"
-          style={{ backgroundColor: props.channel.iconColor }}
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="white"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M12 2L2 7l10 5 10-5-10-5z" />
-            <path d="M2 17l10 5 10-5" />
-            <path d="M2 12l10 5 10-5" />
-          </svg>
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <span>{props.channel.name}</span>
-            {props.isActive ? (
-              <span className="rounded bg-[var(--sidebar-accent)] px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                默认
-              </span>
-            ) : null}
-            {hint ? <span className="text-[11px] text-muted-foreground/70">{hint}</span> : null}
-          </div>
-          <div className="text-xs text-muted-foreground">{props.channel.subtitle}</div>
-        </div>
-        <div className="flex items-center gap-2">
-          <ChevronRightIcon
-            aria-hidden="true"
-            className={cn(
-              "size-4 shrink-0 text-muted-foreground/60 transition-transform",
-              expanded && "rotate-90",
-            )}
-          />
-          <Button
-            type="button"
-            size="xs"
-            variant="outline"
-            disabled={!props.serverChannel}
-            onClick={(event) => {
-              event.stopPropagation();
-              setExpanded((value) => !value);
-            }}
-          >
-            {expanded ? "收起" : "配置"}
-          </Button>
-          <Switch
-            checked={props.enabled}
-            // Cannot enable a channel until its Base URL, model, and all secret
-            // slots are configured.
-            disabled={props.togglePending || (!props.enabled && !canEnable)}
-            onCheckedChange={(checked) => props.onToggle(checked)}
-            onClick={(e) => e.stopPropagation()}
-          />
-        </div>
-      </div>
-      {expanded && props.serverChannel ? (
-        <div className="space-y-4 border-t border-border/40 bg-[var(--color-background-elevated-secondary)]/30 px-3 py-3">
-          {locked ? (
-            <p className="text-[11px] text-muted-foreground/70">
-              渠道已启用，Base URL / 密钥 / 模型 / 映射已锁定。关闭开关后可修改。
-            </p>
-          ) : null}
-          <ChannelBaseUrlField
-            value={props.serverChannel.baseUrl}
-            disabled={locked}
-            onChange={(baseUrl) => props.onUpdateChannel({ baseUrl })}
-          />
-          {/* Secrets are always editable — the user updates keys even while a
-              channel is live (the new value takes effect on the next request). */}
-          <ChannelSecretsRow
-            channel={props.serverChannel}
-            secretsStatus={props.secretsStatus}
-            disabled={locked}
-            onSetSecret={props.onSetSecret}
-            onRemoveSecret={props.onRemoveSecret}
-          />
-          <ChannelModelsEditor
-            models={editableChannelModels(props.serverChannel)}
-            disabled={locked}
-            onChange={(models) => props.onUpdateChannel({ models, model: models[0]?.id ?? "" })}
-          />
-          <ChannelAgentMappingsEditor
-            models={editableChannelModels(props.serverChannel)}
-            mappings={props.serverChannel.agentMappings}
-            disabled={locked}
-            onChange={(agentMappings) => props.onUpdateChannel({ agentMappings })}
-          />
-          {!props.isActive ? (
-            <Button
-              size="xs"
-              variant="outline"
-              disabled={!props.enabled || !canEnable}
-              onClick={props.onSetActive}
-            >
-              设为默认渠道
-            </Button>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-/** Editable Base URL field for a channel. */
-function ChannelBaseUrlField(props: {
-  value: string;
-  disabled?: boolean;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="space-y-1">
-      <label className="text-xs font-medium text-muted-foreground">Base URL</label>
-      <Input
-        value={props.value}
-        disabled={props.disabled}
-        onChange={(e) => props.onChange(e.target.value)}
-        placeholder="https://api.example.com/v1"
-        className="h-8 text-xs"
-      />
-    </div>
-  );
-}
-
-/** Add/remove models for a channel. The first entry is the default. */
-function ChannelModelsEditor(props: {
-  models: ReadonlyArray<{ id: string; label: string }>;
-  disabled?: boolean;
-  onChange: (models: Array<{ id: string; label: string }>) => void;
-}) {
-  const [newId, setNewId] = useState("");
-  const addModel = () => {
-    const trimmed = newId.trim();
-    if (!trimmed) return;
-    if (props.models.some((m) => m.id === trimmed)) return;
-    props.onChange([...props.models, { id: trimmed, label: trimmed }]);
-    setNewId("");
-  };
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-muted-foreground">模型</label>
-        <span className="text-[11px] text-muted-foreground/70">
-          {props.models.length === 0 ? "使用默认模型" : `${props.models.length} 个模型`}
-        </span>
-      </div>
-      {props.models.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground/60">未配置模型，将使用渠道默认模型字段。</p>
-      ) : (
-        <div className="space-y-1">
-          {props.models.map((model, index) => (
-            <div key={model.id} className="flex items-center gap-2">
-              <span className="flex-1 truncate font-mono text-xs text-foreground">{model.id}</span>
-              {index === 0 ? (
-                <span className="rounded bg-[var(--sidebar-accent)] px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  默认
-                </span>
-              ) : null}
-              <button
-                type="button"
-                disabled={props.disabled}
-                className="rounded p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                onClick={() => {
-                  if (props.disabled) return;
-                  // Removing the default promotes the next entry; if the list
-                  // becomes empty the channel falls back to its `model` field.
-                  if (index === 0) {
-                    props.onChange(props.models.slice(1));
-                  } else {
-                    props.onChange(props.models.filter((_, i) => i !== index));
-                  }
-                }}
-                aria-label={`移除 ${model.id}`}
-              >
-                <XIcon className="size-3.5" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="flex items-center gap-2">
-        <Input
-          value={newId}
-          disabled={props.disabled}
-          onChange={(e) => setNewId(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              addModel();
-            }
-          }}
-          placeholder="模型 id，如 deepseek-reasoner"
-          className="h-7 flex-1 text-xs"
-        />
-        <Button
-          size="xs"
-          variant="outline"
-          onClick={addModel}
-          disabled={props.disabled || !newId.trim()}
-        >
-          添加
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/** Per-agent (Codex / Claude Code) model mapping for a channel. */
-function ChannelAgentMappingsEditor(props: {
-  models: ReadonlyArray<{ id: string; label: string }>;
-  mappings: { readonly codex?: string | undefined; readonly claude?: string | undefined };
-  disabled?: boolean;
-  onChange: (mappings: { codex?: string; claude?: string }) => void;
-}) {
-  const options = props.models;
-  // Builds a mappings object that omits empty values, so we never assign
-  // `undefined` to an optional field (forbidden by exactOptionalPropertyTypes).
-  const buildMappings = (
-    agent: "codex" | "claude",
-    value: string,
-  ): {
-    codex?: string;
-    claude?: string;
-  } => {
-    const trimmed = value.trim();
-    const next: { codex?: string; claude?: string } = {};
-    if (agent !== "codex" && props.mappings.codex) next.codex = props.mappings.codex;
-    if (agent !== "claude" && props.mappings.claude) next.claude = props.mappings.claude;
-    if (trimmed) next[agent] = trimmed;
-    return next;
-  };
-  const renderSelect = (agent: "codex" | "claude", label: string, description: string) => {
-    const current = props.mappings[agent];
-    return (
-      <div className="space-y-1">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-medium text-muted-foreground">{label}</label>
-          {current ? (
-            <button
-              type="button"
-              className="text-[11px] text-muted-foreground/70 hover:text-foreground"
-              onClick={() => props.onChange(buildMappings(agent, ""))}
-            >
-              清除
-            </button>
-          ) : null}
-        </div>
-        <select
-          value={current ?? ""}
-          disabled={props.disabled}
-          onChange={(e) => {
-            props.onChange(buildMappings(agent, e.target.value));
-          }}
-          className="h-8 w-full rounded-md border border-border/40 bg-transparent px-2 text-xs text-foreground disabled:opacity-50"
-        >
-          <option value="">使用渠道默认模型</option>
-          {options.map((model) => (
-            <option key={model.id} value={model.id}>
-              {model.label}
-            </option>
-          ))}
-        </select>
-        <p className="text-[10px] text-muted-foreground/60">{description}</p>
-      </div>
-    );
-  };
-  return (
-    <div className="space-y-2">
-      <label className="text-xs font-medium text-muted-foreground">Agent 模型映射</label>
-      <p className="text-[11px] text-muted-foreground/70">
-        为每个 Agent 单独指定该渠道使用的模型。Codex 走 OpenAI 协议，Claude Code 走 Anthropic 协议。
-      </p>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {renderSelect("codex", "Codex", "注入到 Codex config.toml 的 model 字段")}
-        {renderSelect("claude", "Claude Code", "通过 ANTHROPIC_BASE_URL 路由时的模型")}
-      </div>
-    </div>
-  );
-}
-
-function ChannelSecretsRow(props: {
-  channel: GatewayChannelConfig;
-  secretsStatus: ReadonlyArray<{ secretId: string; hasApiKey: boolean }>;
-  disabled?: boolean;
-  onSetSecret: (secretId: string, value: string) => void;
-  onRemoveSecret: (secretId: string) => void;
-}) {
-  if (props.channel.secrets.length === 0) {
-    return (
-      <div className="rounded-md border border-border/40 px-3 py-2 text-xs text-muted-foreground">
-        {props.channel.name}：该渠道未声明任何密钥。
-      </div>
-    );
-  }
-  return (
-    <div className="space-y-1.5">
-      {props.channel.secrets.map((def) => {
-        const status = props.secretsStatus.find((s) => s.secretId === def.id);
-        const hasApiKey = status?.hasApiKey ?? false;
-        const disabled = props.disabled ?? false;
-        return (
-          <SecretSlotRow
-            key={def.id}
-            label={def.label}
-            sensitive={def.sensitive}
-            hasApiKey={hasApiKey}
-            disabled={disabled}
-            onSet={(value) => props.onSetSecret(def.id, value)}
-            onRemove={() => props.onRemoveSecret(def.id)}
-          />
-        );
-      })}
-    </div>
-  );
-}
-
-function SecretSlotRow(props: {
-  label: string;
-  sensitive: boolean;
-  hasApiKey: boolean;
-  disabled?: boolean;
-  onSet: (value: string) => void;
-  onRemove: () => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState("");
-  const inputType = props.sensitive ? "password" : "text";
-  const placeholder = props.sensitive ? "粘贴密钥…" : "粘贴值…";
-  return (
-    <div className="flex items-center justify-between rounded-md border border-border/40 px-3 py-2">
-      <div className="flex min-w-0 flex-col">
-        <span className="text-sm font-medium">{props.label}</span>
-        <span className="text-[11px] text-muted-foreground/70">
-          {props.hasApiKey ? "已设置" : "未设置"}
-        </span>
-      </div>
-      {editing ? (
-        <div className="flex items-center gap-2">
-          <Input
-            type={inputType}
-            value={value}
-            disabled={props.disabled}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder={placeholder}
-            className="h-7 w-48 text-xs"
-          />
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={props.disabled}
-            onClick={() => {
-              if (value.trim()) {
-                props.onSet(value.trim());
-              }
-              setEditing(false);
-              setValue("");
-            }}
-          >
-            保存
-          </Button>
-          <Button size="xs" variant="outline" onClick={() => setEditing(false)}>
-            取消
-          </Button>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2">
-          <Button
-            size="xs"
-            variant="outline"
-            disabled={props.disabled}
-            onClick={() => setEditing(true)}
-          >
-            {props.hasApiKey ? "更新" : "设置"}
-          </Button>
-          {props.hasApiKey ? (
-            <Button size="xs" variant="outline" disabled={props.disabled} onClick={props.onRemove}>
-              清除
-            </Button>
-          ) : null}
-        </div>
-      )}
-    </div>
   );
 }
 

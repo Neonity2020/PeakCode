@@ -95,7 +95,7 @@ function getWindowForTest(): Window & typeof globalThis & { desktopBridge?: unkn
 
 const defaultProviders: ReadonlyArray<ServerProviderStatus> = [
   {
-    provider: "codex",
+    provider: "pi",
     status: "ready",
     available: true,
     authStatus: "authenticated",
@@ -277,34 +277,10 @@ describe("wsNativeApi", () => {
     const payload = {
       settings: {
         enableAssistantStreaming: true,
-        defaultThreadEnvMode: "local",
+        defaultThreadEnvMode: "local" as const,
         addProjectBaseDirectory: "",
-        textGenerationModelSelection: { provider: "codex", model: "gpt-5.4-mini" },
-        gateway: {
-          enabled: false,
-          activeChannelId: "deepseek" as const,
-          channels: [],
-        },
+        textGenerationModelSelection: { provider: "pi" as const, model: "pi-coding-agent" },
         providers: {
-          codex: { enabled: true, binaryPath: "codex", homePath: "", customModels: [] },
-          claudeAgent: { enabled: true, binaryPath: "claude", launchArgs: "", customModels: [] },
-          cursor: { enabled: false, binaryPath: "agent", apiEndpoint: "", customModels: [] },
-          gemini: { enabled: true, binaryPath: "gemini", customModels: [] },
-          grok: { enabled: true, binaryPath: "grok", customModels: [] },
-          kilo: {
-            enabled: true,
-            binaryPath: "kilo",
-            serverUrl: "",
-            serverPassword: "",
-            customModels: [],
-          },
-          opencode: {
-            enabled: true,
-            binaryPath: "opencode",
-            serverUrl: "",
-            serverPassword: "",
-            customModels: [],
-          },
           pi: { enabled: true, binaryPath: "pi", agentDir: "", customModels: [] },
         },
       },
@@ -401,8 +377,8 @@ describe("wsNativeApi", () => {
       title: "Project",
       workspaceRoot: "/tmp/project",
       defaultModelSelection: {
-        provider: "codex",
-        model: "gpt-5-codex",
+        provider: "pi",
+        model: "pi-coding-agent",
       },
       createdAt: "2026-02-24T00:00:00.000Z",
     } as const;
@@ -630,7 +606,7 @@ describe("wsNativeApi", () => {
     const { createWsNativeApi } = await import("./wsNativeApi");
     const api = createWsNativeApi();
     await api.server.transcribeVoice({
-      provider: "codex",
+      provider: "pi",
       cwd: "/repo",
       audioBase64: "UklGRgAAAAAAAAAAAAAAAAAAAAA=",
       mimeType: "audio/wav",
@@ -639,7 +615,7 @@ describe("wsNativeApi", () => {
     });
 
     expect(transcribeVoice).toHaveBeenCalledWith({
-      provider: "codex",
+      provider: "pi",
       cwd: "/repo",
       audioBase64: "UklGRgAAAAAAAAAAAAAAAAAAAAA=",
       mimeType: "audio/wav",

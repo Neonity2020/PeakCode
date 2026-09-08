@@ -187,18 +187,16 @@ layer("OrchestrationEventStore", (it) => {
           ? projectCreated.payload.defaultModelSelection
           : null,
         {
-          provider: "codex",
+          provider: "pi",
           model: "imported-project-model",
         },
       );
       assert.deepStrictEqual(
         threadCreated?.type === "thread.created" ? threadCreated.payload.modelSelection : null,
         {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5.5",
-          options: {
-            reasoningEffort: "medium",
-          },
+          options: { thinkingLevel: "medium" },
         },
       );
       assert.deepStrictEqual(
@@ -206,11 +204,9 @@ layer("OrchestrationEventStore", (it) => {
           ? turnStartRequested.payload.modelSelection
           : null,
         {
-          provider: "codex",
+          provider: "pi",
           model: "gpt-5.5",
-          options: {
-            reasoningEffort: "medium",
-          },
+          options: { thinkingLevel: "medium" },
         },
       );
     }),

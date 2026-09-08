@@ -5,9 +5,9 @@ describe("groupCommandItems", () => {
   it("groups mention suggestions as plugins, local, then subagents", () => {
     const items: ComposerCommandItem[] = [
       {
-        id: "agent:codex:mini",
+        id: "agent:pi:mini",
         type: "agent",
-        provider: "codex",
+        provider: "pi",
         alias: "mini",
         color: "violet",
         label: "@mini",

@@ -159,7 +159,7 @@ describe("shouldShowComposerModelBootstrapSkeleton", () => {
   it("shows a skeleton while a provider requires runtime-discovered models", () => {
     expect(
       shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "cursor",
+        selectedProvider: "pi",
         selectedModel: "auto",
         persistedModelSelection: null,
         draftModelSelection: null,
@@ -172,7 +172,7 @@ describe("shouldShowComposerModelBootstrapSkeleton", () => {
   it("hides the skeleton for a provider requiring discovered models after loading completes", () => {
     expect(
       shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "cursor",
+        selectedProvider: "pi",
         selectedModel: "auto",
         persistedModelSelection: null,
         draftModelSelection: null,
@@ -185,11 +185,11 @@ describe("shouldShowComposerModelBootstrapSkeleton", () => {
   it("shows a skeleton while provider discovery is still resolving a persisted thread model", () => {
     expect(
       shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "opencode",
-        selectedModel: "openai/gpt-5-codex",
+        selectedProvider: "pi",
+        selectedModel: "pi-coder-xl",
         persistedModelSelection: {
-          provider: "opencode",
-          model: "openai/gpt-5.4",
+          provider: "pi",
+          model: "pi-coder-m",
         },
         draftModelSelection: null,
         providerModelsLoading: true,
@@ -200,11 +200,11 @@ describe("shouldShowComposerModelBootstrapSkeleton", () => {
   it("hides the skeleton once the persisted thread model is already selected", () => {
     expect(
       shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "opencode",
-        selectedModel: "openai/gpt-5.4",
+        selectedProvider: "pi",
+        selectedModel: "pi-coder-m",
         persistedModelSelection: {
-          provider: "opencode",
-          model: "openai/gpt-5.4",
+          provider: "pi",
+          model: "pi-coder-m",
         },
         draftModelSelection: null,
         providerModelsLoading: true,
@@ -215,34 +215,19 @@ describe("shouldShowComposerModelBootstrapSkeleton", () => {
   it("prefers an explicit draft selection over persisted thread state", () => {
     expect(
       shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "opencode",
-        selectedModel: "opencode/minimax-m2.5-free",
+        selectedProvider: "pi",
+        selectedModel: "pi-coder-2",
         persistedModelSelection: {
-          provider: "opencode",
-          model: "openai/gpt-5.4",
+          provider: "pi",
+          model: "pi-coder-m",
         },
         draftModelSelection: {
-          provider: "opencode",
-          model: "opencode/minimax-m2.5-free",
+          provider: "pi",
+          model: "pi-coder-2",
         },
         providerModelsLoading: true,
       }),
     ).toBe(false);
-  });
-
-  it("shows a skeleton when the provisional provider does not match the persisted thread provider", () => {
-    expect(
-      shouldShowComposerModelBootstrapSkeleton({
-        selectedProvider: "codex",
-        selectedModel: "gpt-5.4",
-        persistedModelSelection: {
-          provider: "opencode",
-          model: "openai/gpt-5.4",
-        },
-        draftModelSelection: null,
-        providerModelsLoading: false,
-      }),
-    ).toBe(true);
   });
 });
 
@@ -250,16 +235,16 @@ describe("resolveCommittedProviderModel", () => {
   it("preserves the exact runtime-discovered slug when the picker selected it", () => {
     expect(
       resolveCommittedProviderModel({
-        selectedModel: "grok-code-fast-1-0825" as ModelSlug,
+        selectedModel: "pi-coder-fast-1-0825" as ModelSlug,
         availableOptions: [
           {
-            slug: "grok-code-fast-1-0825" as ModelSlug,
-            name: "Grok Code Fast 1 0825",
+            slug: "pi-coder-fast-1-0825" as ModelSlug,
+            name: "Pi Coder Fast 1 0825",
           },
         ],
-        fallback: () => "grok-build-0.1",
+        fallback: () => "pi-coder-build-0.1",
       }),
-    ).toBe("grok-code-fast-1-0825");
+    ).toBe("pi-coder-fast-1-0825");
   });
 
   it("falls back to static alias resolution when the selected slug is not in the options", () => {
@@ -267,9 +252,9 @@ describe("resolveCommittedProviderModel", () => {
       resolveCommittedProviderModel({
         selectedModel: "code-fast" as ModelSlug,
         availableOptions: [],
-        fallback: () => "grok-build-0.1",
+        fallback: () => "pi-coder-build-0.1",
       }),
-    ).toBe("grok-build-0.1");
+    ).toBe("pi-coder-build-0.1");
   });
 });
 
@@ -471,7 +456,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         phase: "ready",
         latestTurn: null,
         session: {
-          provider: "codex",
+          provider: "pi",
           status: "ready",
           orchestrationStatus: "ready",
           createdAt: "2026-04-13T00:00:00.000Z",
@@ -499,7 +484,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
           sourceProposedPlan: undefined,
         },
         session: {
-          provider: "codex",
+          provider: "pi",
           status: "ready",
           orchestrationStatus: "ready",
           createdAt: "2026-04-13T00:00:00.000Z",
@@ -519,7 +504,7 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
         phase: "ready",
         latestTurn: null,
         session: {
-          provider: "claudeAgent",
+          provider: "pi",
           status: "ready",
           orchestrationStatus: "ready",
           createdAt: "2026-04-13T00:00:00.000Z",

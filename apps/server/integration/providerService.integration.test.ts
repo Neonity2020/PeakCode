@@ -21,9 +21,9 @@ import {
   type TestTurnResponse,
 } from "./TestProviderAdapter.integration.ts";
 import {
-  codexTurnApprovalFixture,
-  codexTurnToolFixture,
-  codexTurnTextFixture,
+  piTurnApprovalFixture,
+  piTurnToolFixture,
+  piTurnTextFixture,
 } from "./fixtures/providerRuntime.ts";
 
 const makeWorkspaceDirectory = Effect.gen(function* () {
@@ -46,10 +46,10 @@ const makeIntegrationFixture = Effect.gen(function* () {
 
   const registry: typeof ProviderAdapterRegistry.Service = {
     getByProvider: (provider) =>
-      provider === "codex"
+      provider === "pi"
         ? Effect.succeed(harness.adapter)
         : Effect.fail(new ProviderUnsupportedError({ provider })),
-    listProviders: () => Effect.succeed(["codex"]),
+    listProviders: () => Effect.succeed(["pi"]),
   };
 
   const directoryLayer = ProviderSessionDirectoryLive.pipe(
@@ -100,7 +100,7 @@ it.effect("replays typed runtime fixture events", () =>
         ThreadId.makeUnsafe("thread-integration-typed"),
         {
           threadId: ThreadId.makeUnsafe("thread-integration-typed"),
-          provider: "codex",
+          provider: "pi",
           cwd: fixture.cwd,
           runtimeMode: "full-access",
         },
@@ -112,7 +112,7 @@ it.effect("replays typed runtime fixture events", () =>
         harness: fixture.harness,
         threadId: session.threadId,
         userText: "hello",
-        response: { events: codexTurnTextFixture },
+        response: { events: piTurnTextFixture },
       });
 
       assert.equal(snapshot.turns.length, 1);
@@ -142,7 +142,7 @@ it.effect("replays file-changing fixture turn events", () =>
         ThreadId.makeUnsafe("thread-integration-tools"),
         {
           threadId: ThreadId.makeUnsafe("thread-integration-tools"),
-          provider: "codex",
+          provider: "pi",
           cwd: fixture.cwd,
           runtimeMode: "full-access",
         },
@@ -155,7 +155,7 @@ it.effect("replays file-changing fixture turn events", () =>
         threadId: session.threadId,
         userText: "make a small change",
         response: {
-          events: codexTurnToolFixture,
+          events: piTurnToolFixture,
           mutateWorkspace: ({ cwd }) =>
             writeFileString(join(cwd, "README.md"), "v2\n").pipe(Effect.asVoid, Effect.ignore),
         },
@@ -188,7 +188,7 @@ it.effect("runs multi-turn tool/approval flow", () =>
         ThreadId.makeUnsafe("thread-integration-multi"),
         {
           threadId: ThreadId.makeUnsafe("thread-integration-multi"),
-          provider: "codex",
+          provider: "pi",
           cwd: fixture.cwd,
           runtimeMode: "full-access",
         },
@@ -201,7 +201,7 @@ it.effect("runs multi-turn tool/approval flow", () =>
         threadId: session.threadId,
         userText: "turn 1",
         response: {
-          events: codexTurnToolFixture,
+          events: piTurnToolFixture,
           mutateWorkspace: ({ cwd }) =>
             writeFileString(join(cwd, "README.md"), "v2\n").pipe(Effect.asVoid, Effect.ignore),
         },
@@ -224,7 +224,7 @@ it.effect("runs multi-turn tool/approval flow", () =>
         threadId: session.threadId,
         userText: "turn 2 approval",
         response: {
-          events: codexTurnApprovalFixture,
+          events: piTurnApprovalFixture,
           mutateWorkspace: ({ cwd }) =>
             writeFileString(join(cwd, "README.md"), "v3\n").pipe(Effect.asVoid, Effect.ignore),
         },
@@ -256,7 +256,7 @@ it.effect("rolls back provider conversation state only", () =>
         ThreadId.makeUnsafe("thread-integration-rollback"),
         {
           threadId: ThreadId.makeUnsafe("thread-integration-rollback"),
-          provider: "codex",
+          provider: "pi",
           cwd: fixture.cwd,
           runtimeMode: "full-access",
         },
@@ -269,7 +269,7 @@ it.effect("rolls back provider conversation state only", () =>
         threadId: session.threadId,
         userText: "turn 1",
         response: {
-          events: codexTurnToolFixture,
+          events: piTurnToolFixture,
           mutateWorkspace: ({ cwd }) =>
             writeFileString(join(cwd, "README.md"), "v2\n").pipe(Effect.asVoid, Effect.ignore),
         },
@@ -281,7 +281,7 @@ it.effect("rolls back provider conversation state only", () =>
         threadId: session.threadId,
         userText: "turn 2 approval",
         response: {
-          events: codexTurnApprovalFixture,
+          events: piTurnApprovalFixture,
           mutateWorkspace: ({ cwd }) =>
             writeFileString(join(cwd, "README.md"), "v3\n").pipe(Effect.asVoid, Effect.ignore),
         },

@@ -12,16 +12,8 @@ import {
   type ThreadId,
 } from "@peakcode/contracts";
 import {
-  getDefaultContextWindow,
   getDefaultEffort,
-  getGeminiThinkingSelectionValue,
-  hasContextWindowOption,
   hasEffortLevel,
-  isClaudeUltrathinkPrompt,
-  normalizeClaudeModelOptions,
-  normalizeGeminiModelOptions,
-  normalizeGrokModelOptions,
-  normalizeOpenCodeModelOptions,
   normalizePiModelOptions,
   resolveLabeledOptionValue,
   trimOrNull,
@@ -121,102 +113,9 @@ function getProviderStateFromCapabilities(
   const { provider, model, runtimeModel, prompt, modelOptions } = input;
   const caps = getRuntimeAwareModelCapabilities({ provider, model, runtimeModel });
 
-  let rawEffort: string | null = null;
-  let normalizedOptions: ProviderModelOptions[ProviderKind] | undefined;
-
-  switch (provider) {
-    case "codex": {
-      const providerOptions = modelOptions?.codex;
-      rawEffort = trimOrNull(providerOptions?.reasoningEffort);
-      const defaultReasoningEffort = getDefaultEffort(caps);
-      const reasoningEffort =
-        rawEffort && hasEffortLevel(caps, rawEffort) && rawEffort !== defaultReasoningEffort
-          ? rawEffort
-          : undefined;
-      const fastModeEnabled = caps.supportsFastMode && providerOptions?.fastMode === true;
-      const nextOptions = {
-        ...(reasoningEffort ? { reasoningEffort } : {}),
-        ...(fastModeEnabled ? { fastMode: true } : {}),
-      };
-      normalizedOptions = Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
-      break;
-    }
-    case "claudeAgent": {
-      const providerOptions = modelOptions?.claudeAgent;
-      rawEffort = trimOrNull(providerOptions?.effort);
-      normalizedOptions = normalizeClaudeModelOptions(model, providerOptions);
-      break;
-    }
-    case "cursor": {
-      const providerOptions = modelOptions?.cursor;
-      rawEffort = trimOrNull(providerOptions?.reasoningEffort);
-      const defaultReasoningEffort = getDefaultEffort(caps);
-      const reasoningEffort =
-        rawEffort && hasEffortLevel(caps, rawEffort) && rawEffort !== defaultReasoningEffort
-          ? rawEffort
-          : undefined;
-      const rawContextWindow = trimOrNull(providerOptions?.contextWindow);
-      const defaultContextWindow = getDefaultContextWindow(caps);
-      const contextWindow =
-        rawContextWindow &&
-        hasContextWindowOption(caps, rawContextWindow) &&
-        rawContextWindow !== defaultContextWindow
-          ? rawContextWindow
-          : undefined;
-      const fastModeEnabled = caps.supportsFastMode && providerOptions?.fastMode === true;
-      const thinking =
-        caps.supportsThinkingToggle && providerOptions?.thinking !== undefined
-          ? providerOptions.thinking
-          : undefined;
-      const nextOptions = {
-        ...(reasoningEffort ? { reasoningEffort } : {}),
-        ...(fastModeEnabled ? { fastMode: true } : {}),
-        ...(thinking !== undefined ? { thinking } : {}),
-        ...(contextWindow ? { contextWindow } : {}),
-      };
-      normalizedOptions = Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
-      break;
-    }
-    case "gemini": {
-      const providerOptions = modelOptions?.gemini;
-      rawEffort = getGeminiThinkingSelectionValue(caps, providerOptions);
-      normalizedOptions = normalizeGeminiModelOptions(model, providerOptions);
-      break;
-    }
-    case "grok": {
-      const providerOptions = modelOptions?.grok;
-      rawEffort = trimOrNull(providerOptions?.reasoningEffort);
-      normalizedOptions = normalizeGrokModelOptions(model, providerOptions);
-      break;
-    }
-    case "kilo":
-    case "opencode": {
-      const providerOptions = provider === "kilo" ? modelOptions?.kilo : modelOptions?.opencode;
-      rawEffort = trimOrNull(providerOptions?.variant);
-      const variantOptions = caps.variantOptions ?? [];
-      const reasoningVariant =
-        rawEffort && variantOptions.some((option) => option.value === rawEffort)
-          ? rawEffort
-          : undefined;
-      const agent = trimOrNull(providerOptions?.agent);
-      if (variantOptions.length > 0) {
-        const nextOptions = {
-          ...(reasoningVariant ? { variant: reasoningVariant } : {}),
-          ...(agent ? { agent } : {}),
-        };
-        normalizedOptions = Object.keys(nextOptions).length > 0 ? nextOptions : undefined;
-        break;
-      }
-      normalizedOptions = normalizeOpenCodeModelOptions(providerOptions);
-      break;
-    }
-    case "pi": {
-      const providerOptions = modelOptions?.pi;
-      rawEffort = trimOrNull(providerOptions?.thinkingLevel);
-      normalizedOptions = normalizePiModelOptions(providerOptions);
-      break;
-    }
-  }
+  const providerOptions = modelOptions?.pi;
+  const rawEffort = trimOrNull(providerOptions?.thinkingLevel);
+  const normalizedOptions = normalizePiModelOptions(providerOptions);
 
   const draftEffort = trimOrNull(rawEffort);
   const defaultEffort = getDefaultEffort(caps);
@@ -224,65 +123,20 @@ function getProviderStateFromCapabilities(
     ? caps.promptInjectedEffortLevels.includes(draftEffort)
     : false;
   const promptEffort =
-    provider === "kilo" || provider === "opencode"
-      ? resolveLabeledOptionValue(caps.variantOptions, draftEffort)
-      : draftEffort && !isPromptInjected && hasEffortLevel(caps, draftEffort)
-        ? draftEffort
-        : defaultEffort && hasEffortLevel(caps, defaultEffort)
-          ? defaultEffort
-          : null;
-
-  const ultrathinkActive =
-    caps.promptInjectedEffortLevels.length > 0 && isClaudeUltrathinkPrompt(prompt);
+    draftEffort && !isPromptInjected && hasEffortLevel(caps, draftEffort)
+      ? draftEffort
+      : defaultEffort && hasEffortLevel(caps, defaultEffort)
+        ? defaultEffort
+        : null;
 
   return {
     provider,
     promptEffort,
     modelOptionsForDispatch: normalizedOptions,
-    ...(ultrathinkActive ? { composerFrameClassName: "ultrathink-frame" } : {}),
-    ...(ultrathinkActive
-      ? { composerSurfaceClassName: "shadow-[0_0_0_1px_rgba(255,255,255,0.04)_inset]" }
-      : {}),
-    ...(ultrathinkActive ? { modelPickerIconClassName: "ultrathink-chroma" } : {}),
   };
 }
 
 const composerProviderRegistry: Record<ProviderKind, ProviderRegistryEntry> = {
-  codex: {
-    getState: (input) => getProviderStateFromCapabilities(input),
-    renderTraitsMenuContent: (input) => renderTraitsMenuContentForProvider("codex", input),
-    renderTraitsPicker: (input) => renderTraitsPickerForProvider("codex", input),
-  },
-  claudeAgent: {
-    getState: (input) => getProviderStateFromCapabilities(input),
-    renderTraitsMenuContent: (input) => renderTraitsMenuContentForProvider("claudeAgent", input),
-    renderTraitsPicker: (input) => renderTraitsPickerForProvider("claudeAgent", input),
-  },
-  cursor: {
-    getState: (input) => getProviderStateFromCapabilities(input),
-    renderTraitsMenuContent: (input) => renderTraitsMenuContentForProvider("cursor", input),
-    renderTraitsPicker: (input) => renderTraitsPickerForProvider("cursor", input),
-  },
-  gemini: {
-    getState: (input) => getProviderStateFromCapabilities(input),
-    renderTraitsMenuContent: (input) => renderTraitsMenuContentForProvider("gemini", input),
-    renderTraitsPicker: (input) => renderTraitsPickerForProvider("gemini", input),
-  },
-  grok: {
-    getState: (input) => getProviderStateFromCapabilities(input),
-    renderTraitsMenuContent: (input) => renderTraitsMenuContentForProvider("grok", input),
-    renderTraitsPicker: (input) => renderTraitsPickerForProvider("grok", input),
-  },
-  kilo: {
-    getState: (input) => getProviderStateFromCapabilities(input),
-    renderTraitsMenuContent: (input) => renderTraitsMenuContentForProvider("kilo", input),
-    renderTraitsPicker: (input) => renderTraitsPickerForProvider("kilo", input),
-  },
-  opencode: {
-    getState: (input) => getProviderStateFromCapabilities(input),
-    renderTraitsMenuContent: (input) => renderTraitsMenuContentForProvider("opencode", input),
-    renderTraitsPicker: (input) => renderTraitsPickerForProvider("opencode", input),
-  },
   pi: {
     getState: (input) => getProviderStateFromCapabilities(input),
     renderTraitsMenuContent: (input) => renderTraitsMenuContentForProvider("pi", input),
@@ -317,9 +171,7 @@ export function renderProviderTraitsMenuContent(input: {
     !hasVisibleComposerTraitControls(
       selection,
       input.includeFastMode === undefined ? undefined : { includeFastMode: input.includeFastMode },
-    ) &&
-    ((input.provider !== "kilo" && input.provider !== "opencode") ||
-      (input.runtimeAgents?.length ?? 0) === 0)
+    )
   ) {
     return null;
   }
@@ -352,9 +204,7 @@ export function renderProviderTraitsPicker(input: {
     !hasVisibleComposerTraitControls(
       selection,
       input.includeFastMode === undefined ? undefined : { includeFastMode: input.includeFastMode },
-    ) &&
-    ((input.provider !== "kilo" && input.provider !== "opencode") ||
-      (input.runtimeAgents?.length ?? 0) === 0)
+    )
   ) {
     return null;
   }

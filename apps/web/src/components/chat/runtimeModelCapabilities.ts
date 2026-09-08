@@ -15,7 +15,6 @@ import {
   normalizeModelSlug,
   trimOrNull,
 } from "@peakcode/shared/model";
-import { normalizeCursorModelVariantBaseId } from "../../cursorModelVariants";
 
 function runtimeEffortLabel(value: string): string {
   switch (value) {
@@ -58,14 +57,7 @@ export function resolveRuntimeModelDescriptor(input: {
 
   return runtimeModels.find((candidate) => {
     const normalizedCandidate = normalizeModelSlug(candidate.slug, provider) ?? candidate.slug;
-    if (normalizedCandidate === normalizedModel) {
-      return true;
-    }
-    return (
-      provider === "cursor" &&
-      normalizeCursorModelVariantBaseId(normalizedCandidate) ===
-        normalizeCursorModelVariantBaseId(normalizedModel)
-    );
+    return normalizedCandidate === normalizedModel;
   });
 }
 
@@ -77,10 +69,7 @@ export function getRuntimeAwareModelCapabilities(input: {
 }): ModelCapabilities {
   const staticCapabilities = getModelCapabilities(input.provider, input.model);
   // Runtime discovery is authoritative when available; the static table is only a startup fallback.
-  const supportsFastMode =
-    (input.provider === "codex" || input.provider === "cursor") && input.runtimeModel
-      ? input.runtimeModel.supportsFastMode === true
-      : staticCapabilities.supportsFastMode;
+  const supportsFastMode = staticCapabilities.supportsFastMode;
   const supportsThinkingToggle =
     input.runtimeModel?.supportsThinkingToggle ?? staticCapabilities.supportsThinkingToggle;
   const contextWindowOptions =
@@ -92,16 +81,7 @@ export function getRuntimeAwareModelCapabilities(input: {
   const optionDescriptors =
     input.runtimeModel?.optionDescriptors ?? staticCapabilities.optionDescriptors;
   const runtimeEfforts = input.runtimeModel?.supportedReasoningEfforts;
-  if (
-    (input.provider !== "codex" &&
-      input.provider !== "cursor" &&
-      input.provider !== "grok" &&
-      input.provider !== "kilo" &&
-      input.provider !== "opencode" &&
-      input.provider !== "pi") ||
-    !runtimeEfforts ||
-    runtimeEfforts.length === 0
-  ) {
+  if (!runtimeEfforts || runtimeEfforts.length === 0) {
     return {
       ...staticCapabilities,
       ...(optionDescriptors ? { optionDescriptors } : {}),
@@ -127,16 +107,6 @@ export function getRuntimeAwareModelCapabilities(input: {
       ...(effort.value === runtimeDefaultEffort ? { isDefault: true as const } : {}),
     };
   });
-
-  if (input.provider === "kilo" || input.provider === "opencode") {
-    return {
-      ...staticCapabilities,
-      ...(optionDescriptors ? { optionDescriptors } : {}),
-      variantOptions: runtimeOptions,
-      supportsThinkingToggle,
-      contextWindowOptions,
-    };
-  }
 
   return {
     ...staticCapabilities,

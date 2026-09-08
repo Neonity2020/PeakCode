@@ -58,11 +58,6 @@ import {
   ProjectSearchLocalEntriesInput,
   ProjectWriteFileInput,
 } from "./project";
-import {
-  AgentInstallInput,
-  AgentInstallResult,
-  AgentProvisionStatusResult,
-} from "./agentProvision";
 import { FilesystemBrowseInput } from "./filesystem";
 import { OpenInEditorInput } from "./editor";
 import {
@@ -86,7 +81,6 @@ import {
   ListLocalUserSkillsInput,
 } from "./providerDiscovery";
 import { ProviderCompactThreadInput } from "./provider";
-import { GatewayConfigPatch, GatewaySetApiKeyInput, GatewayRemoveApiKeyInput } from "./gateway";
 import {
   CreateAutomationInput,
   DeleteAutomationInput,
@@ -178,16 +172,6 @@ export const WS_METHODS = {
 
   // Local user skills (home-dir scan, independent of provider)
   skillsListLocal: "skills.listLocal",
-
-  // Gateway
-  gatewayGetConfig: "gateway.getConfig",
-  gatewayUpdateConfig: "gateway.updateConfig",
-  gatewayGetSecretStatus: "gateway.getSecretStatus",
-  gatewaySetApiKey: "gateway.setApiKey",
-  gatewayRemoveApiKey: "gateway.removeApiKey",
-  // Agent provisioning — write gateway config into local agent config files.
-  agentInstallConfig: "agent.installConfig",
-  agentGetConfigStatus: "agent.getConfigStatus",
 
   // Automation methods
   automationList: "automation.list",
@@ -305,16 +289,6 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.providerListModels, ProviderListModelsInput),
   tagRequestBody(WS_METHODS.providerListAgents, ProviderListAgentsInput),
   tagRequestBody(WS_METHODS.skillsListLocal, ListLocalUserSkillsInput),
-
-  // Gateway methods
-  tagRequestBody(WS_METHODS.gatewayGetConfig, Schema.Struct({})),
-  tagRequestBody(WS_METHODS.gatewayUpdateConfig, GatewayConfigPatch),
-  tagRequestBody(WS_METHODS.gatewayGetSecretStatus, Schema.Struct({})),
-  tagRequestBody(WS_METHODS.gatewaySetApiKey, GatewaySetApiKeyInput),
-  tagRequestBody(WS_METHODS.gatewayRemoveApiKey, GatewayRemoveApiKeyInput),
-  // Agent provisioning
-  tagRequestBody(WS_METHODS.agentInstallConfig, AgentInstallInput),
-  tagRequestBody(WS_METHODS.agentGetConfigStatus, Schema.Struct({})),
 
   // Automation methods
   tagRequestBody(WS_METHODS.automationList, ListAutomationsInput),

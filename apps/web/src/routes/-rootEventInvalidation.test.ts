@@ -85,7 +85,7 @@ function makeThread(overrides: Partial<Thread>): Thread {
     codexThreadId: null,
     projectId: ProjectId.makeUnsafe("project"),
     title: "Thread",
-    modelSelection: { provider: "codex", model: "gpt-5.4-mini" },
+    modelSelection: { provider: "pi", model: "gpt-5.4-mini" },
     runtimeMode: "full-access",
     interactionMode: "default",
     session: null,

@@ -7,130 +7,76 @@ import {
 } from "./threadHandoff";
 
 describe("threadHandoff", () => {
-  it("lists all supported handoff targets except the active provider", () => {
-    expect(resolveAvailableHandoffTargetProviders("codex")).toEqual([
-      "claudeAgent",
-      "cursor",
-      "gemini",
-      "grok",
-      "kilo",
-      "opencode",
-      "pi",
-    ]);
-    expect(resolveAvailableHandoffTargetProviders("claudeAgent")).toEqual([
-      "codex",
-      "cursor",
-      "gemini",
-      "grok",
-      "kilo",
-      "opencode",
-      "pi",
-    ]);
-    expect(resolveAvailableHandoffTargetProviders("cursor")).toEqual([
-      "codex",
-      "claudeAgent",
-      "gemini",
-      "grok",
-      "kilo",
-      "opencode",
-      "pi",
-    ]);
-    expect(resolveAvailableHandoffTargetProviders("gemini")).toEqual([
-      "codex",
-      "claudeAgent",
-      "cursor",
-      "grok",
-      "kilo",
-      "opencode",
-      "pi",
-    ]);
-    expect(resolveAvailableHandoffTargetProviders("grok")).toEqual([
-      "codex",
-      "claudeAgent",
-      "cursor",
-      "gemini",
-      "kilo",
-      "opencode",
-      "pi",
-    ]);
-    expect(resolveAvailableHandoffTargetProviders("kilo")).toEqual([
-      "codex",
-      "claudeAgent",
-      "cursor",
-      "gemini",
-      "grok",
-      "opencode",
-      "pi",
-    ]);
-    expect(resolveAvailableHandoffTargetProviders("opencode")).toEqual([
-      "codex",
-      "claudeAgent",
-      "cursor",
-      "gemini",
-      "grok",
-      "kilo",
-      "pi",
-    ]);
-    expect(resolveAvailableHandoffTargetProviders("pi")).toEqual([
-      "codex",
-      "claudeAgent",
-      "cursor",
-      "gemini",
-      "grok",
-      "kilo",
-      "opencode",
-    ]);
+  it("lists no alternative handoff targets when only Pi is available", () => {
+    expect(resolveAvailableHandoffTargetProviders("pi")).toEqual([]);
   });
 
   it("preserves the source thread title for the created handoff thread", () => {
     expect(resolveThreadHandoffTitle({ title: "General Greeting" })).toBe("General Greeting");
-    expect(resolveThreadHandoffTitle({ title: "  Debug   Grok handoff  " })).toBe(
-      "Debug Grok handoff",
-    );
+    expect(resolveThreadHandoffTitle({ title: "  Debug   Pi handoff  " })).toBe("Debug Pi handoff");
   });
 
   it("prefers sticky model selection for the chosen handoff target", () => {
     const stickySelection = {
-      provider: "gemini",
-      model: "gemini-2.5-pro",
+      provider: "pi",
+      model: "pi-coder-xl",
     } satisfies ModelSelection;
 
     expect(
       resolveThreadHandoffModelSelection({
         sourceThread: {
           modelSelection: {
-            provider: "claudeAgent",
-            model: "claude-sonnet-4-6",
+            provider: "pi",
+            model: "pi-coder-m",
           },
         },
-        targetProvider: "gemini",
+        targetProvider: "pi",
         projectDefaultModelSelection: {
-          provider: "gemini",
-          model: "gemini-3.1-pro-preview",
+          provider: "pi",
+          model: "pi-coder-l",
         },
         stickyModelSelectionByProvider: {
-          gemini: stickySelection,
+          pi: stickySelection,
         },
       }),
     ).toEqual(stickySelection);
   });
 
-  it("falls back to the resolved provider default model when no sticky or project default exists", () => {
+  it("falls back to the project default when no sticky selection exists", () => {
     expect(
       resolveThreadHandoffModelSelection({
         sourceThread: {
           modelSelection: {
-            provider: "gemini",
-            model: "gemini-2.5-pro",
+            provider: "pi",
+            model: "pi-coder-m",
           },
         },
-        targetProvider: "codex",
-        projectDefaultModelSelection: null,
+        targetProvider: "pi",
+        projectDefaultModelSelection: {
+          provider: "pi",
+          model: "pi-coder-l",
+        },
         stickyModelSelectionByProvider: {},
       }),
     ).toEqual({
-      provider: "codex",
-      model: "gpt-5.5",
+      provider: "pi",
+      model: "pi-coder-l",
     });
+  });
+
+  it("throws when no compatible model can be resolved for Pi", () => {
+    expect(() =>
+      resolveThreadHandoffModelSelection({
+        sourceThread: {
+          modelSelection: {
+            provider: "pi",
+            model: "pi-coder-m",
+          },
+        },
+        targetProvider: "pi",
+        projectDefaultModelSelection: null,
+        stickyModelSelectionByProvider: {},
+      }),
+    ).toThrow("Select a Pi model before handing off to Pi.");
   });
 });

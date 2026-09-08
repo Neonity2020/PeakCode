@@ -3,15 +3,10 @@
 // Layer: Persistence compatibility helper
 // Exports: normalizeLegacyModelSelection, normalizePersistedModelSelection
 
-type ModelProviderKind =
-  | "codex"
-  | "claudeAgent"
-  | "cursor"
-  | "gemini"
-  | "grok"
-  | "kilo"
-  | "opencode"
-  | "pi";
+// Pi is the only provider; legacy records from removed providers (codex,
+// claudeAgent, gemini, grok, etc.) are normalized to the Pi provider while
+// preserving their model slug and option rows.
+type ModelProviderKind = "pi";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -26,66 +21,12 @@ function readTrimmedString(record: Record<string, unknown>, key: string): string
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-// Imported instance ids may be runtime names rather than Peak Code provider literals.
-function inferProviderFromLabel(label: string): ModelProviderKind | undefined {
-  const lowerLabel = label.toLowerCase();
-  if (/(^|[^a-z0-9])pi([^a-z0-9]|$)/u.test(lowerLabel)) {
-    return "pi";
-  }
-  if (lowerLabel.includes("opencode")) {
-    return "opencode";
-  }
-  if (lowerLabel.includes("kilo")) {
-    return "kilo";
-  }
-  if (lowerLabel.includes("cursor")) {
-    return "cursor";
-  }
-  if (lowerLabel.includes("claude") || lowerLabel.includes("anthropic")) {
-    return "claudeAgent";
-  }
-  if (lowerLabel.includes("gemini") || lowerLabel.includes("google")) {
-    return "gemini";
-  }
-  if (lowerLabel.includes("grok") || lowerLabel.includes("xai") || lowerLabel.includes("x.ai")) {
-    return "grok";
-  }
-  if (lowerLabel.includes("codex")) {
-    return "codex";
-  }
-  return undefined;
-}
-
+// Imported/legacy instance ids may be runtime names rather than Peak Code
+// provider literals. Whatever the source, Pi is the only provider today.
 function inferLegacyModelProvider(provider: unknown, model: string): ModelProviderKind {
-  if (
-    provider === "codex" ||
-    provider === "claudeAgent" ||
-    provider === "cursor" ||
-    provider === "gemini" ||
-    provider === "grok" ||
-    provider === "kilo" ||
-    provider === "opencode" ||
-    provider === "pi"
-  ) {
-    return provider;
-  }
-  if (typeof provider === "string") {
-    const providerFromLabel = inferProviderFromLabel(provider);
-    if (providerFromLabel !== undefined) {
-      return providerFromLabel;
-    }
-  }
-  const lowerModel = model.toLowerCase();
-  if (lowerModel.includes("claude")) {
-    return "claudeAgent";
-  }
-  if (lowerModel.includes("gemini")) {
-    return "gemini";
-  }
-  if (lowerModel.includes("grok")) {
-    return "grok";
-  }
-  return "codex";
+  void provider;
+  void model;
+  return "pi";
 }
 
 function readLegacyProviderOptions(options: unknown, provider: ModelProviderKind): unknown {
@@ -95,6 +36,15 @@ function readLegacyProviderOptions(options: unknown, provider: ModelProviderKind
   const providerScopedOptions = options[provider];
   return providerScopedOptions === undefined ? options : providerScopedOptions;
 }
+
+// Maps legacy provider option ids to the Pi option key they represent. Pi's
+// only model option is `thinkingLevel` (the analog of codex `reasoningEffort`
+// / `effort`). Option ids with no Pi equivalent (e.g. fastMode, agent, variant)
+// are dropped so the decoded Pi ModelSelection stays schema-valid.
+const LEGACY_OPTION_ID_TO_PI: Record<string, string> = {
+  reasoningEffort: "thinkingLevel",
+  effort: "thinkingLevel",
+};
 
 function normalizeModelOptions(input: unknown): unknown {
   if (!Array.isArray(input)) {
@@ -110,7 +60,12 @@ function normalizeModelOptions(input: unknown): unknown {
     if (id === undefined) {
       return input;
     }
-    entries.push([id, option.value]);
+    const piKey = LEGACY_OPTION_ID_TO_PI[id] ?? id;
+    if (piKey !== "thinkingLevel") {
+      // Unknown option ids have no Pi equivalent; drop them.
+      continue;
+    }
+    entries.push([piKey, option.value]);
   }
   return Object.fromEntries(entries);
 }

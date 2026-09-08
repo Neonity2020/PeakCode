@@ -1,5 +1,4 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { DEFAULT_MODEL_BY_PROVIDER } from "@peakcode/contracts";
 import { Effect, FileSystem, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { ServerConfig } from "./config";
@@ -25,8 +24,8 @@ describe("ServerSettingsService", () => {
       }),
     );
 
-    expect(settings.providers.codex.binaryPath).toBe("codex");
-    expect(settings.providers.grok.binaryPath).toBe("grok");
+    expect(settings.providers.pi.binaryPath).toBe("pi");
+    expect(settings.providers.pi.enabled).toBe(true);
     expect(settings.defaultThreadEnvMode).toBe("local");
   });
 
@@ -41,8 +40,8 @@ describe("ServerSettingsService", () => {
         const updated = yield* service.updateSettings({
           enableAssistantStreaming: true,
           providers: {
-            codex: {
-              binaryPath: "/usr/local/bin/codex",
+            pi: {
+              binaryPath: "/usr/local/bin/pi",
               customModels: ["gpt-custom"],
             },
           },
@@ -53,19 +52,19 @@ describe("ServerSettingsService", () => {
     );
 
     expect(result.updated.enableAssistantStreaming).toBe(true);
-    expect(result.updated.providers.codex.binaryPath).toBe("/usr/local/bin/codex");
+    expect(result.updated.providers.pi.binaryPath).toBe("/usr/local/bin/pi");
     expect(result.parsed).toMatchObject({
       enableAssistantStreaming: true,
       providers: {
-        codex: {
-          binaryPath: "/usr/local/bin/codex",
+        pi: {
+          binaryPath: "/usr/local/bin/pi",
           customModels: ["gpt-custom"],
         },
       },
     });
   });
 
-  it("resolves text generation selection away from disabled providers", async () => {
+  it("keeps the text generation selection unchanged (Pi is the only provider)", async () => {
     const settings = await Effect.runPromise(
       Effect.gen(function* () {
         const service = yield* ServerSettingsService;
@@ -74,18 +73,15 @@ describe("ServerSettingsService", () => {
         Effect.provide(
           ServerSettingsService.layerTest({
             textGenerationModelSelection: {
-              provider: "gemini",
-              model: DEFAULT_MODEL_BY_PROVIDER.gemini,
-            },
-            providers: {
-              gemini: { enabled: false },
+              provider: "pi",
+              model: "pi-coding",
             },
           }),
         ),
       ),
     );
 
-    expect(settings.textGenerationModelSelection.provider).toBe("codex");
-    expect(settings.textGenerationModelSelection.model).toBe(DEFAULT_MODEL_BY_PROVIDER.codex);
+    expect(settings.textGenerationModelSelection.provider).toBe("pi");
+    expect(settings.textGenerationModelSelection.model).toBe("pi-coding");
   });
 });

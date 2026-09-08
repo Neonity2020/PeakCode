@@ -35,16 +35,7 @@ export const PROVIDER_OPTIONS: Array<{
   value: ProviderPickerKind;
   label: string;
   available: boolean;
-}> = [
-  { value: "codex", label: "Codex", available: true },
-  { value: "claudeAgent", label: "Claude", available: true },
-  { value: "cursor", label: "Cursor", available: true },
-  { value: "gemini", label: "Gemini", available: true },
-  { value: "grok", label: "Grok", available: true },
-  { value: "kilo", label: "Kilo", available: true },
-  { value: "opencode", label: "OpenCode", available: true },
-  { value: "pi", label: "Pi", available: true },
-];
+}> = [{ value: "pi", label: "Pi", available: true }];
 
 export interface WorkLogEntry {
   id: string;

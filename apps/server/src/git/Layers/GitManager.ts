@@ -1160,7 +1160,6 @@ export const makeGitManager = Effect.gen(function* () {
     cwd: string;
     branch: string | null;
     commitMessage?: string;
-    codexHomePath?: string;
     providerOptions?: ProviderStartOptions;
     /** When true, also produce a semantic feature branch name. */
     includeBranch?: boolean;
@@ -1191,7 +1190,6 @@ export const makeGitManager = Effect.gen(function* () {
           branch: input.branch,
           stagedSummary: limitContext(context.stagedSummary, 8_000),
           stagedPatch: limitContext(context.stagedPatch, 50_000),
-          ...(input.codexHomePath ? { codexHomePath: input.codexHomePath } : {}),
           ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
           ...(input.includeBranch ? { includeBranch: true } : {}),
           ...(input.model ? { model: input.model } : {}),
@@ -1227,7 +1225,6 @@ export const makeGitManager = Effect.gen(function* () {
     commitMessage?: string,
     preResolvedSuggestion?: CommitAndBranchSuggestion,
     filePaths?: readonly string[],
-    codexHomePath?: string,
     providerOptions?: ProviderStartOptions,
     model?: string,
     progressReporter?: GitActionProgressReporter,
@@ -1259,7 +1256,6 @@ export const makeGitManager = Effect.gen(function* () {
           branch,
           ...(commitMessage ? { commitMessage } : {}),
           ...(filePaths ? { filePaths } : {}),
-          ...(codexHomePath ? { codexHomePath } : {}),
           ...(providerOptions ? { providerOptions } : {}),
           ...(model ? { model } : {}),
         });
@@ -1341,7 +1337,6 @@ export const makeGitManager = Effect.gen(function* () {
   const runPrStep = (
     cwd: string,
     fallbackBranch: string | null,
-    codexHomePath?: string,
     providerOptions?: ProviderStartOptions,
     model?: string,
   ) =>
@@ -1394,7 +1389,6 @@ export const makeGitManager = Effect.gen(function* () {
         commitSummary: limitContext(rangeContext.commitSummary, 20_000),
         diffSummary: limitContext(rangeContext.diffSummary, 20_000),
         diffPatch: limitContext(rangeContext.diffPatch, 60_000),
-        ...(codexHomePath ? { codexHomePath } : {}),
         ...(providerOptions ? { providerOptions } : {}),
         ...(model ? { model } : {}),
       });
@@ -1508,7 +1502,6 @@ export const makeGitManager = Effect.gen(function* () {
     const generated = yield* textGeneration.generateDiffSummary({
       cwd: input.cwd,
       patch,
-      ...(input.codexHomePath ? { codexHomePath: input.codexHomePath } : {}),
       ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
       ...(input.textGenerationModel ? { model: input.textGenerationModel } : {}),
     });
@@ -2476,7 +2469,6 @@ The local stash entry was kept for recovery.`,
     branch: string | null,
     commitMessage?: string,
     filePaths?: readonly string[],
-    codexHomePath?: string,
     providerOptions?: ProviderStartOptions,
     model?: string,
     options?: FeatureBranchStepOptions,
@@ -2487,7 +2479,6 @@ The local stash entry was kept for recovery.`,
         branch,
         ...(commitMessage ? { commitMessage } : {}),
         ...(filePaths ? { filePaths } : {}),
-        ...(codexHomePath ? { codexHomePath } : {}),
         ...(providerOptions ? { providerOptions } : {}),
         includeBranch: true,
         ...(model ? { model } : {}),
@@ -2677,7 +2668,6 @@ The local stash entry was kept for recovery.`,
             initialStatus.branch,
             input.commitMessage,
             input.filePaths,
-            input.codexHomePath,
             input.providerOptions,
             input.textGenerationModel,
             {
@@ -2704,7 +2694,6 @@ The local stash entry was kept for recovery.`,
                 commitMessageForStep,
                 preResolvedCommitSuggestion,
                 input.filePaths,
-                input.codexHomePath,
                 input.providerOptions,
                 input.textGenerationModel,
                 options?.progressReporter,
@@ -2744,7 +2733,6 @@ The local stash entry was kept for recovery.`,
                     return yield* runPrStep(
                       input.cwd,
                       currentBranch,
-                      input.codexHomePath,
                       input.providerOptions,
                       input.textGenerationModel,
                     );

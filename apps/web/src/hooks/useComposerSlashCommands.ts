@@ -483,15 +483,11 @@ export function useComposerSlashCommands(input: {
 
   const handleReviewTargetSelection = useCallback(
     async (target: "changes" | "base-branch") => {
-      if (selectedProvider === "codex") {
-        await runCodexReviewStart(target);
-      } else {
-        const replacement = buildSlashReviewComposerPrompt(target === "base-branch" ? "base" : "");
-        editorActions.setComposerPromptValue(replacement);
-      }
+      const replacement = buildSlashReviewComposerPrompt(target === "base-branch" ? "base" : "");
+      editorActions.setComposerPromptValue(replacement);
       editorActions.scheduleComposerFocus();
     },
-    [editorActions, selectedProvider, runCodexReviewStart],
+    [editorActions],
   );
 
   const handleForkTargetSelection = useCallback(
@@ -512,63 +508,8 @@ export function useComposerSlashCommands(input: {
     [createForkThreadFromSlashCommand],
   );
 
-  const checkClaudeFastSlashCommandAvailability = useCallback(async (): Promise<boolean> => {
-    const api = readNativeApi();
-    if (!api || !providerCommandDiscoveryCwd) {
-      editorActions.clearComposerSlashDraft();
-      toastManager.add({
-        type: "warning",
-        title: "Fast mode could not be checked",
-        description: "Claude command discovery is unavailable right now.",
-      });
-      return false;
-    }
-
-    try {
-      const result = await api.provider.listCommands({
-        provider: "claudeAgent",
-        cwd: providerCommandDiscoveryCwd,
-        threadId,
-        forceReload: true,
-      });
-      if (
-        hasProviderNativeSlashCommand(
-          "claudeAgent",
-          result.commands.map((command) => command.name),
-          "fast",
-        )
-      ) {
-        return true;
-      }
-    } catch {
-      editorActions.clearComposerSlashDraft();
-      toastManager.add({
-        type: "warning",
-        title: "Fast mode could not be checked",
-        description: "Claude command discovery failed. Please try again.",
-      });
-      return false;
-    }
-
-    editorActions.clearComposerSlashDraft();
-    toastManager.add({
-      type: "info",
-      title: "Fast mode is unavailable",
-      description: "Claude did not expose /fast for this account or environment.",
-    });
-    return false;
-  }, [editorActions, providerCommandDiscoveryCwd, threadId]);
-
   const handleStandaloneSlashCommand = useCallback(
     async (trimmed: string): Promise<boolean> => {
-      const fastSlashAction = parseFastSlashCommandAction(trimmed);
-      if (selectedProvider === "claudeAgent" && fastSlashAction !== null) {
-        if (await checkClaudeFastSlashCommandAvailability()) {
-          return false;
-        }
-        return true;
-      }
-
       const slashInvocation = parseComposerSlashInvocationForCommands(
         trimmed,
         availableBuiltInSlashCommands,
@@ -601,27 +542,6 @@ export function useComposerSlashCommands(input: {
         return true;
       }
       if (slashInvocation.command === "review") {
-        if (selectedProvider === "codex") {
-          const normalizedArgs = slashInvocation.args.trim().toLowerCase();
-          if (normalizedArgs.length === 0) {
-            editorActions.clearComposerSlashDraft();
-            openReviewTargetPicker();
-            return true;
-          }
-          const target =
-            normalizedArgs === "base" || normalizedArgs.startsWith("base ") ? "base-branch" : null;
-          if (!target) {
-            toastManager.add({
-              type: "warning",
-              title: "Invalid /review command",
-              description: "Use /review and then choose a review target.",
-            });
-            return true;
-          }
-          editorActions.clearComposerSlashDraft();
-          await runCodexReviewStart(target);
-          return true;
-        }
         if (supportsTextNativeReviewCommand && slashInvocation.args.length === 0) {
           return false;
         }
@@ -690,7 +610,6 @@ export function useComposerSlashCommands(input: {
     },
     [
       availableBuiltInSlashCommands,
-      checkClaudeFastSlashCommandAvailability,
       compactProviderThread,
       createForkThreadFromSlashCommand,
       createSidechatFromSlashCommand,
@@ -699,9 +618,7 @@ export function useComposerSlashCommands(input: {
       handleInteractionModeChange,
       openForkTargetPicker,
       openReviewTargetPicker,
-      selectedProvider,
       supportsTextNativeReviewCommand,
-      runCodexReviewStart,
       runFastSlashCommand,
     ],
   );
@@ -802,16 +719,6 @@ export function useComposerSlashCommands(input: {
       }
 
       if (item.command === "review") {
-        if (selectedProvider === "codex") {
-          const applied = clearSlashCommandFromComposer();
-          if (!wasPromptReplacementApplied(applied)) {
-            return;
-          }
-          editorActions.setComposerHighlightedItemId(null);
-          openReviewTargetPicker();
-          editorActions.scheduleComposerFocus();
-          return;
-        }
         if (supportsTextNativeReviewCommand) {
           const replacement = "/review";
           const replacementRangeEnd = extendReplacementRangeForTrailingSpace(

@@ -3,7 +3,7 @@
 // Exports: resolveDiffPanelThread
 // Depends on: ChatView.logic draft-thread normalization.
 
-import { DEFAULT_MODEL_BY_PROVIDER, type ModelSelection, type ThreadId } from "@peakcode/contracts";
+import { type ModelSelection, type ThreadId } from "@peakcode/contracts";
 
 import type { DraftThreadState } from "../composerDraftStore";
 import type { Thread } from "../types";
@@ -27,8 +27,8 @@ export function resolveDiffPanelThread(input: {
     input.threadId,
     input.draftThread,
     input.fallbackModelSelection ?? {
-      provider: "codex",
-      model: DEFAULT_MODEL_BY_PROVIDER.codex,
+      provider: "pi",
+      model: "",
     },
     null,
   );

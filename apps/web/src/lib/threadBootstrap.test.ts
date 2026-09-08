@@ -16,7 +16,7 @@ const PROJECT_ID = ProjectId.makeUnsafe("project-bootstrap");
 const THREAD_ID = ThreadId.makeUnsafe("thread-bootstrap");
 
 function modelSelection(
-  provider: "codex" | "claudeAgent",
+  provider: "pi",
   model: string,
   options?: ModelSelection["options"],
 ): ModelSelection {
@@ -53,9 +53,9 @@ function makeComposerDraftState(
     terminalContexts: [],
     queuedTurns: [],
     modelSelectionByProvider: {
-      claudeAgent: modelSelection("claudeAgent", "claude-opus-4-6", { effort: "max" }),
+      pi: modelSelection("pi", "pi-coder-xl", { thinkingLevel: "high" }),
     },
-    activeProvider: "claudeAgent",
+    activeProvider: "pi",
     runtimeMode: null,
     interactionMode: null,
     ...partial,
@@ -145,7 +145,7 @@ describe("threadBootstrap", () => {
       createActiveThreadSnapshot(
         {
           projectId: PROJECT_ID,
-          modelSelection: modelSelection("codex", "gpt-5"),
+          modelSelection: modelSelection("pi", "gpt-5"),
           runtimeMode: "full-access",
           interactionMode: "default",
         },
@@ -153,7 +153,7 @@ describe("threadBootstrap", () => {
       ),
     ).toEqual({
       projectId: PROJECT_ID,
-      modelSelection: modelSelection("codex", "gpt-5"),
+      modelSelection: modelSelection("pi", "gpt-5"),
       runtimeMode: "full-access",
       interactionMode: "default",
       envMode: undefined,
@@ -212,19 +212,19 @@ describe("threadBootstrap", () => {
         activeDraftThread: null,
         activeThread: {
           projectId: PROJECT_ID,
-          modelSelection: modelSelection("codex", "gpt-5"),
+          modelSelection: modelSelection("pi", "gpt-5"),
           runtimeMode: "full-access",
           interactionMode: "default",
         },
         draftComposerState: makeComposerDraftState(),
         draftThread: makeDraftThread(),
         options: undefined,
-        projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
+        projectDefaultModelSelection: modelSelection("pi", "gpt-5.4"),
         projectId: PROJECT_ID,
       }),
     ).toEqual({
-      modelSelection: modelSelection("claudeAgent", "claude-opus-4-6", {
-        effort: "max",
+      modelSelection: modelSelection("pi", "pi-coder-xl", {
+        thinkingLevel: "high",
       }),
       runtimeMode: "approval-required",
       interactionMode: "default",
@@ -241,7 +241,7 @@ describe("threadBootstrap", () => {
         activeDraftThread: null,
         activeThread: {
           projectId: PROJECT_ID,
-          modelSelection: modelSelection("codex", "gpt-5"),
+          modelSelection: modelSelection("pi", "gpt-5"),
           runtimeMode: "full-access",
           interactionMode: "default",
           envMode: "worktree",
@@ -251,7 +251,7 @@ describe("threadBootstrap", () => {
         options: {
           envMode: "local",
         },
-        projectDefaultModelSelection: modelSelection("codex", "gpt-5.4"),
+        projectDefaultModelSelection: modelSelection("pi", "gpt-5.4"),
         projectId: PROJECT_ID,
       }),
     ).toMatchObject({

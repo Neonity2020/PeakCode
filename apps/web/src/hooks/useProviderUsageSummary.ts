@@ -32,7 +32,7 @@ export function useProviderUsageSummary(input: {
   const providerUsageSnapshotQuery = useQuery(
     serverProviderUsageSnapshotQueryOptions({
       provider: input.provider,
-      homePath: input.provider === "codex" ? input.codexHomePath || null : null,
+      homePath: input.codexHomePath || null,
     }),
   );
   const openUsageSnapshotQuery = useQuery(openUsageProviderSnapshotQueryOptions(input.provider));

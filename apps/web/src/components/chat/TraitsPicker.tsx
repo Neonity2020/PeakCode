@@ -4,13 +4,11 @@
 // Depends on: shared trait resolution helpers, provider model option updates, and shared menu primitives.
 
 import {
-  type OpenCodeModelOptions,
   type ProviderAgentDescriptor,
   type ProviderKind,
   type ProviderModelDescriptor,
   type ThreadId,
 } from "@peakcode/contracts";
-import { applyClaudePromptEffortPrefix } from "@peakcode/shared/model";
 import { memo, useCallback, useState } from "react";
 import { IoFlash } from "react-icons/io5";
 import { ChevronDownIcon } from "~/lib/icons";
@@ -37,28 +35,22 @@ import { ShortcutKbd } from "../ui/shortcut-kbd";
 
 const ULTRATHINK_PROMPT_PREFIX = "Ultrathink:\n";
 
-function defaultAgentForProvider(provider: ProviderKind): string | null {
-  if (provider === "kilo") return "code";
-  if (provider === "opencode") return "build";
+function defaultAgentForProvider(_provider: ProviderKind): string | null {
   return null;
 }
 
 function getAgentOptions(
-  provider: ProviderKind,
-  runtimeAgents: ReadonlyArray<ProviderAgentDescriptor> | null | undefined,
+  _provider: ProviderKind,
+  _runtimeAgents: ReadonlyArray<ProviderAgentDescriptor> | null | undefined,
 ): ReadonlyArray<ProviderAgentDescriptor> {
-  if (provider !== "kilo" && provider !== "opencode") return [];
-  return runtimeAgents ?? [];
+  return [];
 }
 
 function getSelectedAgentValue(
-  provider: ProviderKind,
-  modelOptions: ProviderOptions | null | undefined,
+  _provider: ProviderKind,
+  _modelOptions: ProviderOptions | null | undefined,
 ): string | null {
-  const defaultAgent = defaultAgentForProvider(provider);
-  if (!defaultAgent) return null;
-  const selectedAgent = (modelOptions as OpenCodeModelOptions | undefined)?.agent?.trim();
-  return selectedAgent && selectedAgent.length > 0 ? selectedAgent : defaultAgent;
+  return null;
 }
 
 function findAgentLabel(
@@ -134,22 +126,14 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
         const nextPrompt =
           prompt.trim().length === 0
             ? ULTRATHINK_PROMPT_PREFIX
-            : applyClaudePromptEffortPrefix(prompt, "ultrathink");
+            : prompt.startsWith("Ultrathink:")
+              ? prompt
+              : `${ULTRATHINK_PROMPT_PREFIX}${prompt}`;
         onPromptChange(nextPrompt);
         onSelectionComplete?.();
         return;
       }
-      const optionId =
-        primarySelectDescriptor?.id ??
-        (provider === "kilo" || provider === "opencode"
-          ? "variant"
-          : provider === "pi"
-            ? "thinkingLevel"
-            : provider === "claudeAgent"
-              ? "effort"
-              : provider === "gemini"
-                ? "thinkingLevel"
-                : "reasoningEffort");
+      const optionId = primarySelectDescriptor?.id ?? "thinkingLevel";
       const nextModelOptionsPatch = buildProviderOptionPatch(provider, optionId, nextOption.value);
       setProviderModelOptions(
         threadId,
@@ -184,9 +168,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
       {effortLevels.length > 0 ? (
         <>
           <MenuGroup>
-            <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">
-              {provider === "kilo" || provider === "opencode" ? "Variant" : "Effort"}
-            </div>
+            <div className="px-2 pt-1.5 pb-1 font-medium text-muted-foreground text-xs">Effort</div>
             {ultrathinkPromptControlled ? (
               <div className="px-2 pb-1.5 text-muted-foreground/80 text-xs">
                 Remove Ultrathink from the prompt to change effort.
@@ -307,9 +289,7 @@ export const TraitsMenuContent = memo(function TraitsMenuContentImpl({
         <>
           {hasVisibleControls ? <MenuDivider /> : null}
           <MenuGroup>
-            <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
-              {provider === "kilo" ? "Mode" : "Agent"}
-            </div>
+            <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Agent</div>
             <MenuRadioGroup
               value={selectedAgent ?? defaultAgent ?? ""}
               onValueChange={(value) => {
@@ -437,7 +417,7 @@ export const TraitsPicker = memo(function TraitsPicker({
   const visiblePrimaryTriggerLabel = primaryTriggerLabel ?? agentLabel;
   const showsFastBadge = supportsFastModeControl && fastModeEnabled && !isFastOnlyControl;
 
-  const isCodexStyle = provider === "codex";
+  const isCodexStyle = false;
 
   const triggerButton = (
     <Button

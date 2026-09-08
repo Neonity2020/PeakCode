@@ -246,34 +246,34 @@ layer("035_NormalizeLegacyModelSelectionOptions", (it) => {
       };
 
       assert.deepStrictEqual(decodeModelSelection(projectSelection), {
-        provider: "codex",
+        provider: "pi",
         model: "gpt-5.5",
-        options: { reasoningEffort: "medium" },
+        options: { thinkingLevel: "medium" },
       });
-      assert.deepStrictEqual(decodeModelSelection(threadSelections.get("claude-opus-4-6")), {
-        provider: "claudeAgent",
+      assert.deepStrictEqual(decodeModelSelection(threadSelections.get("claude-opus-4-6")!), {
+        provider: "pi",
         model: "claude-opus-4-6",
-        options: { effort: "high", fastMode: true },
+        options: { thinkingLevel: "high" },
       });
-      assert.deepStrictEqual(decodeModelSelection(threadSelections.get("openai/gpt-5.4")), {
-        provider: "opencode",
+      assert.deepStrictEqual(decodeModelSelection(threadSelections.get("openai/gpt-5.4")!), {
+        provider: "pi",
         model: "openai/gpt-5.4",
-        options: { agent: "plan", variant: "fast" },
+        options: {},
       });
-      assert.deepStrictEqual(decodeModelSelection(threadSelections.get("gpt-5.4")), {
-        provider: "cursor",
+      assert.deepStrictEqual(decodeModelSelection(threadSelections.get("gpt-5.4")!), {
+        provider: "pi",
         model: "gpt-5.4",
-        options: { reasoningEffort: "high" },
+        options: { thinkingLevel: "high" },
       });
       assert.deepStrictEqual(decodeModelSelection(projectEventPayload.defaultModelSelection), {
-        provider: "codex",
+        provider: "pi",
         model: "gpt-5.5",
-        options: { reasoningEffort: "low" },
+        options: { thinkingLevel: "low" },
       });
       assert.deepStrictEqual(decodeModelSelection(threadEventPayload.modelSelection), {
-        provider: "codex",
+        provider: "pi",
         model: "gpt-5.5",
-        options: { reasoningEffort: "xhigh" },
+        options: { thinkingLevel: "xhigh" },
       });
     }),
   );

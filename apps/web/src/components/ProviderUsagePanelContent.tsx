@@ -18,10 +18,7 @@ import { cn } from "~/lib/utils";
 import { RateLimitSummaryList } from "./RateLimitSummaryList";
 
 export function providerUsageLabel(provider: ProviderKind | null | undefined): string {
-  if (provider === "codex") return "Codex usage";
-  if (provider === "claudeAgent") return "Claude usage";
-  if (provider === "gemini") return "Gemini usage";
-  return "Usage";
+  return provider === "pi" ? "Pi usage" : "Usage";
 }
 
 export const ProviderUsagePanelContent = memo(function ProviderUsagePanelContent(props: {

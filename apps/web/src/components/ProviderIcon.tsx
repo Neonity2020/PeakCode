@@ -8,28 +8,11 @@ import { type ProviderKind } from "@peakcode/contracts";
 import type { ReactNode, SVGProps } from "react";
 
 import { cn } from "~/lib/utils";
-import {
-  ClaudeAI,
-  CursorIcon,
-  Gemini,
-  GrokIcon,
-  type Icon,
-  KiloIcon,
-  OpenAI,
-  OpenCodeIcon,
-  PiIcon,
-} from "./Icons";
+import { type Icon, PiIcon } from "./Icons";
 
 export type ProviderIconTone = "default" | "header";
 
 export const PROVIDER_ICON_COMPONENT_BY_PROVIDER: Record<ProviderKind, Icon> = {
-  codex: OpenAI,
-  claudeAgent: ClaudeAI,
-  cursor: CursorIcon,
-  gemini: Gemini,
-  grok: GrokIcon,
-  kilo: KiloIcon,
-  opencode: OpenCodeIcon,
   pi: PiIcon,
 };
 
@@ -37,12 +20,6 @@ export function providerIconToneClassName(
   provider: ProviderKind | null | undefined,
   tone: ProviderIconTone = "default",
 ): string {
-  if (provider === "kilo" || provider === "opencode") {
-    return "text-muted-foreground/70";
-  }
-  if (provider === "codex") {
-    return tone === "header" ? "text-muted-foreground/75" : "text-muted-foreground/60";
-  }
   return "text-foreground";
 }
 

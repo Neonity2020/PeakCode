@@ -1105,12 +1105,6 @@ function EventRouter() {
       void queryClient.invalidateQueries({
         queryKey: ["provider-discovery", "models", "cursor"],
       });
-      void queryClient.invalidateQueries({
-        queryKey: providerDiscoveryQueryKeys.agents("kilo"),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: providerDiscoveryQueryKeys.agents("opencode"),
-      });
     });
     const unsubServerSettingsUpdated = onServerSettingsUpdated((payload) => {
       queryClient.setQueryData(serverQueryKeys.settings(), payload.settings);

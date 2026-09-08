@@ -1,9 +1,6 @@
 import { Schema } from "effect";
 import { TrimmedString } from "./baseSchemas";
-import { DEFAULT_GIT_TEXT_GENERATION_MODEL } from "./model";
 import { ModelSelection, ProviderKind, ThreadEnvironmentMode } from "./orchestration";
-import { DEFAULT_GATEWAY_CHANNELS, GatewayConfig, GatewayConfigPatch } from "./gateway";
-
 const StringSetting = TrimmedString.check(Schema.isMaxLength(4096));
 const CustomModels = Schema.Array(Schema.String.check(Schema.isMaxLength(256))).pipe(
   Schema.withDecodingDefault(() => []),
@@ -15,57 +12,6 @@ const ProviderSettingsBase = {
   customModels: CustomModels,
 };
 
-export const CodexServerProviderSettings = Schema.Struct({
-  ...ProviderSettingsBase,
-  binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "codex")),
-  homePath: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
-});
-export type CodexServerProviderSettings = typeof CodexServerProviderSettings.Type;
-
-export const ClaudeServerProviderSettings = Schema.Struct({
-  ...ProviderSettingsBase,
-  binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "claude")),
-  launchArgs: Schema.String.check(Schema.isMaxLength(4096)).pipe(
-    Schema.withDecodingDefault(() => ""),
-  ),
-});
-export type ClaudeServerProviderSettings = typeof ClaudeServerProviderSettings.Type;
-
-export const GeminiServerProviderSettings = Schema.Struct({
-  ...ProviderSettingsBase,
-  binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "gemini")),
-});
-export type GeminiServerProviderSettings = typeof GeminiServerProviderSettings.Type;
-
-export const GrokServerProviderSettings = Schema.Struct({
-  ...ProviderSettingsBase,
-  binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "grok")),
-});
-export type GrokServerProviderSettings = typeof GrokServerProviderSettings.Type;
-
-export const CursorServerProviderSettings = Schema.Struct({
-  ...ProviderSettingsBase,
-  binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "cursor-agent")),
-  apiEndpoint: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
-});
-export type CursorServerProviderSettings = typeof CursorServerProviderSettings.Type;
-
-export const OpenCodeServerProviderSettings = Schema.Struct({
-  ...ProviderSettingsBase,
-  binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "opencode")),
-  serverUrl: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
-  serverPassword: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
-});
-export type OpenCodeServerProviderSettings = typeof OpenCodeServerProviderSettings.Type;
-
-export const KiloServerProviderSettings = Schema.Struct({
-  ...ProviderSettingsBase,
-  binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "kilo")),
-  serverUrl: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
-  serverPassword: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
-});
-export type KiloServerProviderSettings = typeof KiloServerProviderSettings.Type;
-
 export const PiServerProviderSettings = Schema.Struct({
   ...ProviderSettingsBase,
   binaryPath: StringSetting.pipe(Schema.withDecodingDefault(() => "pi")),
@@ -73,31 +19,19 @@ export const PiServerProviderSettings = Schema.Struct({
 });
 export type PiServerProviderSettings = typeof PiServerProviderSettings.Type;
 
+const DEFAULT_TEXT_GENERATION_MODEL = "pi-coding-agent";
+
 export const ServerSettings = Schema.Struct({
   enableAssistantStreaming: Schema.Boolean.pipe(Schema.withDecodingDefault(() => false)),
   defaultThreadEnvMode: ThreadEnvironmentMode.pipe(Schema.withDecodingDefault(() => "local")),
   addProjectBaseDirectory: StringSetting.pipe(Schema.withDecodingDefault(() => "")),
   textGenerationModelSelection: ModelSelection.pipe(
     Schema.withDecodingDefault(() => ({
-      provider: "codex" as const,
-      model: DEFAULT_GIT_TEXT_GENERATION_MODEL,
-    })),
-  ),
-  gateway: GatewayConfig.pipe(
-    Schema.withDecodingDefault(() => ({
-      enabled: false,
-      activeChannelId: "deepseek" as const,
-      channels: DEFAULT_GATEWAY_CHANNELS,
+      provider: "pi" as const,
+      model: DEFAULT_TEXT_GENERATION_MODEL,
     })),
   ),
   providers: Schema.Struct({
-    codex: CodexServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
-    claudeAgent: ClaudeServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
-    cursor: CursorServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
-    gemini: GeminiServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
-    grok: GrokServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
-    kilo: KiloServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
-    opencode: OpenCodeServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
     pi: PiServerProviderSettings.pipe(Schema.withDecodingDefault(() => ({}))),
   }).pipe(Schema.withDecodingDefault(() => ({}))),
 });
@@ -122,43 +56,8 @@ export const ServerSettingsPatch = Schema.Struct({
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvironmentMode),
   addProjectBaseDirectory: Schema.optionalKey(StringSetting),
   textGenerationModelSelection: Schema.optionalKey(ModelSelectionPatch),
-  gateway: Schema.optionalKey(GatewayConfigPatch),
   providers: Schema.optionalKey(
     Schema.Struct({
-      codex: Schema.optionalKey(
-        Schema.Struct({
-          ...ProviderSettingsBasePatch,
-          homePath: Schema.optionalKey(StringSetting),
-        }),
-      ),
-      claudeAgent: Schema.optionalKey(
-        Schema.Struct({
-          ...ProviderSettingsBasePatch,
-          launchArgs: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(4096))),
-        }),
-      ),
-      cursor: Schema.optionalKey(
-        Schema.Struct({
-          ...ProviderSettingsBasePatch,
-          apiEndpoint: Schema.optionalKey(StringSetting),
-        }),
-      ),
-      gemini: Schema.optionalKey(Schema.Struct(ProviderSettingsBasePatch)),
-      grok: Schema.optionalKey(Schema.Struct(ProviderSettingsBasePatch)),
-      kilo: Schema.optionalKey(
-        Schema.Struct({
-          ...ProviderSettingsBasePatch,
-          serverUrl: Schema.optionalKey(StringSetting),
-          serverPassword: Schema.optionalKey(StringSetting),
-        }),
-      ),
-      opencode: Schema.optionalKey(
-        Schema.Struct({
-          ...ProviderSettingsBasePatch,
-          serverUrl: Schema.optionalKey(StringSetting),
-          serverPassword: Schema.optionalKey(StringSetting),
-        }),
-      ),
       pi: Schema.optionalKey(
         Schema.Struct({
           ...ProviderSettingsBasePatch,

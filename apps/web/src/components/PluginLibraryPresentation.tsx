@@ -55,7 +55,6 @@ const KNOWN_PLUGIN_BRANDS: Record<string, { color: string; icon: typeof SiCanva 
 
 const PROVIDER_ICON: Record<ProviderKind, React.FC<React.SVGProps<SVGSVGElement>>> = {
   ...PROVIDER_ICON_COMPONENT_BY_PROVIDER,
-  codex: HammerIcon,
 };
 
 export { PROVIDER_DISCOVERY_ORDER, type DiscoveryTab, type PluginEntry };

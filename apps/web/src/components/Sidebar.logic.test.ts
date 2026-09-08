@@ -289,7 +289,7 @@ describe("pin helpers", () => {
       projectId: "project-1" as ProjectId,
       title: id,
       modelSelection: {
-        provider: "codex",
+        provider: "pi",
         model: "gpt-5-codex",
       },
       runtimeMode: DEFAULT_RUNTIME_MODE,
@@ -362,7 +362,7 @@ describe("resolveThreadStatusPill", () => {
     hasLiveTailWork: false,
     updatedAt: "2026-03-09T10:05:00.000Z",
     session: {
-      provider: "codex" as const,
+      provider: "pi" as const,
       status: "running" as const,
       createdAt: "2026-03-09T10:00:00.000Z",
       updatedAt: "2026-03-09T10:00:00.000Z",
@@ -989,7 +989,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     localName: null,
     cwd: "/tmp/project",
     defaultModelSelection: {
-      provider: "codex",
+      provider: "pi",
       model: "gpt-5.4",
       ...defaultModelSelection,
     },
@@ -1008,7 +1008,7 @@ function makeThread(overrides: Partial<Thread> = {}): Thread {
     projectId: ProjectId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
-      provider: "codex",
+      provider: "pi",
       model: "gpt-5.4",
       ...overrides?.modelSelection,
     },
@@ -1037,7 +1037,7 @@ function makeSidebarThreadSummary(
     projectId: ProjectId.makeUnsafe("project-1"),
     title: "Thread",
     modelSelection: {
-      provider: "codex",
+      provider: "pi",
       model: "gpt-5.4",
     },
     interactionMode: DEFAULT_INTERACTION_MODE,

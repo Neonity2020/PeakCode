@@ -504,7 +504,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         const input = {
           ...parsed,
           threadId,
-          provider: parsed.provider ?? "codex",
+          provider: parsed.provider ?? "pi",
         };
         clearRuntimeIdleTimer(threadId);
         const persistedBinding = Option.getOrUndefined(yield* directory.getBinding(threadId));

@@ -184,7 +184,7 @@ export function useComposerVoiceController(
         return;
       }
       const result = await api.server.transcribeVoice({
-        provider: "codex",
+        provider: "pi",
         cwd: activeProject.cwd,
         ...(activeThreadId ? { threadId: activeThreadId } : {}),
         ...payload,
