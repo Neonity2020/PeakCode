@@ -63,10 +63,14 @@ import type {
   ServerGetProviderUsageSnapshotInput,
   ServerGetProviderUsageSnapshotResult,
   ServerGetSettingsResult,
+  ServerListModelProvidersInput,
+  ServerListModelProvidersResult,
   ServerListWorktreesResult,
   ServerProviderUpdateInput,
   ServerProviderUpdateResult,
   ServerRefreshProvidersResult,
+  ServerSaveModelProvidersInput,
+  ServerSaveModelProvidersResult,
   ServerUpdateSettingsInput,
   ServerUpdateSettingsResult,
   ServerUpsertKeybindingInput,
@@ -397,6 +401,12 @@ export interface NativeApi {
     getEnvironment: () => Promise<ServerGetEnvironmentResult>;
     getSettings: () => Promise<ServerGetSettingsResult>;
     updateSettings: (input: ServerUpdateSettingsInput) => Promise<ServerUpdateSettingsResult>;
+    listModelProviders: (
+      input: ServerListModelProvidersInput,
+    ) => Promise<ServerListModelProvidersResult>;
+    saveModelProviders: (
+      input: ServerSaveModelProvidersInput,
+    ) => Promise<ServerSaveModelProvidersResult>;
     getAuthSession: () => Promise<AuthSessionState>;
     bootstrapAuth: (input: AuthBootstrapInput) => Promise<AuthBootstrapResult>;
     bootstrapBearerAuth: (input: AuthBootstrapInput) => Promise<AuthBearerBootstrapResult>;

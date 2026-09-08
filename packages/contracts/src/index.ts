@@ -6,6 +6,7 @@ export * from "./provider";
 export * from "./providerDiscovery";
 export * from "./providerRuntime";
 export * from "./model";
+export * from "./modelProviders";
 export * from "./agentMentions";
 export * from "./ws";
 export * from "./keybindings";

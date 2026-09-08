@@ -11,6 +11,7 @@ import {
   type LucideIcon,
   PaletteIcon,
   PlugIcon,
+  Server2Icon,
   SettingsIcon,
   WrenchIcon,
   WorktreeIcon,
@@ -26,6 +27,7 @@ export const SETTINGS_SECTION_IDS = [
   "archived",
   "models",
   "providers",
+  "modelProviders",
   "advanced",
 ] as const;
 
@@ -114,6 +116,14 @@ const SETTINGS_NAV_ITEM_SPECS_INTERNAL: readonly SettingsNavItemSpec[] = [
     eyebrow: "Picker visibility",
     labelKey: "providers",
     descriptionKey: "providers",
+  },
+  {
+    id: "modelProviders",
+    group: "peakcode",
+    icon: Server2Icon,
+    eyebrow: "AI endpoints",
+    labelKey: "modelProviders",
+    descriptionKey: "modelProviders",
   },
   {
     id: "advanced",

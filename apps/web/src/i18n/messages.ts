@@ -408,6 +408,7 @@ export type Messages = {
       archived: { label: string; description: string };
       models: { label: string; description: string };
       providers: { label: string; description: string };
+      modelProviders: { label: string; description: string };
       advanced: { label: string; description: string };
     };
     groups: {
@@ -733,6 +734,48 @@ export type Messages = {
         errorFallback: string;
       };
       cliDocs: string;
+    };
+    modelProviders: {
+      heading: string;
+      description: string;
+      filePathLabel: string;
+      builtinHint: string;
+      emptyTitle: string;
+      emptyDescription: string;
+      loadFailedTitle: string;
+      loadFailedFallback: string;
+      addButton: string;
+      addDialogTitle: string;
+      templateLabel: string;
+      templateAria: string;
+      templateCustom: string;
+      regionChina: string;
+      regionGlobal: string;
+      regionLocal: string;
+      providerExistsHint: (name: string) => string;
+      providerKeyLabel: string;
+      providerNameLabel: string;
+      providerApiLabel: string;
+      providerBaseUrlLabel: string;
+      providerApiKeyLabel: string;
+      providerApiKeyHint: string;
+      providerApiKeyPlaceholder: (env: string) => string;
+      providerModelsLabel: string;
+      modelAddButton: string;
+      modelIdLabel: string;
+      modelNameLabel: string;
+      modelReasoningLabel: string;
+      modelInputLabel: string;
+      modelInputText: string;
+      modelInputImage: string;
+      modelRemoveAria: (id: string) => string;
+      providerRemoveAria: (name: string) => string;
+      providerRemoveConfirm: (name: string) => string;
+      saveButton: string;
+      savingButton: string;
+      savedTitle: string;
+      unsavedHint: string;
+      cancelButton: string;
     };
     advanced: {
       heading: string;
@@ -1490,6 +1533,10 @@ const en: Messages = {
         label: "Providers",
         description: "Choose visible providers, review CLI installs, and update provider tools.",
       },
+      modelProviders: {
+        label: "Model Providers",
+        description: "Add and edit AI providers and models written to models.json.",
+      },
       advanced: {
         label: "Advanced",
         description: "Keybindings, recovery, and version info.",
@@ -1838,6 +1885,54 @@ const en: Messages = {
         errorFallback: "The provider update did not complete.",
       },
       cliDocs: "CLI docs",
+    },
+    modelProviders: {
+      heading: "Model Providers",
+      description:
+        "Configure AI providers (OpenAI, DeepSeek, Ollama, …) and their models. Changes are written to models.json and reloaded by Pi on the next model refresh.",
+      filePathLabel: "Config file",
+      builtinHint:
+        "Pi already ships common providers (OpenAI, Anthropic, Google, MiniMax). Only add a provider here when you need custom endpoints or extra models.",
+      emptyTitle: "No providers configured",
+      emptyDescription: "Add a provider from a known template, or write a custom one.",
+      loadFailedTitle: "Could not load model providers",
+      loadFailedFallback:
+        "This can happen when models.json is malformed. Fix the file manually, then reload.",
+      addButton: "Add provider",
+      addDialogTitle: "Add model provider",
+      templateLabel: "Template",
+      templateAria: "Provider template",
+      templateCustom: "Custom provider",
+      regionChina: "China",
+      regionGlobal: "Global",
+      regionLocal: "Local",
+      providerExistsHint: (name) =>
+        `${name} already exists; it will be updated instead of duplicated.`,
+      providerKeyLabel: "Provider key",
+      providerNameLabel: "Display name",
+      providerApiLabel: "API type",
+      providerBaseUrlLabel: "Base URL",
+      providerApiKeyLabel: "API key",
+      providerApiKeyHint:
+        "Supports $ENV_VAR references, !shell commands (e.g. !op read …), or literal values.",
+      providerApiKeyPlaceholder: (env) => `Reference an env var, e.g. ${env}`,
+      providerModelsLabel: "Models",
+      modelAddButton: "Add model",
+      modelIdLabel: "Model id",
+      modelNameLabel: "Display name",
+      modelReasoningLabel: "Reasoning",
+      modelInputLabel: "Input",
+      modelInputText: "Text",
+      modelInputImage: "Image",
+      modelRemoveAria: (id) => `Remove model ${id}`,
+      providerRemoveAria: (name) => `Remove provider ${name}`,
+      providerRemoveConfirm: (name) =>
+        `Remove provider ${name}? This cannot be undone until you save.`,
+      saveButton: "Save changes",
+      savingButton: "Saving…",
+      savedTitle: "Model providers saved",
+      unsavedHint: "You have unsaved changes.",
+      cancelButton: "Cancel",
     },
     advanced: {
       heading: "Advanced",
@@ -2603,6 +2698,10 @@ const zh: Messages = {
         label: "提供方",
         description: "选择可见的提供方、查看 CLI 安装状态并更新提供方工具。",
       },
+      modelProviders: {
+        label: "模型提供商",
+        description: "添加并编辑写入 models.json 的模型提供商与模型。",
+      },
       advanced: {
         label: "高级",
         description: "快捷键、恢复与版本信息。",
@@ -2938,6 +3037,50 @@ const zh: Messages = {
         errorFallback: "提供方更新未完成。",
       },
       cliDocs: "CLI 文档",
+    },
+    modelProviders: {
+      heading: "模型提供商",
+      description:
+        "配置 AI 模型提供商（OpenAI、DeepSeek、Ollama 等）及其模型。修改会写入 models.json，并在下一次模型刷新时由 Pi 自动重载。",
+      filePathLabel: "配置文件",
+      builtinHint:
+        "Pi 已内置常见提供商（OpenAI、Anthropic、Google、MiniMax）。仅当需要自定义端点或额外模型时，才在这里添加提供商。",
+      emptyTitle: "尚未配置提供商",
+      emptyDescription: "从常用模板添加一个提供商，或自定义填写。",
+      loadFailedTitle: "无法加载模型提供商",
+      loadFailedFallback: "这通常意味着 models.json 格式损坏。请先手动修复文件，再重新加载。",
+      addButton: "添加提供商",
+      addDialogTitle: "添加模型提供商",
+      templateLabel: "模板",
+      templateAria: "提供商模板",
+      templateCustom: "自定义提供商",
+      regionChina: "国内",
+      regionGlobal: "国际",
+      regionLocal: "本地",
+      providerExistsHint: (name) => `${name} 已存在，将更新而不是重复添加。`,
+      providerKeyLabel: "提供商 Key",
+      providerNameLabel: "显示名称",
+      providerApiLabel: "API 类型",
+      providerBaseUrlLabel: "Base URL",
+      providerApiKeyLabel: "API Key",
+      providerApiKeyHint: "支持 $ENV_VAR 环境变量引用、!shell 命令（如 !op read …）或字面量。",
+      providerApiKeyPlaceholder: (env) => `引用环境变量，例如 ${env}`,
+      providerModelsLabel: "模型",
+      modelAddButton: "添加模型",
+      modelIdLabel: "模型 ID",
+      modelNameLabel: "显示名称",
+      modelReasoningLabel: "推理",
+      modelInputLabel: "输入",
+      modelInputText: "文本",
+      modelInputImage: "图像",
+      modelRemoveAria: (id) => `移除模型 ${id}`,
+      providerRemoveAria: (name) => `移除提供商 ${name}`,
+      providerRemoveConfirm: (name) => `确定移除提供商 ${name}？保存前无法恢复。`,
+      saveButton: "保存修改",
+      savingButton: "保存中…",
+      savedTitle: "模型提供商已保存",
+      unsavedHint: "有未保存的修改。",
+      cancelButton: "取消",
     },
     advanced: {
       heading: "高级",

@@ -45,6 +45,7 @@ import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
+import { readModelProvidersFile, saveModelProvidersFile } from "./modelProviders";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
@@ -56,6 +57,7 @@ import type {
   ListAutomationRunsInput,
   ListAutomationsInput,
   RunAutomationInput,
+  ServerSaveModelProvidersInput,
   UpdateAutomationInput,
 } from "@peakcode/contracts";
 
@@ -588,6 +590,13 @@ export const makeWsRpcLayer = () =>
             "Failed to refresh providers",
           ),
         [WS_METHODS.serverUpdateProvider]: (input) => providerHealth.updateProvider(input),
+        [WS_METHODS.serverListModelProviders]: () =>
+          rpcEffect(readModelProvidersFile(), "Failed to load model providers"),
+        [WS_METHODS.serverSaveModelProviders]: (input: ServerSaveModelProvidersInput) =>
+          rpcEffect(
+            saveModelProvidersFile({ providers: input.providers }),
+            "Failed to save model providers",
+          ),
         [WS_METHODS.serverListWorktrees]: () => Effect.succeed({ worktrees: [] }),
         [WS_METHODS.serverGetProviderUsageSnapshot]: (input) =>
           rpcEffect(getProviderUsageSnapshot(input), "Failed to load provider usage"),

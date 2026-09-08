@@ -10,6 +10,7 @@ import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
 import { EditorId } from "./editor";
 import { ProviderKind } from "./orchestration";
 import { ServerSettings, ServerSettingsPatch } from "./settings";
+import { ModelProvidersFile } from "./modelProviders";
 import { ExecutionEnvironmentDescriptor } from "./environment";
 
 const SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BASE64_CHARS = 14_000_000;
@@ -309,3 +310,17 @@ export type ServerUpdateSettingsInput = typeof ServerUpdateSettingsInput.Type;
 
 export const ServerUpdateSettingsResult = ServerSettings;
 export type ServerUpdateSettingsResult = typeof ServerUpdateSettingsResult.Type;
+
+export const ServerListModelProvidersInput = Schema.Struct({});
+export type ServerListModelProvidersInput = typeof ServerListModelProvidersInput.Type;
+
+export const ServerListModelProvidersResult = ModelProvidersFile;
+export type ServerListModelProvidersResult = typeof ServerListModelProvidersResult.Type;
+
+export const ServerSaveModelProvidersInput = Schema.Struct({
+  providers: ModelProvidersFile.fields.providers,
+});
+export type ServerSaveModelProvidersInput = typeof ServerSaveModelProvidersInput.Type;
+
+export const ServerSaveModelProvidersResult = ModelProvidersFile;
+export type ServerSaveModelProvidersResult = typeof ServerSaveModelProvidersResult.Type;
