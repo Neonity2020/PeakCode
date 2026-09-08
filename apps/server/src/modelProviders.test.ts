@@ -72,7 +72,7 @@ describe("model entry conversions", () => {
 describe("provider conversions", () => {
   it("round-trips a provider with models and unknown keys", () => {
     const json = {
-      name: "my-provider",
+      name: "My Friendly Provider",
       api: "anthropic-messages",
       baseUrl: "https://example.com",
       apiKey: "$MY_KEY",
@@ -85,7 +85,7 @@ describe("provider conversions", () => {
 
     const provider = providerFromJson("my-provider", json);
     expect(provider).not.toBeNull();
-    expect(provider!.name).toBe("my-provider");
+    expect(provider!.name).toBe("My Friendly Provider");
     expect(provider!.models).toHaveLength(2);
     expect(provider!.extra).toEqual({
       oauth: { type: "radius", baseUrl: "https://auth.example.com" },
@@ -211,6 +211,22 @@ describe("saveModelProvidersFile", () => {
       );
       expect(saved.path).toBe(join(agentDir, "models.json"));
       expect(saved.providers.local?.models?.[0]?.id).toBe("llama3.1:8b");
+    } finally {
+      await rm(agentDir, { recursive: true, force: true });
+    }
+  });
+
+  it("persists field and model removal and preserves display names", async () => {
+    const agentDir = await mkdtemp(join(tmpdir(), "peakcode-mp-"));
+    try {
+      await runWithFs(saveModelProvidersFile({ agentDir, providers: {
+        custom: { name: "Custom Display", apiKey: "old", baseUrl: "https://old.test", models: [{ id: "old" }] },
+      } }));
+      await runWithFs(saveModelProvidersFile({ agentDir, providers: {
+        custom: { name: "Custom Display", extra: { customOption: true } },
+      } }));
+      const loaded = await runWithFs(readModelProvidersFile(agentDir));
+      expect(loaded.providers.custom).toEqual({ name: "Custom Display", extra: { customOption: true } });
     } finally {
       await rm(agentDir, { recursive: true, force: true });
     }

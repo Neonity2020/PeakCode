@@ -159,7 +159,7 @@ export function providerFromJson(name: string, raw: unknown): ModelProviderConfi
   }
 
   const config: ModelProviderConfig = {
-    name,
+    name: typeof raw.name === "string" && raw.name.trim() ? raw.name : name,
     ...(isApiKind(raw.api) ? { api: raw.api } : {}),
     ...(typeof raw.baseUrl === "string" && raw.baseUrl.trim().length > 0
       ? { baseUrl: raw.baseUrl }
@@ -190,7 +190,7 @@ export function providerToJson(config: ModelProviderConfig): Record<string, unkn
 // ── File service (Effect, FileSystem-backed) ──────────────────────────────
 
 function modelsFilePath(agentDir: string | undefined): string {
-  return path.join(agentDir ?? getAgentDir(), "models.json");
+  return path.join(agentDir?.trim() || getAgentDir(), "models.json");
 }
 
 function parseModelsJson(raw: string): Record<string, unknown> {

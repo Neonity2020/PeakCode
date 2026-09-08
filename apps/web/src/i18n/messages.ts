@@ -774,6 +774,10 @@ export type Messages = {
       saveButton: string;
       savingButton: string;
       savedTitle: string;
+      testButton: string;
+      testHint: string;
+      testSaveFirst: string;
+      testResults: Record<"success" | "invalid-config" | "model-not-found" | "auth-missing" | "timeout" | "request-failed", string>;
       unsavedHint: string;
       cancelButton: string;
     };
@@ -1889,7 +1893,7 @@ const en: Messages = {
     modelProviders: {
       heading: "Model Providers",
       description:
-        "Configure AI providers (OpenAI, DeepSeek, Ollama, …) and their models. Changes are written to models.json and reloaded by Pi on the next model refresh.",
+        "Configure AI providers (OpenAI, DeepSeek, Ollama, …) and their models. Saving writes models.json and refreshes the model picker.",
       filePathLabel: "Config file",
       builtinHint:
         "Pi already ships common providers (OpenAI, Anthropic, Google, MiniMax). Only add a provider here when you need custom endpoints or extra models.",
@@ -1914,7 +1918,7 @@ const en: Messages = {
       providerBaseUrlLabel: "Base URL",
       providerApiKeyLabel: "API key",
       providerApiKeyHint:
-        "Supports $ENV_VAR references, !shell commands (e.g. !op read …), or literal values.",
+        "Supports ENV_VAR references, !shell commands (e.g. !op read …), or literal values.",
       providerApiKeyPlaceholder: (env) => `Reference an env var, e.g. ${env}`,
       providerModelsLabel: "Models",
       modelAddButton: "Add model",
@@ -1931,6 +1935,17 @@ const en: Messages = {
       saveButton: "Save changes",
       savingButton: "Saving…",
       savedTitle: "Model providers saved",
+      testButton: "Test connection",
+      testHint: "Sends a short request to the first configured model (or the first built-in model). May use a small amount of API credit.",
+      testSaveFirst: "Save your changes before testing the connection.",
+      testResults: {
+        success: "Connection successful",
+        "invalid-config": "Pi could not load the model configuration. Check models.json.",
+        "model-not-found": "No matching model found. Add a model first.",
+        "auth-missing": "Credentials could not be resolved. Check your API key or environment variable.",
+        timeout: "Connection timed out after 20 seconds.",
+        "request-failed": "Request failed. Check the endpoint, credentials, model access, and network.",
+      },
       unsavedHint: "You have unsaved changes.",
       cancelButton: "Cancel",
     },
@@ -3041,7 +3056,7 @@ const zh: Messages = {
     modelProviders: {
       heading: "模型提供商",
       description:
-        "配置 AI 模型提供商（OpenAI、DeepSeek、Ollama 等）及其模型。修改会写入 models.json，并在下一次模型刷新时由 Pi 自动重载。",
+        "配置 AI 模型提供商（OpenAI、DeepSeek、Ollama 等）及其模型。保存会写入 models.json 并刷新模型选择器。",
       filePathLabel: "配置文件",
       builtinHint:
         "Pi 已内置常见提供商（OpenAI、Anthropic、Google、MiniMax）。仅当需要自定义端点或额外模型时，才在这里添加提供商。",
@@ -3063,7 +3078,7 @@ const zh: Messages = {
       providerApiLabel: "API 类型",
       providerBaseUrlLabel: "Base URL",
       providerApiKeyLabel: "API Key",
-      providerApiKeyHint: "支持 $ENV_VAR 环境变量引用、!shell 命令（如 !op read …）或字面量。",
+      providerApiKeyHint: "支持 ENV_VAR 环境变量引用、!shell 命令（如 !op read …）或字面量。",
       providerApiKeyPlaceholder: (env) => `引用环境变量，例如 ${env}`,
       providerModelsLabel: "模型",
       modelAddButton: "添加模型",
@@ -3079,6 +3094,17 @@ const zh: Messages = {
       saveButton: "保存修改",
       savingButton: "保存中…",
       savedTitle: "模型提供商已保存",
+      testButton: "测试连接",
+      testHint: "向第一个已配置模型（或第一个内置模型）发送简短请求，可能产生少量 API 用量。",
+      testSaveFirst: "请先保存修改，再测试连接。",
+      testResults: {
+        success: "连接成功",
+        "invalid-config": "Pi 无法加载模型配置，请检查 models.json。",
+        "model-not-found": "未找到匹配的模型，请先添加模型。",
+        "auth-missing": "无法解析凭证，请检查 API Key 或环境变量。",
+        timeout: "连接超时（20 秒）。",
+        "request-failed": "请求失败，请检查端点、凭证、模型访问权限和网络。",
+      },
       unsavedHint: "有未保存的修改。",
       cancelButton: "取消",
     },

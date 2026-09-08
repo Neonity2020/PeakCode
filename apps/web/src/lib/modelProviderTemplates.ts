@@ -30,7 +30,7 @@ export interface ModelProviderTemplate {
   readonly api: ModelProviderApiKind;
   readonly baseUrl: string;
   /**
-   * Recommended env var to reference in apiKey (e.g. `$OPENAI_API_KEY`).
+   * Recommended env var to reference in apiKey (e.g. `OPENAI_API_KEY`).
    */
   readonly apiKeyEnv: string;
   readonly models: ReadonlyArray<ModelProviderTemplateModel>;
@@ -79,7 +79,7 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     region: "global",
     api: "openai-completions",
     baseUrl: "https://api.openai.com/v1",
-    apiKeyEnv: "$OPENAI_API_KEY",
+    apiKeyEnv: "OPENAI_API_KEY",
     note: "Pi 内置 OpenAI，通常无需重复添加；仅在自定义模型/代理时使用。",
     models: [
       { id: "gpt-5.5", name: "GPT-5.5", reasoning: true, ...textImage, contextWindow: 400_000 },
@@ -99,7 +99,7 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     region: "global",
     api: "anthropic-messages",
     baseUrl: "https://api.anthropic.com",
-    apiKeyEnv: "$ANTHROPIC_API_KEY",
+    apiKeyEnv: "ANTHROPIC_API_KEY",
     note: "Pi 内置 Claude 模型，通常无需重复添加。",
     models: [
       {
@@ -125,7 +125,7 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     region: "global",
     api: "google-generative-ai",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-    apiKeyEnv: "$GEMINI_API_KEY",
+    apiKeyEnv: "GEMINI_API_KEY",
     note: "Pi 内置 Gemini 模型，通常无需重复添加。",
     models: [
       {
@@ -157,7 +157,7 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     region: "global",
     api: "openai-completions",
     baseUrl: "https://openrouter.ai/api/v1",
-    apiKeyEnv: "$OPENROUTER_API_KEY",
+    apiKeyEnv: "OPENROUTER_API_KEY",
     note: "聚合多家模型的网关，也可用 openrouter/auto 自动路由。",
     models: [
       { id: "openrouter/auto", name: "Auto (自动路由)", ...text },
@@ -193,7 +193,7 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     region: "china",
     api: "openai-completions",
     baseUrl: "https://api.deepseek.com/v1",
-    apiKeyEnv: "$DEEPSEEK_API_KEY",
+    apiKeyEnv: "DEEPSEEK_API_KEY",
     models: [
       {
         id: "deepseek-v4-flash",
@@ -225,7 +225,7 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     region: "china",
     api: "openai-completions",
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
-    apiKeyEnv: "$ZAI_API_KEY",
+    apiKeyEnv: "ZAI_API_KEY",
     models: [
       { id: "glm-4.5", name: "GLM-4.5", reasoning: true, ...textImage, contextWindow: 200_000 },
       {
@@ -244,7 +244,7 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     region: "china",
     api: "openai-completions",
     baseUrl: "https://api.moonshot.cn/v1",
-    apiKeyEnv: "$MOONSHOT_API_KEY",
+    apiKeyEnv: "MOONSHOT_API_KEY",
     models: [
       { id: "kimi-k3", name: "Kimi K3", reasoning: true, ...textImage, contextWindow: 262_144 },
       {
@@ -263,7 +263,7 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     region: "china",
     api: "openai-completions",
     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    apiKeyEnv: "$DASHSCOPE_API_KEY",
+    apiKeyEnv: "DASHSCOPE_API_KEY",
     models: [
       { id: "qwen-max", name: "Qwen Max", reasoning: true, ...textImage, contextWindow: 131_072 },
       { id: "qwen-plus", name: "Qwen Plus", reasoning: true, ...textImage, contextWindow: 131_072 },
@@ -283,7 +283,7 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     region: "china",
     api: "openai-completions",
     baseUrl: "https://api.siliconflow.cn/v1",
-    apiKeyEnv: "$SILICONFLOW_API_KEY",
+    apiKeyEnv: "SILICONFLOW_API_KEY",
     note: "托管 DeepSeek / Qwen / GLM 等开源模型，模型名带组织前缀。",
     models: [
       { id: "deepseek-ai/DeepSeek-V4-Flash", name: "DeepSeek V4 Flash", reasoning: true, ...text },
@@ -292,16 +292,15 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     ],
   },
   {
-    id: "minimax",
-    label: "MiniMax（稀宇科技）",
+    id: "minimax-cn",
+    label: "MiniMax 国内（稀宇科技）",
     region: "china",
-    api: "openai-completions",
-    baseUrl: "https://api.minimaxi.com/v1",
-    apiKeyEnv: "$MINIMAX_API_KEY",
-    note: "Pi 已内置 MiniMax-M3（Anthropic 端点），重复添加仅用于自定义模型。",
+    api: "anthropic-messages",
+    baseUrl: "https://api.minimaxi.com/anthropic",
+    apiKeyEnv: "MINIMAX_CN_API_KEY",
+    note: "使用 Pi 的 minimax-cn 凭证；已登录时 API Key 可留空。国内与国际账户的密钥不可混用。",
     models: [
-      { id: "MiniMax-M3", name: "MiniMax M3", reasoning: true, ...text, contextWindow: 512_000 },
-      { id: "MiniMax-Text-01", name: "MiniMax Text-01", ...text, contextWindow: 1_000_000 },
+      { id: "MiniMax-M3", name: "MiniMax M3", reasoning: true, ...textImage, contextWindow: 512_000 },
     ],
   },
   {
@@ -310,7 +309,7 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     region: "china",
     api: "openai-completions",
     baseUrl: "https://spark-api-open.xf-yun.com/v1",
-    apiKeyEnv: "$SPARK_API_KEY",
+    apiKeyEnv: "SPARK_API_KEY",
     note: "星火模型名较特殊（如 4.0Ultra / generalv3.5），按控制台实际值填写。",
     models: [
       { id: "4.0Ultra", name: "Spark 4.0 Ultra", reasoning: true, ...text, contextWindow: 131_072 },
@@ -324,7 +323,7 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     region: "china",
     api: "openai-completions",
     baseUrl: "https://api.stepfun.com/v1",
-    apiKeyEnv: "$STEP_API_KEY",
+    apiKeyEnv: "STEP_API_KEY",
     models: [
       {
         id: "step-3.7-flash",
@@ -348,7 +347,7 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     region: "china",
     api: "openai-completions",
     baseUrl: "https://api.hunyuan.cloud.tencent.com/v1",
-    apiKeyEnv: "$HUNYUAN_API_KEY",
+    apiKeyEnv: "HUNYUAN_API_KEY",
     models: [
       {
         id: "hunyuan-turbos-latest",
@@ -373,7 +372,7 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     region: "china",
     api: "openai-completions",
     baseUrl: "https://api.lingyiwanwu.com/v1",
-    apiKeyEnv: "$YI_API_KEY",
+    apiKeyEnv: "YI_API_KEY",
     models: [
       { id: "yi-lightning", name: "Yi Lightning", reasoning: true, ...text, contextWindow: 32_768 },
     ],

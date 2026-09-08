@@ -3,46 +3,49 @@
 // Layer: Web data fetching helpers
 
 import type { ModelProvidersFile, ServerSaveModelProvidersInput } from "@peakcode/contracts";
-import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
+import { providerDiscoveryQueryKeys } from "./providerDiscoveryReactQuery";
 import { toastManager } from "../components/ui/toast";
 
 export const modelProvidersQueryKeys = {
   all: ["modelProviders"] as const,
-  file: () => ["modelProviders", "file"] as const,
+  file: (agentDir?: string) => ["modelProviders", "file", agentDir || null] as const,
 };
 
-export const modelProvidersQueryOptions = queryOptions({
-  queryKey: modelProvidersQueryKeys.file(),
+export const modelProvidersQueryOptions = (agentDir?: string) => queryOptions({
+  queryKey: modelProvidersQueryKeys.file(agentDir),
   queryFn: async () => {
     const api = ensureNativeApi();
-    return api.server.listModelProviders({});
+    return api.server.listModelProviders(agentDir ? { agentDir } : {});
   },
-  // The file only changes through this panel, so a long staleness window keeps
-  // the panel from refetching on every keystroke while still syncing on mount.
+  // External edits are reloaded on a subsequent mount or focus.
   staleTime: 30_000,
 });
 
-export function useModelProvidersQuery() {
-  return useQuery(modelProvidersQueryOptions);
+export function useModelProvidersQuery(agentDir?: string) {
+  return useQuery(modelProvidersQueryOptions(agentDir));
 }
 
-export function useSaveModelProvidersMutation() {
-  const queryClient = useQueryClient();
-  return useMutation({
+export function saveModelProvidersMutationOptions(queryClient: QueryClient) {
+  return {
     mutationFn: async (input: ServerSaveModelProvidersInput) => {
       const api = ensureNativeApi();
       return api.server.saveModelProviders(input);
     },
-    onSuccess: (saved: ModelProvidersFile) => {
-      queryClient.setQueryData<ModelProvidersFile>(modelProvidersQueryKeys.file(), saved);
-    },
-    onError: (error: Error) => {
-      toastManager.add({
-        type: "error",
-        title: "保存模型提供商失败",
-        description: error.message,
+    onSuccess: async (saved: ModelProvidersFile, input: ServerSaveModelProvidersInput) => {
+      await queryClient.cancelQueries({ queryKey: modelProvidersQueryKeys.file(input.agentDir) });
+      queryClient.setQueryData<ModelProvidersFile>(modelProvidersQueryKeys.file(input.agentDir), saved);
+      await queryClient.invalidateQueries({
+        queryKey: [...providerDiscoveryQueryKeys.all, "models", "pi"],
       });
     },
-  });
+    onError: (error: Error) => {
+      toastManager.add({ type: "error", title: error.message });
+    },
+  };
+}
+
+export function useSaveModelProvidersMutation() {
+  return useMutation(saveModelProvidersMutationOptions(useQueryClient()));
 }

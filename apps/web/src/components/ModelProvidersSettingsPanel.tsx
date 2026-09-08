@@ -8,6 +8,9 @@ import type {
   ModelProviderApiKind,
   ModelProviderConfig,
 } from "@peakcode/contracts";
+import { useMutation } from "@tanstack/react-query";
+import { ensureNativeApi } from "../nativeApi";
+import { cleanModelProviderDraft, patchModelProvider } from "../lib/modelProviderDraft";
 import { cn } from "~/lib/utils";
 import { useMessages } from "../i18n";
 import {
@@ -65,11 +68,15 @@ function toApiKind(value: string | undefined): ModelProviderApiKind | undefined 
 
 type Draft = Record<string, ModelProviderConfig>;
 
-export function ModelProvidersSettingsPanel() {
+export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: string }) {
   const messages = useMessages();
   const mp = messages.settings.modelProviders;
-  const query = useModelProvidersQuery();
+  const query = useModelProvidersQuery(agentDir);
   const saveMutation = useSaveModelProvidersMutation();
+  const connectionTest = useMutation({
+    mutationFn: (input: { provider: string; modelId?: string }) =>
+      ensureNativeApi().server.testModelProvider({ ...input, ...(agentDir ? { agentDir } : {}) }),
+  });
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [templateId, setTemplateId] = useState<string>(EMPTY_TEMPLATE_ID);
@@ -117,7 +124,7 @@ export function ModelProvidersSettingsPanel() {
     setDraft((current) => {
       const existing = current?.[key];
       if (!current || !existing) return current;
-      return { ...current, [key]: { ...existing, ...patch } };
+      return { ...current, [key]: patchModelProvider(existing, patch) };
     });
   };
 
@@ -155,6 +162,7 @@ export function ModelProvidersSettingsPanel() {
           [key]: {
             ...existing,
             name: existing?.name ?? key,
+            api: existing?.api ?? "openai-completions",
             ...(customApiKey.trim().length > 0 ? { apiKey: customApiKey.trim() } : {}),
           },
         };
@@ -188,15 +196,13 @@ export function ModelProvidersSettingsPanel() {
 
   const handleSave = () => {
     if (!draft) return;
-    const cleaned: Draft = {};
-    for (const [key, provider] of Object.entries(draft)) {
-      const models = (provider.models ?? []).filter((model) => model.id.trim().length > 0);
-      cleaned[key] = { ...provider, ...(models.length > 0 ? { models } : {}) };
-    }
+    const cleaned = cleanModelProviderDraft(draft);
     saveMutation.mutate(
-      { providers: cleaned },
+      { providers: cleaned, ...(agentDir ? { agentDir } : {}) },
       {
-        onSuccess: () => {
+        onSuccess: (saved) => {
+          setDraft(cloneProviders(saved.providers));
+          connectionTest.reset();
           toastManager.add({ type: "success", title: mp.savedTitle });
         },
       },
@@ -214,7 +220,7 @@ export function ModelProvidersSettingsPanel() {
 
     return (
       <div
-        key={`${providerKey}-${index}-${model.id}`}
+        key={`${providerKey}-${index}`}
         className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center"
       >
         <div className="min-w-0 flex-1">
@@ -245,7 +251,7 @@ export function ModelProvidersSettingsPanel() {
                 const next = [...models];
                 next[index] = {
                   ...model,
-                  ...(event.target.value.trim().length > 0 ? { name: event.target.value } : {}),
+                  name: event.target.value.trim() || undefined,
                 };
                 void updateModels(providerKey, next);
               }}
@@ -271,7 +277,7 @@ export function ModelProvidersSettingsPanel() {
                 : base.filter((kind) => kind !== "image");
               next[index] = {
                 ...model,
-                ...(input.length > 0 ? { input: input as CustomModelConfig["input"] } : {}),
+                input: input as CustomModelConfig["input"],
               };
               void updateModels(providerKey, next);
             }}
@@ -352,7 +358,7 @@ export function ModelProvidersSettingsPanel() {
                     spellCheck={false}
                     onChange={(event) => {
                       const name = event.target.value.trim();
-                      updateProvider(key, name.length > 0 ? { name } : {});
+                      updateProvider(key, { name: name || undefined });
                     }}
                   />
                 </label>
@@ -394,7 +400,7 @@ export function ModelProvidersSettingsPanel() {
                   spellCheck={false}
                   onChange={(event) => {
                     const baseUrl = event.target.value.trim();
-                    updateProvider(key, baseUrl.length > 0 ? { baseUrl } : {});
+                    updateProvider(key, { baseUrl: baseUrl || undefined });
                   }}
                 />
               </label>
@@ -409,18 +415,43 @@ export function ModelProvidersSettingsPanel() {
                   autoComplete="off"
                   value={provider.apiKey ?? ""}
                   placeholder={mp.providerApiKeyPlaceholder(
-                    MODEL_PROVIDER_TEMPLATE_BY_ID.get(key)?.apiKeyEnv ?? "$API_KEY",
+                    MODEL_PROVIDER_TEMPLATE_BY_ID.get(key)?.apiKeyEnv ?? "API_KEY",
                   )}
                   spellCheck={false}
                   onChange={(event) => {
                     const apiKey = event.target.value;
-                    updateProvider(key, apiKey.length > 0 ? { apiKey } : {});
+                    updateProvider(key, { apiKey: apiKey || undefined });
                   }}
                 />
                 <span className="mt-1 block text-xs text-muted-foreground">
                   {mp.providerApiKeyHint}
                 </span>
               </label>
+
+              <div className="flex flex-col gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={isDirty || saveMutation.isPending || connectionTest.isPending}
+                  onClick={() => connectionTest.mutate({
+                    provider: key,
+                    ...(models[0]?.id ? { modelId: models[0].id } : {}),
+                  })}
+                >
+                  {connectionTest.isPending && connectionTest.variables?.provider === key
+                    ? <Loader2Icon data-icon="inline-start" className="animate-spin" /> : null}
+                  {mp.testButton}
+                </Button>
+                <p className="text-xs text-muted-foreground">{isDirty ? mp.testSaveFirst : mp.testHint}</p>
+                {!isDirty && connectionTest.variables?.provider === key && !connectionTest.isPending ? (
+                  <p role="status" className="text-xs text-muted-foreground">
+                    {connectionTest.isError ? mp.testResults["request-failed"] : connectionTest.data
+                      ? mp.testResults[connectionTest.data.status]
+                      : null}
+                    {connectionTest.data?.model ? ` (${connectionTest.data.model})` : null}
+                  </p>
+                ) : null}
+              </div>
 
               <div>
                 <div className="flex items-center justify-between">
@@ -478,7 +509,7 @@ export function ModelProvidersSettingsPanel() {
   ];
 
   return (
-    <div className="space-y-6">
+    <fieldset disabled={saveMutation.isPending} className="flex min-w-0 flex-col gap-6">
       <section className="space-y-2">
         <h2 className="px-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
           {mp.filePathLabel}
@@ -545,9 +576,9 @@ export function ModelProvidersSettingsPanel() {
                 value={customApiKey}
                 placeholder={
                   templateId === EMPTY_TEMPLATE_ID
-                    ? "$MY_API_KEY"
+                    ? "MY_API_KEY"
                     : mp.providerApiKeyPlaceholder(
-                        MODEL_PROVIDER_TEMPLATE_BY_ID.get(templateId)?.apiKeyEnv ?? "$API_KEY",
+                        MODEL_PROVIDER_TEMPLATE_BY_ID.get(templateId)?.apiKeyEnv ?? "API_KEY",
                       )
                 }
                 spellCheck={false}
@@ -591,6 +622,6 @@ export function ModelProvidersSettingsPanel() {
           </Button>
         </div>
       ) : null}
-    </div>
+    </fieldset>
   );
 }

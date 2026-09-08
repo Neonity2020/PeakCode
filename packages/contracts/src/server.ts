@@ -311,16 +311,35 @@ export type ServerUpdateSettingsInput = typeof ServerUpdateSettingsInput.Type;
 export const ServerUpdateSettingsResult = ServerSettings;
 export type ServerUpdateSettingsResult = typeof ServerUpdateSettingsResult.Type;
 
-export const ServerListModelProvidersInput = Schema.Struct({});
+export const ServerListModelProvidersInput = Schema.Struct({
+  agentDir: Schema.optional(TrimmedNonEmptyString),
+});
 export type ServerListModelProvidersInput = typeof ServerListModelProvidersInput.Type;
 
 export const ServerListModelProvidersResult = ModelProvidersFile;
 export type ServerListModelProvidersResult = typeof ServerListModelProvidersResult.Type;
 
 export const ServerSaveModelProvidersInput = Schema.Struct({
+  agentDir: Schema.optional(TrimmedNonEmptyString),
   providers: ModelProvidersFile.fields.providers,
 });
 export type ServerSaveModelProvidersInput = typeof ServerSaveModelProvidersInput.Type;
 
 export const ServerSaveModelProvidersResult = ModelProvidersFile;
 export type ServerSaveModelProvidersResult = typeof ServerSaveModelProvidersResult.Type;
+
+
+export const ServerTestModelProviderInput = Schema.Struct({
+  agentDir: Schema.optional(TrimmedNonEmptyString),
+  provider: TrimmedNonEmptyString,
+  modelId: Schema.optional(TrimmedNonEmptyString),
+});
+export type ServerTestModelProviderInput = typeof ServerTestModelProviderInput.Type;
+
+export const ServerTestModelProviderResult = Schema.Struct({
+  status: Schema.Literals([
+    "success", "invalid-config", "model-not-found", "auth-missing", "timeout", "request-failed",
+  ]),
+  model: Schema.optional(Schema.String),
+});
+export type ServerTestModelProviderResult = typeof ServerTestModelProviderResult.Type;

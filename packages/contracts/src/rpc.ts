@@ -104,6 +104,8 @@ import {
   ServerProviderUpdateInput,
   ServerProviderUpdateResult,
   ServerRefreshProvidersResult,
+  ServerTestModelProviderInput,
+  ServerTestModelProviderResult,
   ServerSaveModelProvidersInput,
   ServerSaveModelProvidersResult,
   ServerUpdateSettingsInput,
@@ -479,6 +481,12 @@ export const WsServerSaveModelProvidersRpc = Rpc.make(WS_METHODS.serverSaveModel
   error: WsRpcError,
 });
 
+export const WsServerTestModelProviderRpc = Rpc.make(WS_METHODS.serverTestModelProvider, {
+  payload: ServerTestModelProviderInput,
+  success: ServerTestModelProviderResult,
+  error: WsRpcError,
+});
+
 export const WsServerGetProviderUsageSnapshotRpc = Rpc.make(
   WS_METHODS.serverGetProviderUsageSnapshot,
   {
@@ -690,6 +698,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpdateProviderRpc,
   WsServerListModelProvidersRpc,
   WsServerSaveModelProvidersRpc,
+  WsServerTestModelProviderRpc,
   WsServerListWorktreesRpc,
   WsServerGetProviderUsageSnapshotRpc,
   WsServerGetDiagnosticsRpc,
