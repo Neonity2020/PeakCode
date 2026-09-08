@@ -409,7 +409,9 @@ export interface NativeApi {
     saveModelProviders: (
       input: ServerSaveModelProvidersInput,
     ) => Promise<ServerSaveModelProvidersResult>;
-    testModelProvider: (input: ServerTestModelProviderInput) => Promise<ServerTestModelProviderResult>;
+    testModelProvider: (
+      input: ServerTestModelProviderInput,
+    ) => Promise<ServerTestModelProviderResult>;
     getAuthSession: () => Promise<AuthSessionState>;
     bootstrapAuth: (input: AuthBootstrapInput) => Promise<AuthBootstrapResult>;
     bootstrapBearerAuth: (input: AuthBootstrapInput) => Promise<AuthBearerBootstrapResult>;

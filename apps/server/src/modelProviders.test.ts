@@ -219,14 +219,32 @@ describe("saveModelProvidersFile", () => {
   it("persists field and model removal and preserves display names", async () => {
     const agentDir = await mkdtemp(join(tmpdir(), "peakcode-mp-"));
     try {
-      await runWithFs(saveModelProvidersFile({ agentDir, providers: {
-        custom: { name: "Custom Display", apiKey: "old", baseUrl: "https://old.test", models: [{ id: "old" }] },
-      } }));
-      await runWithFs(saveModelProvidersFile({ agentDir, providers: {
-        custom: { name: "Custom Display", extra: { customOption: true } },
-      } }));
+      await runWithFs(
+        saveModelProvidersFile({
+          agentDir,
+          providers: {
+            custom: {
+              name: "Custom Display",
+              apiKey: "old",
+              baseUrl: "https://old.test",
+              models: [{ id: "old" }],
+            },
+          },
+        }),
+      );
+      await runWithFs(
+        saveModelProvidersFile({
+          agentDir,
+          providers: {
+            custom: { name: "Custom Display", extra: { customOption: true } },
+          },
+        }),
+      );
       const loaded = await runWithFs(readModelProvidersFile(agentDir));
-      expect(loaded.providers.custom).toEqual({ name: "Custom Display", extra: { customOption: true } });
+      expect(loaded.providers.custom).toEqual({
+        name: "Custom Display",
+        extra: { customOption: true },
+      });
     } finally {
       await rm(agentDir, { recursive: true, force: true });
     }

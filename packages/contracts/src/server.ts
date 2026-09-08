@@ -328,7 +328,6 @@ export type ServerSaveModelProvidersInput = typeof ServerSaveModelProvidersInput
 export const ServerSaveModelProvidersResult = ModelProvidersFile;
 export type ServerSaveModelProvidersResult = typeof ServerSaveModelProvidersResult.Type;
 
-
 export const ServerTestModelProviderInput = Schema.Struct({
   agentDir: Schema.optional(TrimmedNonEmptyString),
   provider: TrimmedNonEmptyString,
@@ -338,7 +337,12 @@ export type ServerTestModelProviderInput = typeof ServerTestModelProviderInput.T
 
 export const ServerTestModelProviderResult = Schema.Struct({
   status: Schema.Literals([
-    "success", "invalid-config", "model-not-found", "auth-missing", "timeout", "request-failed",
+    "success",
+    "invalid-config",
+    "model-not-found",
+    "auth-missing",
+    "timeout",
+    "request-failed",
   ]),
   model: Schema.optional(Schema.String),
 });

@@ -777,7 +777,15 @@ export type Messages = {
       testButton: string;
       testHint: string;
       testSaveFirst: string;
-      testResults: Record<"success" | "invalid-config" | "model-not-found" | "auth-missing" | "timeout" | "request-failed", string>;
+      testResults: Record<
+        | "success"
+        | "invalid-config"
+        | "model-not-found"
+        | "auth-missing"
+        | "timeout"
+        | "request-failed",
+        string
+      >;
       unsavedHint: string;
       cancelButton: string;
     };
@@ -1936,15 +1944,18 @@ const en: Messages = {
       savingButton: "Saving…",
       savedTitle: "Model providers saved",
       testButton: "Test connection",
-      testHint: "Sends a short request to the first configured model (or the first built-in model). May use a small amount of API credit.",
+      testHint:
+        "Sends a short request to the first configured model (or the first built-in model). May use a small amount of API credit.",
       testSaveFirst: "Save your changes before testing the connection.",
       testResults: {
         success: "Connection successful",
         "invalid-config": "Pi could not load the model configuration. Check models.json.",
         "model-not-found": "No matching model found. Add a model first.",
-        "auth-missing": "Credentials could not be resolved. Check your API key or environment variable.",
+        "auth-missing":
+          "Credentials could not be resolved. Check your API key or environment variable.",
         timeout: "Connection timed out after 20 seconds.",
-        "request-failed": "Request failed. Check the endpoint, credentials, model access, and network.",
+        "request-failed":
+          "Request failed. Check the endpoint, credentials, model access, and network.",
       },
       unsavedHint: "You have unsaved changes.",
       cancelButton: "Cancel",

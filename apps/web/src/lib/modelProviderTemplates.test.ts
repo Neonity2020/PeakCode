@@ -1,5 +1,8 @@
 import { expect, it } from "vitest";
-import { MODEL_PROVIDER_TEMPLATE_BY_ID, modelProviderTemplateToConfig } from "./modelProviderTemplates";
+import {
+  MODEL_PROVIDER_TEMPLATE_BY_ID,
+  modelProviderTemplateToConfig,
+} from "./modelProviderTemplates";
 
 it("keeps MiniMax China on the Pi credential namespace and China Anthropic endpoint", () => {
   const template = MODEL_PROVIDER_TEMPLATE_BY_ID.get("minimax-cn");

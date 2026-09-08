@@ -13,9 +13,12 @@ export function patchModelProvider(
 export function cleanModelProviderDraft(
   providers: Readonly<Record<string, ModelProviderConfig>>,
 ): Record<string, ModelProviderConfig> {
-  return Object.fromEntries(Object.entries(providers).map(([key, provider]) => {
-    const models = provider.models?.filter((model) => model.id.trim().length > 0)
-      .map((model) => ({ ...model, id: model.id.trim() }));
-    return [key, patchModelProvider(provider, { models: models?.length ? models : undefined })];
-  }));
+  return Object.fromEntries(
+    Object.entries(providers).map(([key, provider]) => {
+      const models = provider.models
+        ?.filter((model) => model.id.trim().length > 0)
+        .map((model) => ({ ...model, id: model.id.trim() }));
+      return [key, patchModelProvider(provider, { models: models?.length ? models : undefined })];
+    }),
+  );
 }

@@ -300,7 +300,13 @@ export const MODEL_PROVIDER_TEMPLATES: readonly ModelProviderTemplate[] = [
     apiKeyEnv: "MINIMAX_CN_API_KEY",
     note: "使用 Pi 的 minimax-cn 凭证；已登录时 API Key 可留空。国内与国际账户的密钥不可混用。",
     models: [
-      { id: "MiniMax-M3", name: "MiniMax M3", reasoning: true, ...textImage, contextWindow: 512_000 },
+      {
+        id: "MiniMax-M3",
+        name: "MiniMax M3",
+        reasoning: true,
+        ...textImage,
+        contextWindow: 512_000,
+      },
     ],
   },
   {

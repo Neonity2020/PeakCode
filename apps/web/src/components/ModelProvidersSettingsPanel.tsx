@@ -433,21 +433,30 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
                   variant="outline"
                   size="sm"
                   disabled={isDirty || saveMutation.isPending || connectionTest.isPending}
-                  onClick={() => connectionTest.mutate({
-                    provider: key,
-                    ...(models[0]?.id ? { modelId: models[0].id } : {}),
-                  })}
+                  onClick={() =>
+                    connectionTest.mutate({
+                      provider: key,
+                      ...(models[0]?.id ? { modelId: models[0].id } : {}),
+                    })
+                  }
                 >
-                  {connectionTest.isPending && connectionTest.variables?.provider === key
-                    ? <Loader2Icon data-icon="inline-start" className="animate-spin" /> : null}
+                  {connectionTest.isPending && connectionTest.variables?.provider === key ? (
+                    <Loader2Icon data-icon="inline-start" className="animate-spin" />
+                  ) : null}
                   {mp.testButton}
                 </Button>
-                <p className="text-xs text-muted-foreground">{isDirty ? mp.testSaveFirst : mp.testHint}</p>
-                {!isDirty && connectionTest.variables?.provider === key && !connectionTest.isPending ? (
+                <p className="text-xs text-muted-foreground">
+                  {isDirty ? mp.testSaveFirst : mp.testHint}
+                </p>
+                {!isDirty &&
+                connectionTest.variables?.provider === key &&
+                !connectionTest.isPending ? (
                   <p role="status" className="text-xs text-muted-foreground">
-                    {connectionTest.isError ? mp.testResults["request-failed"] : connectionTest.data
-                      ? mp.testResults[connectionTest.data.status]
-                      : null}
+                    {connectionTest.isError
+                      ? mp.testResults["request-failed"]
+                      : connectionTest.data
+                        ? mp.testResults[connectionTest.data.status]
+                        : null}
                     {connectionTest.data?.model ? ` (${connectionTest.data.model})` : null}
                   </p>
                 ) : null}

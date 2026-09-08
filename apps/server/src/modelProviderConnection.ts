@@ -38,9 +38,10 @@ export async function testModelProvider(
       );
       if (controller.signal.aborted) return { status: "timeout" };
       return {
-        status: response.stopReason === "error" || response.stopReason === "aborted"
-          ? "request-failed"
-          : "success",
+        status:
+          response.stopReason === "error" || response.stopReason === "aborted"
+            ? "request-failed"
+            : "success",
         model: `${model.provider}/${model.id}`,
       };
     } catch {

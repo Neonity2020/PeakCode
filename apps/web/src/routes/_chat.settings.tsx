@@ -2328,7 +2328,12 @@ function SettingsRouteView() {
       case "providers":
         return renderProvidersPanel();
       case "modelProviders":
-        return <ModelProvidersSettingsPanel key={settings.piAgentDir.trim()} agentDir={settings.piAgentDir.trim()} />;
+        return (
+          <ModelProvidersSettingsPanel
+            key={settings.piAgentDir.trim()}
+            agentDir={settings.piAgentDir.trim()}
+          />
+        );
       case "advanced":
         return renderAdvancedPanel();
       default:

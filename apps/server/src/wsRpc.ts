@@ -594,12 +594,12 @@ export const makeWsRpcLayer = () =>
         [WS_METHODS.serverListModelProviders]: (input) =>
           rpcEffect(readModelProvidersFile(input.agentDir), "Failed to load model providers"),
         [WS_METHODS.serverSaveModelProviders]: (input: ServerSaveModelProvidersInput) =>
-          rpcEffect(
-            saveModelProvidersFile(input),
-            "Failed to save model providers",
-          ),
+          rpcEffect(saveModelProvidersFile(input), "Failed to save model providers"),
         [WS_METHODS.serverTestModelProvider]: (input) =>
-          rpcEffect(Effect.promise(() => testModelProvider(input)), "Failed to test model provider"),
+          rpcEffect(
+            Effect.promise(() => testModelProvider(input)),
+            "Failed to test model provider",
+          ),
         [WS_METHODS.serverListWorktrees]: () => Effect.succeed({ worktrees: [] }),
         [WS_METHODS.serverGetProviderUsageSnapshot]: (input) =>
           rpcEffect(getProviderUsageSnapshot(input), "Failed to load provider usage"),

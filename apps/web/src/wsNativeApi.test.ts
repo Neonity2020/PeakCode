@@ -124,11 +124,24 @@ describe("wsNativeApi", () => {
     const { createWsNativeApi } = await import("./wsNativeApi");
     const api = createWsNativeApi();
     await api.server.listModelProviders({ agentDir: "/custom" });
-    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverListModelProviders, { agentDir: "/custom" });
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverListModelProviders, {
+      agentDir: "/custom",
+    });
     await api.server.saveModelProviders({ agentDir: "/custom", providers: {} });
-    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverSaveModelProviders, { agentDir: "/custom", providers: {} });
-    await api.server.testModelProvider({ agentDir: "/custom", provider: "custom", modelId: "model" });
-    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverTestModelProvider, { agentDir: "/custom", provider: "custom", modelId: "model" });
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverSaveModelProviders, {
+      agentDir: "/custom",
+      providers: {},
+    });
+    await api.server.testModelProvider({
+      agentDir: "/custom",
+      provider: "custom",
+      modelId: "model",
+    });
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverTestModelProvider, {
+      agentDir: "/custom",
+      provider: "custom",
+      modelId: "model",
+    });
   });
 
   it("delivers and caches valid server.welcome payloads", async () => {
