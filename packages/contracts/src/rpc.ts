@@ -51,6 +51,17 @@ import {
   AgentProvisionStatusResult,
 } from "./agentProvision";
 import {
+  Automation,
+  AutomationRun,
+  CreateAutomationInput,
+  DeleteAutomationInput,
+  GetAutomationInput,
+  ListAutomationRunsInput,
+  ListAutomationsInput,
+  RunAutomationInput,
+  UpdateAutomationInput,
+} from "./automation";
+import {
   ClientOrchestrationCommand,
   ORCHESTRATION_WS_METHODS,
   OrchestrationEvent,
@@ -621,6 +632,48 @@ export const WsProviderListAgentsRpc = Rpc.make(WS_METHODS.providerListAgents, {
   error: WsRpcError,
 });
 
+export const WsAutomationListRpc = Rpc.make(WS_METHODS.automationList, {
+  payload: ListAutomationsInput,
+  success: Schema.Array(Automation),
+  error: WsRpcError,
+});
+
+export const WsAutomationGetRpc = Rpc.make(WS_METHODS.automationGet, {
+  payload: GetAutomationInput,
+  success: Automation,
+  error: WsRpcError,
+});
+
+export const WsAutomationCreateRpc = Rpc.make(WS_METHODS.automationCreate, {
+  payload: CreateAutomationInput,
+  success: Automation,
+  error: WsRpcError,
+});
+
+export const WsAutomationUpdateRpc = Rpc.make(WS_METHODS.automationUpdate, {
+  payload: UpdateAutomationInput,
+  success: Automation,
+  error: WsRpcError,
+});
+
+export const WsAutomationDeleteRpc = Rpc.make(WS_METHODS.automationDelete, {
+  payload: DeleteAutomationInput,
+  success: Schema.Void,
+  error: WsRpcError,
+});
+
+export const WsAutomationRunRpc = Rpc.make(WS_METHODS.automationRun, {
+  payload: RunAutomationInput,
+  success: AutomationRun,
+  error: WsRpcError,
+});
+
+export const WsAutomationListRunsRpc = Rpc.make(WS_METHODS.automationListRuns, {
+  payload: ListAutomationRunsInput,
+  success: Schema.Array(AutomationRun),
+  error: WsRpcError,
+});
+
 export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationImportThreadRpc,
@@ -698,4 +751,11 @@ export const WsRpcGroup = RpcGroup.make(
   WsGatewayRemoveApiKeyRpc,
   WsAgentInstallConfigRpc,
   WsAgentGetConfigStatusRpc,
+  WsAutomationListRpc,
+  WsAutomationGetRpc,
+  WsAutomationCreateRpc,
+  WsAutomationUpdateRpc,
+  WsAutomationDeleteRpc,
+  WsAutomationRunRpc,
+  WsAutomationListRunsRpc,
 );

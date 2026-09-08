@@ -27,6 +27,8 @@ import { ServerSettingsLive } from "./serverSettings";
 import { WorkspaceLayerLive } from "./workspace/runtimeLayer";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
+import { AutomationServiceLive } from "./automation/Layers/AutomationService";
+import { AutomationRepositoryLive } from "./persistence/Layers/Automations";
 
 export { makeServerProviderLayer } from "./provider/runtimeLayer";
 
@@ -43,6 +45,10 @@ export function makeServerRuntimeServicesLayer() {
     checkpointStoreLayer,
     checkpointDiffQueryLayer,
     RuntimeReceiptBusLive,
+  );
+  const automationServiceLayer = AutomationServiceLive.pipe(
+    Layer.provide(AutomationRepositoryLive),
+    Layer.provideMerge(runtimeServicesLayer),
   );
   const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
@@ -100,5 +106,6 @@ export function makeServerRuntimeServicesLayer() {
     ServerRuntimeStartupLive,
     WorkspaceLayerLive,
     ProjectFaviconResolverLive,
+    automationServiceLayer,
   ).pipe(Layer.provideMerge(NodeServices.layer));
 }

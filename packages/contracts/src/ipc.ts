@@ -126,11 +126,22 @@ import type {
   GatewaySetApiKeyInput,
   GatewayRemoveApiKeyInput,
 } from "./gateway";
-import {
+import type {
   AgentInstallInput,
   AgentInstallResult,
   AgentProvisionStatusResult,
 } from "./agentProvision";
+import type {
+  Automation,
+  AutomationRun,
+  CreateAutomationInput,
+  DeleteAutomationInput,
+  GetAutomationInput,
+  ListAutomationRunsInput,
+  ListAutomationsInput,
+  RunAutomationInput,
+  UpdateAutomationInput,
+} from "./automation";
 
 export interface ContextMenuItem<T extends string = string> {
   id: T;
@@ -444,6 +455,15 @@ export interface NativeApi {
   agent: {
     installConfig: (input: AgentInstallInput) => Promise<AgentInstallResult>;
     getConfigStatus: () => Promise<AgentProvisionStatusResult>;
+  };
+  automation: {
+    list: (input: ListAutomationsInput) => Promise<ReadonlyArray<Automation>>;
+    get: (input: GetAutomationInput) => Promise<Automation>;
+    create: (input: CreateAutomationInput) => Promise<Automation>;
+    update: (input: UpdateAutomationInput) => Promise<Automation>;
+    delete: (input: DeleteAutomationInput) => Promise<void>;
+    run: (input: RunAutomationInput) => Promise<AutomationRun>;
+    listRuns: (input: ListAutomationRunsInput) => Promise<ReadonlyArray<AutomationRun>>;
   };
   skills: {
     listLocal: () => Promise<ListLocalUserSkillsResult>;

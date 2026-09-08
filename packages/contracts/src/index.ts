@@ -20,3 +20,4 @@ export * from "./project";
 export * from "./filesystem";
 export * from "./gateway";
 export * from "./rpc";
+export * from "./automation";

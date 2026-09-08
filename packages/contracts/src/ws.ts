@@ -87,6 +87,15 @@ import {
 } from "./providerDiscovery";
 import { ProviderCompactThreadInput } from "./provider";
 import { GatewayConfigPatch, GatewaySetApiKeyInput, GatewayRemoveApiKeyInput } from "./gateway";
+import {
+  CreateAutomationInput,
+  DeleteAutomationInput,
+  GetAutomationInput,
+  ListAutomationRunsInput,
+  ListAutomationsInput,
+  RunAutomationInput,
+  UpdateAutomationInput,
+} from "./automation";
 
 // ── WebSocket RPC Method Names ───────────────────────────────────────
 
@@ -179,6 +188,15 @@ export const WS_METHODS = {
   // Agent provisioning — write gateway config into local agent config files.
   agentInstallConfig: "agent.installConfig",
   agentGetConfigStatus: "agent.getConfigStatus",
+
+  // Automation methods
+  automationList: "automation.list",
+  automationGet: "automation.get",
+  automationCreate: "automation.create",
+  automationUpdate: "automation.update",
+  automationDelete: "automation.delete",
+  automationRun: "automation.run",
+  automationListRuns: "automation.listRuns",
 } as const;
 
 // ── Push Event Channels ──────────────────────────────────────────────
@@ -297,6 +315,15 @@ const WebSocketRequestBody = Schema.Union([
   // Agent provisioning
   tagRequestBody(WS_METHODS.agentInstallConfig, AgentInstallInput),
   tagRequestBody(WS_METHODS.agentGetConfigStatus, Schema.Struct({})),
+
+  // Automation methods
+  tagRequestBody(WS_METHODS.automationList, ListAutomationsInput),
+  tagRequestBody(WS_METHODS.automationGet, GetAutomationInput),
+  tagRequestBody(WS_METHODS.automationCreate, CreateAutomationInput),
+  tagRequestBody(WS_METHODS.automationUpdate, UpdateAutomationInput),
+  tagRequestBody(WS_METHODS.automationDelete, DeleteAutomationInput),
+  tagRequestBody(WS_METHODS.automationRun, RunAutomationInput),
+  tagRequestBody(WS_METHODS.automationListRuns, ListAutomationRunsInput),
 ]);
 
 export const WebSocketRequest = Schema.Struct({

@@ -359,8 +359,41 @@ export type Messages = {
     createFromChat: string;
     emptyTitle: string;
     emptyDescription: string;
+    noProjectTitle: string;
+    noProjectDescription: string;
     templatesHeading: string;
     templatesHint: string;
+    loading: string;
+    createTitle: string;
+    createDescription: string;
+    editTitle: string;
+    title: string;
+    description: string;
+    prompt: string;
+    scheduleType: string;
+    manual: string;
+    cron: string;
+    cronExpression: string;
+    cronPlaceholder: string;
+    create: string;
+    save: string;
+    cancel: string;
+    creating: string;
+    saving: string;
+    runNow: string;
+    edit: string;
+    delete: string;
+    enable: string;
+    disable: string;
+    script: string;
+    missingScript: string;
+    lastRun: string;
+    chooseTemplate: string;
+    chooseTemplateDescription: string;
+    createdFromChatTitle: string;
+    createdFromChatDescription: (title: string) => string;
+    createFailedTitle: string;
+    createFailedDescription: string;
   };
   settings: {
     title: string;
@@ -1384,8 +1417,41 @@ const en: Messages = {
     emptyTitle: "Create your first automation",
     emptyDescription:
       "Automations are a fast, flexible way to do recurring work with your chats. Build one in seconds by describing what you need.",
+    noProjectTitle: "Open a project first",
+    noProjectDescription: "Automations are attached to projects so their runs know where to work.",
     templatesHeading: "Templates",
-    templatesHint: "Pick a starter to seed a new automation. Coming soon.",
+    templatesHint: "Pick a starter to seed a new automation.",
+    loading: "Loading automations...",
+    createTitle: "Create automation",
+    createDescription: "Create a new automation to run chats on a schedule or on demand.",
+    editTitle: "Edit automation",
+    title: "Title",
+    description: "Description",
+    prompt: "Prompt",
+    scheduleType: "Schedule type",
+    manual: "Manual",
+    cron: "Cron",
+    cronExpression: "Cron expression",
+    cronPlaceholder: "e.g., 0 8 * * 1-5",
+    create: "Create",
+    save: "Save",
+    cancel: "Cancel",
+    creating: "Creating...",
+    saving: "Saving...",
+    runNow: "Run now",
+    edit: "Edit",
+    delete: "Delete",
+    enable: "Enable",
+    disable: "Disable",
+    script: "Script",
+    missingScript: "No script is linked to this automation.",
+    lastRun: "Last run",
+    chooseTemplate: "Choose a template",
+    chooseTemplateDescription: "Select a template to create a new automation.",
+    createdFromChatTitle: "Automation created",
+    createdFromChatDescription: (title) => `"${title}" is now listed in Automations.`,
+    createFailedTitle: "Could not create automation",
+    createFailedDescription: "An error occurred while creating the automation.",
   },
   settings: {
     title: "Settings",
@@ -2464,8 +2530,41 @@ const zh: Messages = {
     emptyTitle: "创建首个自动化",
     emptyDescription:
       "自动化是让你以聊天为载体快速处理重复性工作的方式。只需描述需求，秒级创建一个。",
+    noProjectTitle: "请先打开项目",
+    noProjectDescription: "自动化会绑定到项目，这样运行时才能知道工作目录。",
     templatesHeading: "模板",
-    templatesHint: "选一个模板来快速创建一个自动化。即将推出。",
+    templatesHint: "选一个模板来快速创建一个自动化。",
+    loading: "加载自动化...",
+    createTitle: "创建自动化",
+    createDescription: "创建一个新的自动化，按计划或按需运行聊天。",
+    editTitle: "编辑自动化",
+    title: "标题",
+    description: "描述",
+    prompt: "提示词",
+    scheduleType: "调度类型",
+    manual: "手动",
+    cron: "定时",
+    cronExpression: "Cron 表达式",
+    cronPlaceholder: "例如：0 8 * * 1-5",
+    create: "创建",
+    save: "保存",
+    cancel: "取消",
+    creating: "创建中...",
+    saving: "保存中...",
+    runNow: "立即运行",
+    edit: "编辑",
+    delete: "删除",
+    enable: "启用",
+    disable: "禁用",
+    script: "脚本",
+    missingScript: "此自动化尚未关联脚本。",
+    lastRun: "上次运行",
+    chooseTemplate: "选择模板",
+    chooseTemplateDescription: "选择一个模板来创建新的自动化。",
+    createdFromChatTitle: "自动化已创建",
+    createdFromChatDescription: (title) => `“${title}” 已添加到自动化列表。`,
+    createFailedTitle: "无法创建自动化",
+    createFailedDescription: "创建自动化时发生错误。",
   },
   settings: {
     title: "设置",

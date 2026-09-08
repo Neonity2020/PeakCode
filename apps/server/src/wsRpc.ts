@@ -58,6 +58,16 @@ import { ServerSettingsService } from "./serverSettings";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
+import { AutomationService } from "./automation/Services/AutomationService.ts";
+import type {
+  CreateAutomationInput,
+  DeleteAutomationInput,
+  GetAutomationInput,
+  ListAutomationRunsInput,
+  ListAutomationsInput,
+  RunAutomationInput,
+  UpdateAutomationInput,
+} from "@peakcode/contracts";
 
 const MAX_DIAGNOSTIC_CHILD_PROCESSES = 80;
 const MAX_DIAGNOSTIC_ARGS_CHARS = 500;
@@ -208,6 +218,7 @@ export const makeWsRpcLayer = () =>
       const terminalManager = yield* TerminalManager;
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
+      const automationService = yield* AutomationService;
 
       const canonicalizeProjectWorkspaceRoot = Effect.fnUntraced(function* (
         workspaceRoot: string,
@@ -862,6 +873,22 @@ export const makeWsRpcLayer = () =>
             }).pipe(Effect.map((agents) => ({ agents }))),
             "Failed to install agent config",
           ),
+
+        // Automation methods
+        [WS_METHODS.automationList]: (input: ListAutomationsInput) =>
+          rpcEffect(automationService.listByProjectId(input), "Failed to list automations"),
+        [WS_METHODS.automationGet]: (input: GetAutomationInput) =>
+          rpcEffect(automationService.getById(input), "Failed to get automation"),
+        [WS_METHODS.automationCreate]: (input: CreateAutomationInput) =>
+          rpcEffect(automationService.create(input), "Failed to create automation"),
+        [WS_METHODS.automationUpdate]: (input: UpdateAutomationInput) =>
+          rpcEffect(automationService.update(input), "Failed to update automation"),
+        [WS_METHODS.automationDelete]: (input: DeleteAutomationInput) =>
+          rpcEffect(automationService.delete(input), "Failed to delete automation"),
+        [WS_METHODS.automationRun]: (input: RunAutomationInput) =>
+          rpcEffect(automationService.run(input), "Failed to run automation"),
+        [WS_METHODS.automationListRuns]: (input: ListAutomationRunsInput) =>
+          rpcEffect(automationService.listRuns(input), "Failed to list automation runs"),
       });
     }),
   );

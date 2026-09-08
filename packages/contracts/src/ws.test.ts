@@ -80,6 +80,26 @@ it.effect("accepts git.preparePullRequestThread requests", () =>
   }),
 );
 
+it.effect("accepts automation.create requests", () =>
+  Effect.gen(function* () {
+    const parsed = yield* decode(WebSocketRequest, {
+      id: "req-automation-1",
+      body: {
+        _tag: WS_METHODS.automationCreate,
+        projectId: "project-1",
+        title: "Daily briefing",
+        description: "",
+        prompt: "Summarize project activity.",
+        scheduleType: "cron",
+        cronExpression: "0 8 * * 1-5",
+        timezone: "UTC",
+        templateId: null,
+      },
+    });
+    assert.strictEqual(parsed.body._tag, WS_METHODS.automationCreate);
+  }),
+);
+
 it.effect("accepts typed websocket push envelopes with sequence", () =>
   Effect.gen(function* () {
     const parsed = yield* decode(WsResponse, {

@@ -811,6 +811,15 @@ export function createWsNativeApi(): NativeApi {
       installConfig: (input) => transport.request(WS_METHODS.agentInstallConfig, input),
       getConfigStatus: () => transport.request(WS_METHODS.agentGetConfigStatus, {}),
     },
+    automation: {
+      list: (input) => transport.request(WS_METHODS.automationList, input),
+      get: (input) => transport.request(WS_METHODS.automationGet, input),
+      create: (input) => transport.request(WS_METHODS.automationCreate, input),
+      update: (input) => transport.request(WS_METHODS.automationUpdate, input),
+      delete: (input) => transport.request(WS_METHODS.automationDelete, input),
+      run: (input) => transport.request(WS_METHODS.automationRun, input),
+      listRuns: (input) => transport.request(WS_METHODS.automationListRuns, input),
+    },
   };
 
   instance = { api, transport };
