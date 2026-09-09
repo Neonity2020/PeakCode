@@ -86,7 +86,9 @@ function collectInlineTokenMatches(
   // Track positions covered by agent mentions to avoid double-matching
   const agentMentionRanges: Array<{ start: number; end: number }> = [];
 
-  // First, match agent mentions: @alias (just the alias, parens are plain text)
+  // First, match agent mentions: @alias (just the alias, parens are plain text).
+  // The @alias( shape stays reserved even when the alias resolves to nothing so
+  // file mentions never swallow it.
   for (const match of text.matchAll(AGENT_MENTION_TOKEN_REGEX)) {
     const whitespace = match[1] ?? "";
     const alias = match[2] ?? "";
@@ -94,14 +96,10 @@ function collectInlineTokenMatches(
     const start = matchIndex + whitespace.length;
     const end = start + 1 + alias.length; // @alias
 
-    // Try to resolve the alias
-    const resolved = resolveAgentAlias(alias);
-    if (!resolved) {
-      // Not a valid agent alias, skip - will be handled as regular mention
-      continue;
-    }
-
     agentMentionRanges.push({ start, end });
+
+    const resolved = resolveAgentAlias(alias);
+    if (!resolved) continue;
 
     matches.push({
       kind: "agent-mention",
