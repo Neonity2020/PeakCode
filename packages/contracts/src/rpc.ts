@@ -97,11 +97,17 @@ import {
   ServerGetProviderUsageSnapshotResult,
   ServerLifecycleStreamEvent,
   ServerGetSettingsResult,
+  ServerListModelProvidersInput,
+  ServerListModelProvidersResult,
   ServerListWorktreesResult,
   ServerProviderUpdateError,
   ServerProviderUpdateInput,
   ServerProviderUpdateResult,
   ServerRefreshProvidersResult,
+  ServerTestModelProviderInput,
+  ServerTestModelProviderResult,
+  ServerSaveModelProvidersInput,
+  ServerSaveModelProvidersResult,
   ServerUpdateSettingsInput,
   ServerUpdateSettingsResult,
   ServerUpsertKeybindingResult,
@@ -463,6 +469,24 @@ export const WsServerListWorktreesRpc = Rpc.make(WS_METHODS.serverListWorktrees,
   error: WsRpcError,
 });
 
+export const WsServerListModelProvidersRpc = Rpc.make(WS_METHODS.serverListModelProviders, {
+  payload: ServerListModelProvidersInput,
+  success: ServerListModelProvidersResult,
+  error: WsRpcError,
+});
+
+export const WsServerSaveModelProvidersRpc = Rpc.make(WS_METHODS.serverSaveModelProviders, {
+  payload: ServerSaveModelProvidersInput,
+  success: ServerSaveModelProvidersResult,
+  error: WsRpcError,
+});
+
+export const WsServerTestModelProviderRpc = Rpc.make(WS_METHODS.serverTestModelProvider, {
+  payload: ServerTestModelProviderInput,
+  success: ServerTestModelProviderResult,
+  error: WsRpcError,
+});
+
 export const WsServerGetProviderUsageSnapshotRpc = Rpc.make(
   WS_METHODS.serverGetProviderUsageSnapshot,
   {
@@ -672,6 +696,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerUpdateSettingsRpc,
   WsServerRefreshProvidersRpc,
   WsServerUpdateProviderRpc,
+  WsServerListModelProvidersRpc,
+  WsServerSaveModelProvidersRpc,
+  WsServerTestModelProviderRpc,
   WsServerListWorktreesRpc,
   WsServerGetProviderUsageSnapshotRpc,
   WsServerGetDiagnosticsRpc,

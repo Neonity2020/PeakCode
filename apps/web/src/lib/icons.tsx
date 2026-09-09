@@ -74,6 +74,7 @@ import {
   IconRotate2,
   IconSearch,
   IconSelector,
+  IconServer2,
   IconSparkles,
   IconSettings,
   IconStar,
@@ -234,6 +235,7 @@ export const RotateCcwIcon = adaptIcon(IconRotate2);
 export const Rows3Icon = adaptIcon(IconLayoutDistributeHorizontal);
 export const SearchIcon = adaptIcon(IconSearch);
 export const SettingsIcon = adaptIcon(IconSettings);
+export const Server2Icon = adaptIcon(IconServer2);
 export const StarIcon = adaptIcon(IconStar);
 export const StarFilledIcon = adaptIcon(IconStarFilled);
 export const SparklesIcon = adaptIcon(IconSparkles);

@@ -45,6 +45,8 @@ import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
+import { readModelProvidersFile, saveModelProvidersFile } from "./modelProviders";
+import { testModelProvider } from "./modelProviderConnection";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
@@ -588,6 +590,15 @@ export const makeWsRpcLayer = () =>
             "Failed to refresh providers",
           ),
         [WS_METHODS.serverUpdateProvider]: (input) => providerHealth.updateProvider(input),
+        [WS_METHODS.serverListModelProviders]: (input) =>
+          rpcEffect(readModelProvidersFile(input.agentDir), "Failed to load model providers"),
+        [WS_METHODS.serverSaveModelProviders]: (input) =>
+          rpcEffect(saveModelProvidersFile(input), "Failed to save model providers"),
+        [WS_METHODS.serverTestModelProvider]: (input) =>
+          rpcEffect(
+            Effect.promise(() => testModelProvider(input)),
+            "Failed to test model provider",
+          ),
         [WS_METHODS.serverListWorktrees]: () => Effect.succeed({ worktrees: [] }),
         [WS_METHODS.serverGetProviderUsageSnapshot]: (input) =>
           rpcEffect(getProviderUsageSnapshot(input), "Failed to load provider usage"),

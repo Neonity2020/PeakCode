@@ -24,6 +24,7 @@ import {
   useAppSettings,
 } from "../appSettings";
 import { APP_VERSION } from "../branding";
+import { ModelProvidersSettingsPanel } from "../components/ModelProvidersSettingsPanel";
 import { SidebarHeaderNavigationControls } from "../components/SidebarHeaderNavigationControls";
 import { useDesktopTopBarTrafficLightGutterClassName } from "../hooks/useDesktopTopBarGutter";
 import { Button } from "../components/ui/button";
@@ -2326,6 +2327,13 @@ function SettingsRouteView() {
         return renderModelsPanel();
       case "providers":
         return renderProvidersPanel();
+      case "modelProviders":
+        return (
+          <ModelProvidersSettingsPanel
+            key={settings.piAgentDir.trim()}
+            agentDir={settings.piAgentDir.trim()}
+          />
+        );
       case "advanced":
         return renderAdvancedPanel();
       default:
