@@ -58,7 +58,6 @@ import type {
   ListAutomationRunsInput,
   ListAutomationsInput,
   RunAutomationInput,
-  ServerSaveModelProvidersInput,
   UpdateAutomationInput,
 } from "@peakcode/contracts";
 
@@ -593,7 +592,7 @@ export const makeWsRpcLayer = () =>
         [WS_METHODS.serverUpdateProvider]: (input) => providerHealth.updateProvider(input),
         [WS_METHODS.serverListModelProviders]: (input) =>
           rpcEffect(readModelProvidersFile(input.agentDir), "Failed to load model providers"),
-        [WS_METHODS.serverSaveModelProviders]: (input: ServerSaveModelProvidersInput) =>
+        [WS_METHODS.serverSaveModelProviders]: (input) =>
           rpcEffect(saveModelProvidersFile(input), "Failed to save model providers"),
         [WS_METHODS.serverTestModelProvider]: (input) =>
           rpcEffect(

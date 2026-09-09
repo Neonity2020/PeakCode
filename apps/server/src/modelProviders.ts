@@ -16,6 +16,7 @@ import type {
   ModelProviderApiKind,
   ModelProviderConfig,
   ModelProvidersFile,
+  ServerSaveModelProvidersInput,
 } from "@peakcode/contracts";
 import { Effect, FileSystem, Path } from "effect";
 
@@ -261,10 +262,9 @@ export const readModelProvidersFile = (
  * round-trip unknown keys through `extra`). Chmod 0600 after writing to keep
  * any embedded key material at the same permission level pi uses.
  */
-export const saveModelProvidersFile = (input: {
-  readonly agentDir?: string;
-  readonly providers: Record<string, ModelProviderConfig>;
-}): Effect.Effect<ModelProvidersFile, Error, FileSystem.FileSystem | Path.Path> =>
+export const saveModelProvidersFile = (
+  input: ServerSaveModelProvidersInput,
+): Effect.Effect<ModelProvidersFile, Error, FileSystem.FileSystem | Path.Path> =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const filePath = modelsFilePath(input.agentDir);
