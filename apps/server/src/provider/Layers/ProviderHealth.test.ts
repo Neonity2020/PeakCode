@@ -18,7 +18,25 @@ import { ProviderHealth } from "../Services/ProviderHealth";
 const encoder = new TextEncoder();
 
 function makeTempAgentDir(prefix = "t3-test-pi-agent-") {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  // A provider entry carrying its own apiKey keeps the model registry
+  // deterministic: status must not depend on ambient credentials on the
+  // machine running the tests (env vars, real ~/.pi/agent state).
+  fs.writeFileSync(
+    path.join(agentDir, "models.json"),
+    JSON.stringify({
+      providers: {
+        "test-provider": {
+          name: "Test Provider",
+          api: "openai-completions",
+          baseUrl: "https://example.invalid/v1",
+          apiKey: "test-api-key",
+          models: [{ id: "test-model", name: "Test Model" }],
+        },
+      },
+    }),
+  );
+  return agentDir;
 }
 
 function mockHandle(result: { stdout: string; stderr: string; code: number }) {
