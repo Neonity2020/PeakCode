@@ -107,16 +107,15 @@ const UPDATE_DOWNLOAD_CHANNEL = "desktop:update-download";
 const UPDATE_INSTALL_CHANNEL = "desktop:update-install";
 const NOTIFICATIONS_IS_SUPPORTED_CHANNEL = "desktop:notifications-is-supported";
 const NOTIFICATIONS_SHOW_CHANNEL = "desktop:notifications-show";
-const BASE_DIR =
-  process.env.PEAKCODE_HOME?.trim() ||
-  process.env.PEAKCODE_HOME?.trim() ||
-  Path.join(OS.homedir(), ".peakcode");
+const BASE_DIR = process.env.PEAKCODE_HOME?.trim() || Path.join(OS.homedir(), ".peakcode");
 const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "t3";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const APP_DISPLAY_NAME = isDevelopment ? "Peak Code (Dev)" : "Peak Code (Alpha)";
-const APP_USER_MODEL_ID = isDevelopment ? "com.peakcode.peakcode.dev" : "com.peakcode.peakcode";
+// Must stay in sync with `appId` in scripts/build-desktop-artifact.ts so Windows
+// shortcuts, taskbar grouping and notifications all resolve to the same app.
+const APP_USER_MODEL_ID = isDevelopment ? "com.peakcode.app.dev" : "com.peakcode.app";
 const COMMIT_HASH_PATTERN = /^[0-9a-f]{7,40}$/i;
 const COMMIT_HASH_DISPLAY_LENGTH = 12;
 const LOG_DIR = Path.join(STATE_DIR, "logs");
@@ -1102,7 +1101,7 @@ function configureAppIdentity(): void {
     applicationName: APP_DISPLAY_NAME,
     applicationVersion: app.getVersion(),
     version: commitHash ?? "unknown",
-    copyright: `© ${new Date().getFullYear()} Emanuele Di Pietro`,
+    copyright: `© ${new Date().getFullYear()} Peak Code AI`,
   });
 
   if (process.platform === "win32") {

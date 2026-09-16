@@ -18,8 +18,8 @@ import { fileURLToPath } from "node:url";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const APP_DISPLAY_NAME = isDevelopment ? "Peak Code (Dev)" : "Peak Code (Alpha)";
-const APP_BUNDLE_ID = isDevelopment ? "com.t3tools.peakcode.dev" : "com.t3tools.peakcode";
-const LAUNCHER_VERSION = 2;
+const APP_BUNDLE_ID = isDevelopment ? "com.peakcode.app.dev" : "com.peakcode.app";
+const LAUNCHER_VERSION = 3;
 const MICROPHONE_USAGE_DESCRIPTION =
   "Peak Code needs microphone access so you can record voice notes and transcribe them into the chat composer.";
 
@@ -106,12 +106,15 @@ function buildMacLauncher(electronBinaryPath) {
   const targetAppBundlePath = join(runtimeDir, `${APP_DISPLAY_NAME}.app`);
   const targetBinaryPath = join(targetAppBundlePath, "Contents", "MacOS", "Electron");
   const iconPath = join(desktopDir, "resources", "icon.icns");
-  const metadataPath = join(runtimeDir, "metadata.json");
+  // Per display name, so the Dev and Alpha bundles never validate against each
+  // other's metadata and reuse a stale patch.
+  const metadataPath = join(runtimeDir, `metadata-${APP_DISPLAY_NAME}.json`);
 
   mkdirSync(runtimeDir, { recursive: true });
 
   const expectedMetadata = {
     launcherVersion: LAUNCHER_VERSION,
+    appBundleId: APP_BUNDLE_ID,
     sourceAppBundlePath,
     sourceAppMtimeMs: statSync(sourceAppBundlePath).mtimeMs,
     iconMtimeMs: statSync(iconPath).mtimeMs,

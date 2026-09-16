@@ -747,7 +747,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     peakcodeCommitHash: commitHash,
     private: true,
     description: "Peak Code desktop build",
-    author: "Emanuele Di Pietro",
+    author: "Peak Code AI",
     main: "apps/desktop/dist-electron/main.js",
     build: yield* createBuildConfig(
       options.platform,

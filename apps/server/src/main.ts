@@ -416,7 +416,7 @@ const logWebSocketEventsFlag = Flag.boolean("log-websocket-events").pipe(
   Flag.optional,
 );
 
-export const t3Cli = Command.make("t3", {
+export const peakcodeCli = Command.make("peakcode", {
   mode: modeFlag,
   port: portFlag,
   host: hostFlag,

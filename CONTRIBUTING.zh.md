@@ -225,7 +225,7 @@ Browser ← ServerPushBus ← OrchestrationEngine ← ProviderRuntimeIngestion
 
 - **代码中不加注释。** 代码应通过清晰的命名、短小的函数和 Effect-TS 类型化管道实现自文档化。如果某段代码不加注释就难以理解，请重构它。
 - **提取而非重复。** 添加新功能时，先检查是否有可提取到独立模块的共享逻辑。在多个文件中重复相同逻辑是代码坏味道。
-- **不使用 barrel index 文件。** `packages/shared` 包使用显式子路径导出（例如 `@t3tools/shared/git`）。请勿添加 `index.ts` barrel 文件。
+- **不使用 barrel index 文件。** `packages/shared` 包使用显式子路径导出（例如 `@peakcode/shared/git`）。请勿添加 `index.ts` barrel 文件。
 - **不要害怕重构。** 这是一个早期项目。如果现有代码阻碍了干净的解决方案，请修改它——但要在 PR 中说明重构的理由。
 - **代码和 UI 中不使用 emoji**，除非用户明确要求。
 
@@ -357,8 +357,8 @@ bun run fmt:check  # oxfmt（仅检查）
 此包导出共享的运行时工具。它**不使用** barrel index 文件。请这样导入：
 
 ```typescript
-import { DrainableWorker } from "@t3tools/shared/DrainableWorker";
-// 错误：import { DrainableWorker } from "@t3tools/shared";
+import { DrainableWorker } from "@peakcode/shared/DrainableWorker";
+// 错误：import { DrainableWorker } from "@peakcode/shared";
 ```
 
 在 `packages/shared` 中添加新模块时，请在 `package.json` 中为该包添加对应的 `exports` 字段条目。

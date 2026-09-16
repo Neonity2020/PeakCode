@@ -225,7 +225,7 @@ These signals are the only approved mechanism for async coordination. Do not pol
 
 - **No comments in code.** Code should be self-documenting through clear naming, small functions, and Effect-TS typed pipelines. If something is hard to understand without a comment, refactor it.
 - **Prefer extraction over duplication.** When adding functionality, check if shared logic can be extracted to a new module. Duplicate logic across multiple files is a code smell.
-- **No barrel index files.** The `packages/shared` package uses explicit subpath exports (e.g., `@t3tools/shared/git`). Do not add `index.ts` barrel files.
+- **No barrel index files.** The `packages/shared` package uses explicit subpath exports (e.g., `@peakcode/shared/git`). Do not add `index.ts` barrel files.
 - **Don't be afraid to refactor.** This is an early project. If existing code stands in the way of a clean solution, change it — but justify the refactoring in your PR.
 - **No emojis in code or UI** unless the user explicitly requests them.
 
@@ -357,8 +357,8 @@ This package is the single source of truth for:
 This package exports shared runtime utilities. It **does not** use barrel index files. Import like this:
 
 ```typescript
-import { DrainableWorker } from "@t3tools/shared/DrainableWorker";
-// NOT: import { DrainableWorker } from "@t3tools/shared";
+import { DrainableWorker } from "@peakcode/shared/DrainableWorker";
+// NOT: import { DrainableWorker } from "@peakcode/shared";
 ```
 
 When adding a new module to `packages/shared`, add a corresponding entry in the package's `exports` field in `package.json`.
