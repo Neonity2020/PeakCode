@@ -114,7 +114,7 @@ export interface QueuedComposerPlanFollowUp {
   createdAt: string;
   previewText: string;
   text: string;
-  interactionMode: "default" | "plan";
+  interactionMode: ProviderInteractionMode;
   selectedProvider: ProviderKind;
   selectedModel: string | null;
   selectedPromptEffort: string | null;
@@ -1192,10 +1192,9 @@ function normalizePersistedQueuedTurns(
       const mentions = Array.isArray(candidate.mentions)
         ? candidate.mentions.filter(Schema.is(ProviderMentionReference))
         : [];
-      const interactionMode =
-        candidate.interactionMode === "default" || candidate.interactionMode === "plan"
-          ? candidate.interactionMode
-          : null;
+      const interactionMode = Schema.is(ProviderInteractionMode)(candidate.interactionMode)
+        ? candidate.interactionMode
+        : null;
       const envMode =
         candidate.envMode === "local" || candidate.envMode === "worktree"
           ? candidate.envMode
@@ -1227,10 +1226,9 @@ function normalizePersistedQueuedTurns(
     }
     if (kind === "plan-follow-up") {
       const text = typeof candidate.text === "string" ? candidate.text : "";
-      const interactionMode =
-        candidate.interactionMode === "default" || candidate.interactionMode === "plan"
-          ? candidate.interactionMode
-          : null;
+      const interactionMode = Schema.is(ProviderInteractionMode)(candidate.interactionMode)
+        ? candidate.interactionMode
+        : null;
       if (interactionMode === null) {
         continue;
       }
@@ -1327,6 +1325,7 @@ function normalizePersistedDraftThreads(
             : DEFAULT_RUNTIME_MODE,
         interactionMode:
           candidateDraftThread.interactionMode === "plan" ||
+          candidateDraftThread.interactionMode === "goal" ||
           candidateDraftThread.interactionMode === "default"
             ? candidateDraftThread.interactionMode
             : DEFAULT_INTERACTION_MODE,
@@ -1423,10 +1422,9 @@ function normalizePersistedDraftsByThreadId(
       draftCandidate.runtimeMode === "full-access"
         ? draftCandidate.runtimeMode
         : null;
-    const interactionMode =
-      draftCandidate.interactionMode === "plan" || draftCandidate.interactionMode === "default"
-        ? draftCandidate.interactionMode
-        : null;
+    const interactionMode = Schema.is(ProviderInteractionMode)(draftCandidate.interactionMode)
+      ? draftCandidate.interactionMode
+      : null;
     const prompt = ensureInlineTerminalContextPlaceholders(
       promptCandidate,
       terminalContexts.length,
@@ -2628,8 +2626,9 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
         if (threadId.length === 0) {
           return;
         }
-        const nextInteractionMode =
-          interactionMode === "plan" || interactionMode === "default" ? interactionMode : null;
+        const nextInteractionMode = Schema.is(ProviderInteractionMode)(interactionMode)
+          ? interactionMode
+          : null;
         set((state) => {
           const existing = state.draftsByThreadId[threadId];
           if (!existing && nextInteractionMode === null) {

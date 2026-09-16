@@ -67,6 +67,28 @@ describe("model entry conversions", () => {
     expect(entry!.input).toEqual(["text"]);
     expect(entry!.cost!.output).toBeUndefined();
   });
+
+  it("round-trips the inputTypes extension without touching pi's input", () => {
+    const json = {
+      id: "my-model",
+      input: ["text", "image"],
+      inputTypes: ["text", "image", "video", "pdf"],
+    };
+    const entry = modelEntryFromJson(json);
+    expect(entry!.input).toEqual(["text", "image"]);
+    expect(entry!.inputTypes).toEqual(["text", "image", "video", "pdf"]);
+    expect(modelEntryToJson(entry!)).toEqual(json);
+  });
+
+  it("keeps inputTypes out of pi's input and drops unknown kinds", () => {
+    const entry = modelEntryFromJson({
+      id: "x",
+      input: ["text", "video"],
+      inputTypes: ["text", "video", "audio"],
+    });
+    expect(entry!.input).toEqual(["text"]);
+    expect(entry!.inputTypes).toEqual(["text", "video"]);
+  });
 });
 
 describe("provider conversions", () => {

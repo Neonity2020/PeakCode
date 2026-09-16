@@ -48,11 +48,40 @@ export function shouldReserveDesktopTopBarTrafficLightGutter(input: {
 }
 
 /**
+ * Pure helper: should a leading navigation column that *replaces* the
+ * workspace sidebar reserve space for the macOS traffic light buttons?
+ *
+ * The settings surface is the case this exists for: the workspace sidebar
+ * steps aside, so the settings navigation column owns the window's left edge
+ * and always has to clear the traffic lights (unlike a top bar, which only
+ * needs the gutter while the sidebar is not providing it).
+ */
+export function shouldReserveLeadingColumnTrafficLightGutter(input: {
+  isElectron: boolean;
+  isMacDesktop: boolean;
+}): boolean {
+  return input.isElectron && input.isMacDesktop;
+}
+
+/**
+ * React hook variant of {@link shouldReserveLeadingColumnTrafficLightGutter}
+ * returning the gutter className (or `null` when no gutter is needed).
+ */
+export function useLeadingColumnTrafficLightGutterClassName(): string | null {
+  const isMacDesktop = typeof navigator !== "undefined" ? isMacPlatform(navigator.platform) : false;
+  return shouldReserveLeadingColumnTrafficLightGutter({ isElectron, isMacDesktop })
+    ? DESKTOP_TOP_BAR_TRAFFIC_LIGHT_GUTTER_CLASS
+    : null;
+}
+
+/**
  * React hook variant of {@link shouldReserveDesktopTopBarTrafficLightGutter}
  * that returns the gutter className (or `null` when no gutter is needed).
  *
  * Use this for any chrome surface whose top bar can sit flush against the
- * window's left edge: chat header, settings header, workspace header, etc.
+ * window's left edge: chat header, workspace header, etc. Surfaces that
+ * replace the sidebar outright want
+ * {@link useLeadingColumnTrafficLightGutterClassName} instead.
  */
 export function useDesktopTopBarTrafficLightGutterClassName(): string | null {
   const { settings } = useAppSettings();

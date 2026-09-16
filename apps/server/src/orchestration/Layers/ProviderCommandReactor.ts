@@ -1,4 +1,5 @@
 import {
+  type ProviderInteractionMode,
   type ChatAttachment,
   CommandId,
   EventId,
@@ -821,7 +822,7 @@ const make = Effect.gen(function* () {
     readonly modelSelection?: ModelSelection;
     readonly providerOptions?: ProviderStartOptions;
     readonly runtimeMode?: RuntimeMode;
-    readonly interactionMode?: "default" | "plan";
+    readonly interactionMode?: ProviderInteractionMode;
     readonly dispatchMode?: "queue" | "steer";
     readonly createdAt: string;
   }) {

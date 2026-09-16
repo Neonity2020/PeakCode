@@ -14,7 +14,7 @@ import serverPackageJson from "../apps/server/package.json" with { type: "json" 
 
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import { createDesktopPlatformBuildConfig } from "./lib/desktop-platform-build-config.ts";
-import { resolveCatalogDependencies } from "./lib/resolve-catalog.ts";
+import { resolveCatalogDependencies, stripWorkspaceDependencies } from "./lib/resolve-catalog.ts";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -631,10 +631,16 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
       }),
   });
 
+  const stagedServerDependencies = stripWorkspaceDependencies(serverDependencies);
+  if (stagedServerDependencies.dropped.length > 0) {
+    yield* Effect.log(
+      `[desktop-artifact] Skipping bundled workspace dependencies: ${stagedServerDependencies.dropped.join(", ")}`,
+    );
+  }
   const resolvedServerDependencies = yield* Effect.try({
     try: () =>
       resolveCatalogDependencies(
-        serverDependencies,
+        stagedServerDependencies.dependencies,
         rootPackageJson.workspaces.catalog,
         "apps/server",
       ),

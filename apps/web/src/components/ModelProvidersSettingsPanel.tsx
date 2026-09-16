@@ -22,9 +22,8 @@ import {
   MODEL_PROVIDER_TEMPLATE_BY_ID,
   modelProviderTemplateToConfig,
 } from "../lib/modelProviderTemplates";
-import { ChevronDownIcon, Loader2Icon, PlusIcon, Trash2, XIcon } from "../lib/icons";
+import { Loader2Icon, PlusIcon, SquarePenIcon, Trash2 } from "../lib/icons";
 import { Button } from "../components/ui/button";
-import { Collapsible, CollapsibleContent } from "../components/ui/collapsible";
 import { Input } from "../components/ui/input";
 import {
   Select,
@@ -33,8 +32,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "../components/ui/select";
-import { Switch } from "../components/ui/switch";
 import { toastManager } from "../components/ui/toast";
+import { ModelProviderModelDialog } from "./ModelProviderModelDialog";
 
 const API_KINDS: readonly ModelProviderApiKind[] = [
   "openai-completions",
@@ -44,6 +43,21 @@ const API_KINDS: readonly ModelProviderApiKind[] = [
 ];
 
 const EMPTY_TEMPLATE_ID = "custom";
+
+/**
+ * Control chrome shared by the right pane: filled, borderless-looking pill
+ * controls (the panel's design language), matching the reference layout.
+ */
+const PANEL_CONTROL_CLASS = "rounded-xl border-foreground/9 bg-foreground/4 shadow-none";
+const PANEL_SELECT_CLASS =
+  "h-8 rounded-xl border-transparent bg-foreground/8 px-3 shadow-none [&_svg]:opacity-45";
+const PANEL_LABEL_CLASS = "block text-xs font-medium text-foreground";
+const PANEL_BUTTON_CLASS = "rounded-full text-[13px] before:rounded-full";
+const PANEL_PRIMARY_BUTTON_CLASS = PANEL_BUTTON_CLASS;
+const PANEL_SECONDARY_BUTTON_CLASS = cn(
+  PANEL_BUTTON_CLASS,
+  "border-transparent bg-foreground/10 text-foreground",
+);
 
 function cloneProvider(provider: ModelProviderConfig): ModelProviderConfig {
   return {
@@ -82,7 +96,11 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
   const [templateId, setTemplateId] = useState<string>(EMPTY_TEMPLATE_ID);
   const [customKey, setCustomKey] = useState("");
   const [customApiKey, setCustomApiKey] = useState("");
-  const [openKeys, setOpenKeys] = useState<Record<string, boolean>>({});
+  const [selectedProviderKey, setSelectedProviderKey] = useState<string | null>(null);
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [modelDialogOpen, setModelDialogOpen] = useState(false);
+  /** Index of the model being edited; `null` adds a new one. */
+  const [editingModelIndex, setEditingModelIndex] = useState<number | null>(null);
 
   const providers = query.data?.providers;
   useEffect(() => {
@@ -132,7 +150,10 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     setDraft((current) => {
       const existing = current?.[key];
       if (!current || !existing) return current;
-      return { ...current, [key]: { ...existing, models } };
+      return {
+        ...current,
+        [key]: patchModelProvider(existing, { models: models.length > 0 ? models : undefined }),
+      };
     });
   };
 
@@ -146,7 +167,6 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
       delete next[key];
       return next;
     });
-    setOpenKeys((current) => ({ ...current, [key]: false }));
     setTemplateId(EMPTY_TEMPLATE_ID);
   };
 
@@ -167,7 +187,6 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
           },
         };
       });
-      setOpenKeys((current) => ({ ...current, [key]: true }));
       setCustomKey("");
       setCustomApiKey("");
       return;
@@ -182,7 +201,6 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
       const config = modelProviderTemplateToConfig(template, customApiKey);
       return { ...current, [key]: { ...(exists ? current[key] : {}), ...config } };
     });
-    setOpenKeys((current) => ({ ...current, [key]: true }));
     setTemplateId(EMPTY_TEMPLATE_ID);
     setCustomApiKey("");
     if (draft[key]) {
@@ -209,292 +227,6 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     );
   };
 
-  const renderModelRow = (providerKey: string, model: CustomModelConfig, index: number) => {
-    const models = draft[providerKey]?.models ?? [];
-    const removeModel = () => {
-      void updateModels(
-        providerKey,
-        models.filter((_, i) => i !== index),
-      );
-    };
-
-    return (
-      <div
-        key={`${providerKey}-${index}`}
-        className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center"
-      >
-        <div className="min-w-0 flex-1">
-          <label className="flex items-center gap-2">
-            <span className="sr-only">{mp.modelIdLabel}</span>
-            <Input
-              className="w-full font-mono text-xs"
-              value={model.id}
-              placeholder={mp.modelIdLabel}
-              spellCheck={false}
-              onChange={(event) => {
-                const next = [...models];
-                next[index] = { ...model, id: event.target.value };
-                void updateModels(providerKey, next);
-              }}
-            />
-          </label>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 sm:shrink-0">
-          <label className="flex items-center gap-1.5">
-            <span className="text-[11px] text-muted-foreground">{mp.modelNameLabel}</span>
-            <Input
-              className="h-7 w-32 text-xs"
-              value={model.name ?? ""}
-              placeholder={model.id}
-              spellCheck={false}
-              onChange={(event) => {
-                const next = [...models];
-                next[index] = {
-                  ...model,
-                  name: event.target.value.trim() || undefined,
-                };
-                void updateModels(providerKey, next);
-              }}
-            />
-          </label>
-          <Switch
-            checked={model.reasoning === true}
-            aria-label={mp.modelReasoningLabel}
-            onCheckedChange={(checked) => {
-              const next = [...models];
-              next[index] = { ...model, reasoning: Boolean(checked) };
-              void updateModels(providerKey, next);
-            }}
-          />
-          <Switch
-            checked={(model.input ?? []).includes("image")}
-            aria-label={mp.modelInputImage}
-            onCheckedChange={(checked) => {
-              const next = [...models];
-              const base = model.input ?? [];
-              const input = checked
-                ? Array.from(new Set([...base, "image"]))
-                : base.filter((kind) => kind !== "image");
-              next[index] = {
-                ...model,
-                input: input as CustomModelConfig["input"],
-              };
-              void updateModels(providerKey, next);
-            }}
-          />
-          <button
-            type="button"
-            className="text-muted-foreground transition-colors hover:text-destructive"
-            aria-label={mp.modelRemoveAria(model.id)}
-            onClick={removeModel}
-          >
-            <XIcon className="size-4" />
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  const renderProviderCard = ([key, provider]: [string, ModelProviderConfig]) => {
-    const open = openKeys[key] ?? false;
-    const models = provider.models ?? [];
-    return (
-      <Collapsible
-        key={key}
-        open={open}
-        onOpenChange={(next) => setOpenKeys((current) => ({ ...current, [key]: next }))}
-      >
-        <div className="overflow-hidden rounded-2xl border border-border/70 bg-card/50">
-          <div className="flex min-h-11 items-center gap-2 px-3 py-2">
-            <button
-              type="button"
-              className="flex min-w-0 flex-1 items-center gap-2 text-left"
-              onClick={() => setOpenKeys((current) => ({ ...current, [key]: !current[key] }))}
-            >
-              <span className="min-w-0 flex-1 text-sm font-medium text-foreground">
-                {provider.name ?? key}
-              </span>
-              <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                {provider.api ?? "—"}
-              </span>
-              {provider.baseUrl ? (
-                <span className="hidden shrink-0 max-w-48 truncate font-mono text-[11px] text-muted-foreground md:inline">
-                  {provider.baseUrl}
-                </span>
-              ) : null}
-              <span className="shrink-0 rounded-full bg-muted/60 px-2 py-0.5 text-[11px] text-muted-foreground">
-                {models.length}
-              </span>
-              <ChevronDownIcon
-                className={cn(
-                  "size-4 shrink-0 text-muted-foreground transition-transform",
-                  open && "rotate-180",
-                )}
-              />
-            </button>
-            <button
-              type="button"
-              className="shrink-0 text-muted-foreground transition-colors hover:text-destructive"
-              aria-label={mp.providerRemoveAria(key)}
-              onClick={(event) => {
-                event.stopPropagation();
-                removeProvider(key);
-              }}
-            >
-              <Trash2 className="size-4" />
-            </button>
-          </div>
-
-          <CollapsibleContent>
-            <div className="space-y-3 border-t border-border/70 bg-muted/20 px-3 py-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block">
-                  <span className="block text-xs font-medium text-foreground">
-                    {mp.providerNameLabel}
-                  </span>
-                  <Input
-                    className="mt-1"
-                    value={provider.name ?? ""}
-                    spellCheck={false}
-                    onChange={(event) => {
-                      const name = event.target.value.trim();
-                      updateProvider(key, { name: name || undefined });
-                    }}
-                  />
-                </label>
-                <label className="block">
-                  <span className="block text-xs font-medium text-foreground">
-                    {mp.providerApiLabel}
-                  </span>
-                  <Select
-                    value={provider.api ?? "openai-completions"}
-                    onValueChange={(value) => {
-                      const kind = toApiKind(value ?? undefined);
-                      if (kind) {
-                        updateProvider(key, { api: kind });
-                      }
-                    }}
-                  >
-                    <SelectTrigger className="mt-1 w-full" aria-label={mp.providerApiLabel}>
-                      <SelectValue>{provider.api ?? "openai-completions"}</SelectValue>
-                    </SelectTrigger>
-                    <SelectPopup>
-                      {API_KINDS.map((kind) => (
-                        <SelectItem key={kind} hideIndicator value={kind}>
-                          {kind}
-                        </SelectItem>
-                      ))}
-                    </SelectPopup>
-                  </Select>
-                </label>
-              </div>
-
-              <label className="block">
-                <span className="block text-xs font-medium text-foreground">
-                  {mp.providerBaseUrlLabel}
-                </span>
-                <Input
-                  className="mt-1 font-mono text-xs"
-                  value={provider.baseUrl ?? ""}
-                  placeholder="https://api.example.com/v1"
-                  spellCheck={false}
-                  onChange={(event) => {
-                    const baseUrl = event.target.value.trim();
-                    updateProvider(key, { baseUrl: baseUrl || undefined });
-                  }}
-                />
-              </label>
-
-              <label className="block">
-                <span className="block text-xs font-medium text-foreground">
-                  {mp.providerApiKeyLabel}
-                </span>
-                <Input
-                  className="mt-1 font-mono text-xs"
-                  type="password"
-                  autoComplete="off"
-                  value={provider.apiKey ?? ""}
-                  placeholder={mp.providerApiKeyPlaceholder(
-                    MODEL_PROVIDER_TEMPLATE_BY_ID.get(key)?.apiKeyEnv ?? "API_KEY",
-                  )}
-                  spellCheck={false}
-                  onChange={(event) => {
-                    const apiKey = event.target.value;
-                    updateProvider(key, { apiKey: apiKey || undefined });
-                  }}
-                />
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  {mp.providerApiKeyHint}
-                </span>
-              </label>
-
-              <div className="flex flex-col gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={isDirty || saveMutation.isPending || connectionTest.isPending}
-                  onClick={() =>
-                    connectionTest.mutate({
-                      provider: key,
-                      ...(models[0]?.id ? { modelId: models[0].id } : {}),
-                    })
-                  }
-                >
-                  {connectionTest.isPending && connectionTest.variables?.provider === key ? (
-                    <Loader2Icon data-icon="inline-start" className="animate-spin" />
-                  ) : null}
-                  {mp.testButton}
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  {isDirty ? mp.testSaveFirst : mp.testHint}
-                </p>
-                {!isDirty &&
-                connectionTest.variables?.provider === key &&
-                !connectionTest.isPending ? (
-                  <p role="status" className="text-xs text-muted-foreground">
-                    {connectionTest.isError
-                      ? mp.testResults["request-failed"]
-                      : connectionTest.data
-                        ? mp.testResults[connectionTest.data.status]
-                        : null}
-                    {connectionTest.data?.model ? ` (${connectionTest.data.model})` : null}
-                  </p>
-                ) : null}
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-foreground">
-                    {mp.providerModelsLabel}
-                  </span>
-                  <Button
-                    size="xs"
-                    variant="outline"
-                    onClick={() =>
-                      updateModels(key, [...models, { id: "", name: "New model", input: ["text"] }])
-                    }
-                  >
-                    <PlusIcon className="size-3.5" />
-                    {mp.modelAddButton}
-                  </Button>
-                </div>
-                {models.length > 0 ? (
-                  <div className="mt-1 divide-y divide-border/60 rounded-xl border border-border/70">
-                    {models.map((model, index) => renderModelRow(key, model, index))}
-                  </div>
-                ) : (
-                  <div className="mt-1 rounded-xl border border-dashed border-border/70 px-3 py-4 text-center text-xs text-muted-foreground">
-                    {mp.emptyDescription}
-                  </div>
-                )}
-              </div>
-            </div>
-          </CollapsibleContent>
-        </div>
-      </Collapsible>
-    );
-  };
-
   const regionLabel = (region: "china" | "global" | "local" | undefined) =>
     region === "china"
       ? mp.regionChina
@@ -507,123 +239,416 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
   const templateOptions: ReadonlyArray<{
     readonly id: string;
     readonly label: string;
-    readonly region?: "china" | "global" | "local";
   }> = [
     { id: EMPTY_TEMPLATE_ID, label: mp.templateCustom },
     ...MODEL_PROVIDER_TEMPLATES.map((template) => ({
       id: template.id,
       label: `${regionLabel(template.region)} · ${template.label}`,
-      region: template.region,
     })),
   ];
 
-  return (
-    <fieldset disabled={saveMutation.isPending} className="flex min-w-0 flex-col gap-6">
-      <section className="space-y-2">
-        <h2 className="px-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          {mp.filePathLabel}
-        </h2>
-        <div className="rounded-2xl border border-border/70 bg-card/50 px-4 py-3">
-          <code className="break-all font-mono text-[11px] text-muted-foreground">
-            {query.data?.path ?? ""}
-          </code>
-          <p className="mt-1 text-xs text-muted-foreground">{mp.builtinHint}</p>
-        </div>
-      </section>
+  const builtinEntries = providerEntries.filter(([key]) => MODEL_PROVIDER_TEMPLATE_BY_ID.has(key));
+  const customEntries = providerEntries.filter(([key]) => !MODEL_PROVIDER_TEMPLATE_BY_ID.has(key));
+  const activeProviderKey =
+    selectedProviderKey && draft[selectedProviderKey]
+      ? selectedProviderKey
+      : (providerEntries[0]?.[0] ?? null);
+  const activeProvider = activeProviderKey ? draft[activeProviderKey] : undefined;
+  const activeModels = activeProvider?.models ?? [];
 
-      <section className="space-y-2">
-        <h2 className="px-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-          {mp.addDialogTitle}
-        </h2>
-        <div className="rounded-2xl border border-border/70 bg-card/50 px-3 py-3">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-            <label className="block min-w-0 flex-1">
-              <span className="block text-xs font-medium text-foreground">{mp.templateLabel}</span>
-              <Select
-                value={templateId}
-                onValueChange={(value) => {
-                  if (typeof value === "string") setTemplateId(value);
-                }}
-              >
-                <SelectTrigger className="mt-1 w-full" aria-label={mp.templateAria}>
-                  <SelectValue>
-                    {templateOptions.find((option) => option.id === templateId)?.label ??
-                      mp.templateCustom}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectPopup>
-                  {templateOptions.map((option) => (
-                    <SelectItem key={option.id} hideIndicator value={option.id}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            </label>
-            {templateId === EMPTY_TEMPLATE_ID ? (
-              <label className="block min-w-0 sm:w-44">
-                <span className="block text-xs font-medium text-foreground">
-                  {mp.providerKeyLabel}
-                </span>
-                <Input
-                  className="mt-1"
-                  value={customKey}
-                  placeholder="my-provider"
-                  spellCheck={false}
-                  onChange={(event) => setCustomKey(event.target.value)}
-                />
-              </label>
+  const renderProviderListRow = ([key, provider]: [string, ModelProviderConfig]) => {
+    const active = key === activeProviderKey;
+    return (
+      <button
+        key={key}
+        type="button"
+        onClick={() => {
+          setSelectedProviderKey(key);
+          setAddProviderOpen(false);
+          setEditingModelIndex(null);
+        }}
+        className={cn(
+          "flex h-7 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[12px] transition-colors",
+          active
+            ? "bg-[var(--sidebar-accent-active)] text-foreground"
+            : "font-normal text-foreground/89 hover:bg-[var(--sidebar-accent)]",
+        )}
+      >
+        <span className="min-w-0 flex-1 truncate">{provider.name ?? key}</span>
+        <span
+          className={cn(
+            "size-1.5 shrink-0 rounded-full",
+            provider.apiKey ? "bg-success" : "bg-muted-foreground/40",
+          )}
+          aria-hidden
+        />
+      </button>
+    );
+  };
+
+  const submitModel = (model: CustomModelConfig) => {
+    if (!activeProviderKey) return;
+    const index = editingModelIndex;
+    const models = [...activeModels];
+    if (index !== null && index < models.length) {
+      models[index] = model;
+    } else {
+      models.push(model);
+    }
+    updateModels(activeProviderKey, models);
+    setModelDialogOpen(false);
+    setEditingModelIndex(null);
+  };
+
+  const renderAddProviderForm = () => (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 px-5 py-4">
+      <h3 className="text-[13px] font-semibold text-foreground">{mp.addDialogTitle}</h3>
+      <label className="block">
+        <span className={PANEL_LABEL_CLASS}>{mp.templateLabel}</span>
+        <Select
+          value={templateId}
+          onValueChange={(value) => {
+            if (typeof value === "string") setTemplateId(value);
+          }}
+        >
+          <SelectTrigger
+            className={cn("mt-1 w-full", PANEL_SELECT_CLASS)}
+            aria-label={mp.templateAria}
+          >
+            <SelectValue>
+              {templateOptions.find((option) => option.id === templateId)?.label ??
+                mp.templateCustom}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectPopup>
+            {templateOptions.map((option) => (
+              <SelectItem key={option.id} hideIndicator value={option.id}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      </label>
+      {templateId === EMPTY_TEMPLATE_ID ? (
+        <label className="block">
+          <span className={PANEL_LABEL_CLASS}>{mp.providerKeyLabel}</span>
+          <Input
+            className={cn("mt-1 font-mono text-xs", PANEL_CONTROL_CLASS)}
+            value={customKey}
+            placeholder="my-provider"
+            spellCheck={false}
+            onChange={(event) => setCustomKey(event.target.value)}
+          />
+        </label>
+      ) : null}
+      <label className="block">
+        <span className={PANEL_LABEL_CLASS}>{mp.providerApiKeyLabel}</span>
+        <Input
+          className={cn("mt-1 font-mono text-xs", PANEL_CONTROL_CLASS)}
+          type="password"
+          autoComplete="off"
+          value={customApiKey}
+          placeholder={
+            templateId === EMPTY_TEMPLATE_ID
+              ? "MY_API_KEY"
+              : mp.providerApiKeyPlaceholder(
+                  MODEL_PROVIDER_TEMPLATE_BY_ID.get(templateId)?.apiKeyEnv ?? "API_KEY",
+                )
+          }
+          spellCheck={false}
+          onChange={(event) => setCustomApiKey(event.target.value)}
+        />
+      </label>
+      <p className="text-xs text-muted-foreground">{mp.providerApiKeyHint}</p>
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          className={PANEL_PRIMARY_BUTTON_CLASS}
+          onClick={() => {
+            addFromTemplate();
+            const nextKey = templateId === EMPTY_TEMPLATE_ID ? customKey.trim() : templateId;
+            if (nextKey.length > 0) {
+              setSelectedProviderKey(nextKey);
+              setAddProviderOpen(false);
+            }
+          }}
+          disabled={templateId === EMPTY_TEMPLATE_ID && customKey.trim().length === 0}
+        >
+          <PlusIcon className="size-3.5" />
+          {mp.addButton}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          className={PANEL_SECONDARY_BUTTON_CLASS}
+          onClick={() => setAddProviderOpen(false)}
+        >
+          {mp.cancelButton}
+        </Button>
+      </div>
+    </div>
+  );
+
+  const renderModelRow = (model: CustomModelConfig, index: number) => {
+    const rowKey = `${activeProviderKey}:${index}`;
+    return (
+      <div
+        key={rowKey}
+        className="flex items-center gap-2.5 rounded-lg border border-[color:var(--color-border-light)] px-3 py-2"
+      >
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
+          {model.id || "—"}
+        </span>
+        {model.name && model.name !== model.id ? (
+          <span className="hidden min-w-0 max-w-40 truncate text-[11px] text-muted-foreground sm:inline">
+            {model.name}
+          </span>
+        ) : null}
+        {model.contextWindow !== undefined ? (
+          <span className="shrink-0 rounded-md border border-[color:var(--color-border-light)] px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+            {mp.modelContextBadge(formatTokenCount(model.contextWindow))}
+          </span>
+        ) : null}
+        {model.maxTokens !== undefined ? (
+          <span className="shrink-0 rounded-md border border-[color:var(--color-border-light)] px-1.5 py-0.5 text-[10px] tabular-nums text-muted-foreground">
+            {mp.modelMaxTokensBadge(formatTokenCount(model.maxTokens))}
+          </span>
+        ) : null}
+        <button
+          type="button"
+          className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+          aria-label={mp.modelEditAria(model.id)}
+          onClick={() => {
+            setEditingModelIndex(index);
+            setModelDialogOpen(true);
+          }}
+        >
+          <SquarePenIcon className="size-3.5" />
+        </button>
+        <button
+          type="button"
+          className="shrink-0 text-muted-foreground transition-colors hover:text-destructive"
+          aria-label={mp.modelRemoveAria(model.id)}
+          onClick={() => {
+            setEditingModelIndex(null);
+            updateModels(
+              activeProviderKey ?? "",
+              activeModels.filter((_, i) => i !== index),
+            );
+          }}
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      </div>
+    );
+  };
+
+  const renderProviderDetail = (key: string, provider: ModelProviderConfig) => {
+    const models = provider.models ?? [];
+    const isTesting = connectionTest.variables?.provider === key;
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
+        <div className="flex items-center gap-2">
+          <Input
+            className="h-7 min-w-0 flex-1 border-0 bg-transparent px-0 text-[15px] font-semibold shadow-none focus-visible:ring-0"
+            value={provider.name ?? ""}
+            placeholder={key}
+            aria-label={mp.providerNameLabel}
+            spellCheck={false}
+            onChange={(event) => {
+              const name = event.target.value.trim();
+              updateProvider(key, { name: name || undefined });
+            }}
+          />
+          <Button
+            size="xs"
+            className={PANEL_SECONDARY_BUTTON_CLASS}
+            disabled={isDirty || saveMutation.isPending || connectionTest.isPending}
+            onClick={() =>
+              connectionTest.mutate({
+                provider: key,
+                ...(models[0]?.id ? { modelId: models[0].id } : {}),
+              })
+            }
+          >
+            {connectionTest.isPending && isTesting ? (
+              <Loader2Icon data-icon="inline-start" className="animate-spin" />
             ) : null}
-            <label className="block min-w-0 flex-1">
-              <span className="block text-xs font-medium text-foreground">
-                {mp.providerApiKeyLabel}
-              </span>
-              <Input
-                className="mt-1 font-mono text-xs"
-                type="password"
-                autoComplete="off"
-                value={customApiKey}
-                placeholder={
-                  templateId === EMPTY_TEMPLATE_ID
-                    ? "MY_API_KEY"
-                    : mp.providerApiKeyPlaceholder(
-                        MODEL_PROVIDER_TEMPLATE_BY_ID.get(templateId)?.apiKeyEnv ?? "API_KEY",
-                      )
-                }
-                spellCheck={false}
-                onChange={(event) => setCustomApiKey(event.target.value)}
-              />
-            </label>
+            {mp.testButton}
+          </Button>
+          <button
+            type="button"
+            className="shrink-0 text-muted-foreground transition-colors hover:text-destructive"
+            aria-label={mp.providerRemoveAria(key)}
+            onClick={() => removeProvider(key)}
+          >
+            <Trash2 className="size-4" />
+          </button>
+        </div>
+
+        <label className="block">
+          <span className={PANEL_LABEL_CLASS}>{mp.providerBaseUrlLabel}</span>
+          <Input
+            className={cn("mt-1 font-mono text-xs", PANEL_CONTROL_CLASS)}
+            value={provider.baseUrl ?? ""}
+            placeholder="https://api.example.com/v1"
+            spellCheck={false}
+            onChange={(event) => {
+              const baseUrl = event.target.value.trim();
+              updateProvider(key, { baseUrl: baseUrl || undefined });
+            }}
+          />
+        </label>
+
+        <label className="block">
+          <span className={PANEL_LABEL_CLASS}>{mp.providerApiLabel}</span>
+          <Select
+            value={provider.api ?? "openai-completions"}
+            onValueChange={(value) => {
+              const kind = toApiKind(value ?? undefined);
+              if (kind) {
+                updateProvider(key, { api: kind });
+              }
+            }}
+          >
+            <SelectTrigger
+              className={cn("mt-1 w-full", PANEL_SELECT_CLASS)}
+              aria-label={mp.providerApiLabel}
+            >
+              <SelectValue>{provider.api ?? "openai-completions"}</SelectValue>
+            </SelectTrigger>
+            <SelectPopup>
+              {API_KINDS.map((kind) => (
+                <SelectItem key={kind} hideIndicator value={kind}>
+                  {kind}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+        </label>
+
+        <label className="block">
+          <span className={PANEL_LABEL_CLASS}>{mp.providerApiKeyLabel}</span>
+          <Input
+            className={cn("mt-1 font-mono text-xs", PANEL_CONTROL_CLASS)}
+            type="password"
+            autoComplete="off"
+            value={provider.apiKey ?? ""}
+            placeholder={MODEL_PROVIDER_TEMPLATE_BY_ID.get(key)?.apiKeyEnv ?? "API_KEY"}
+            spellCheck={false}
+            onChange={(event) => {
+              const apiKey = event.target.value;
+              updateProvider(key, { apiKey: apiKey || undefined });
+            }}
+          />
+        </label>
+
+        <div>
+          <div className="flex items-center justify-between gap-2">
+            <span className={PANEL_LABEL_CLASS}>{mp.providerModelsLabel}</span>
             <Button
-              type="button"
-              size="sm"
-              onClick={addFromTemplate}
-              disabled={templateId === EMPTY_TEMPLATE_ID && customKey.trim().length === 0}
+              size="xs"
+              className={PANEL_SECONDARY_BUTTON_CLASS}
+              onClick={() => {
+                setEditingModelIndex(null);
+                setModelDialogOpen(true);
+              }}
             >
               <PlusIcon className="size-3.5" />
-              {mp.addButton}
+              {mp.modelAddButton}
             </Button>
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">{mp.providerApiKeyHint}</p>
+          {models.length > 0 ? (
+            <div className="mt-2 space-y-1">{models.map(renderModelRow)}</div>
+          ) : (
+            <div className="mt-2 rounded-lg border border-dashed border-border/70 px-3 py-4 text-center text-xs text-muted-foreground">
+              {mp.emptyDescription}
+            </div>
+          )}
         </div>
-      </section>
 
-      {providerEntries.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border/70 bg-card/35 px-5 py-10 text-center">
-          <div className="text-sm font-medium text-foreground">{mp.emptyTitle}</div>
-          <div className="mt-1 text-sm text-muted-foreground">{mp.emptyDescription}</div>
+        <p className="text-xs text-muted-foreground">{isDirty ? mp.testSaveFirst : mp.testHint}</p>
+        {!isDirty && isTesting && !connectionTest.isPending ? (
+          <p role="status" className="text-xs text-muted-foreground">
+            {connectionTest.isError
+              ? mp.testResults["request-failed"]
+              : connectionTest.data
+                ? mp.testResults[connectionTest.data.status]
+                : null}
+            {connectionTest.data?.model ? ` (${connectionTest.data.model})` : null}
+          </p>
+        ) : null}
+      </div>
+    );
+  };
+
+  return (
+    <fieldset disabled={saveMutation.isPending} className="flex min-w-0 flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        <span>{mp.filePathLabel}</span>
+        <code className="font-mono text-[11px]">{query.data?.path ?? ""}</code>
+        <span aria-hidden>·</span>
+        <span>{mp.builtinHint}</span>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-[color:var(--color-border-light)] bg-card">
+        <div className="flex min-h-[520px]">
+          <div className="flex w-[248px] shrink-0 flex-col border-r border-[color:var(--color-border-light)] p-2">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+              {builtinEntries.length > 0 ? (
+                <div>
+                  <div className="px-2 pb-1 text-[11px] text-muted-foreground/58">
+                    {mp.builtinGroupLabel}
+                  </div>
+                  <div className="space-y-0.5">{builtinEntries.map(renderProviderListRow)}</div>
+                </div>
+              ) : null}
+              <div>
+                <div className="px-2 pb-1 text-[11px] text-muted-foreground/58">
+                  {mp.customGroupLabel}
+                </div>
+                <div className="space-y-0.5">
+                  {customEntries.length > 0 ? (
+                    customEntries.map(renderProviderListRow)
+                  ) : (
+                    <div className="px-2 py-1 text-[11px] text-muted-foreground/60">
+                      {mp.emptyDescription}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingModelIndex(null);
+                setAddProviderOpen(true);
+              }}
+              className="mt-2 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12px] text-foreground/89 transition-colors hover:bg-[var(--sidebar-accent)]"
+            >
+              <PlusIcon className="size-3.5" />
+              {mp.addDialogTitle}
+            </button>
+          </div>
+
+          {addProviderOpen ? (
+            renderAddProviderForm()
+          ) : activeProviderKey && activeProvider ? (
+            renderProviderDetail(activeProviderKey, activeProvider)
+          ) : (
+            <div className="flex flex-1 items-center justify-center px-6 py-10 text-center">
+              <div>
+                <div className="text-sm font-medium text-foreground">{mp.emptyTitle}</div>
+                <div className="mt-1 text-xs text-muted-foreground">{mp.emptyDescription}</div>
+              </div>
+            </div>
+          )}
         </div>
-      ) : (
-        <section className="space-y-2">
-          <h2 className="px-1 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-            {mp.providerModelsLabel}
-          </h2>
-          <div className="space-y-2">{providerEntries.map(renderProviderCard)}</div>
-        </section>
-      )}
+      </div>
 
       {isDirty ? (
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-muted/30 px-4 py-3">
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--color-border-light)] px-4 py-3">
           <span className="text-sm text-muted-foreground">{mp.unsavedHint}</span>
           <Button size="sm" disabled={saveMutation.isPending} onClick={handleSave}>
             {saveMutation.isPending ? <Loader2Icon className="size-3.5 animate-spin" /> : null}
@@ -631,6 +656,29 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
           </Button>
         </div>
       ) : null}
+
+      <ModelProviderModelDialog
+        open={modelDialogOpen}
+        model={editingModelIndex !== null ? (activeModels[editingModelIndex] ?? null) : null}
+        onOpenChange={(open) => {
+          setModelDialogOpen(open);
+          if (!open) setEditingModelIndex(null);
+        }}
+        onSubmit={submitModel}
+      />
     </fieldset>
   );
 }
+
+/** Render a token budget the way the model rows and dialog summarize them. */
+const formatTokenCount = (value: number): string => {
+  if (value >= 1_000_000) {
+    const millions = value / 1_000_000;
+    return `${Number.isInteger(millions) ? millions : millions.toFixed(1)}M`;
+  }
+  if (value >= 1000) {
+    const thousands = value / 1000;
+    return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)}K`;
+  }
+  return String(value);
+};

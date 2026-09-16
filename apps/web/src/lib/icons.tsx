@@ -47,6 +47,7 @@ import {
   IconGitPullRequest,
   IconEdit,
   IconInfoCircle,
+  IconLayoutKanban,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconLayoutSidebarRightCollapse,
@@ -194,6 +195,7 @@ export const HandoffIcon: LucideIcon = (props) => (
   <TbArrowsRightLeft className={props.className} style={props.style} />
 );
 export const InfoIcon = adaptIcon(IconInfoCircle);
+export const KanbanIcon = adaptIcon(IconLayoutKanban);
 export const ListChecksIcon = adaptIcon(IconListCheck);
 export const ListTodoIcon = adaptIcon(IconListDetails);
 export const Loader2Icon = adaptIcon(IconLoader2);

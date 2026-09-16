@@ -1,4 +1,4 @@
-import { DEFAULT_MODEL_BY_PROVIDER, type ModelSelection } from "@peakcode/contracts";
+import type { ModelSelection } from "@peakcode/contracts";
 import { workspaceRootsEqual } from "@peakcode/shared/threadWorkspace";
 
 import type { Project } from "../types";
@@ -11,10 +11,13 @@ export interface FirstSendProjectTarget {
   targetProjectDefaultModelSelection: ModelSelection | null;
 }
 
+/**
+ * The default model a relocated project should carry is resolved at dispatch time
+ * (see `resolveProjectDefaultModelSelection`), because Pi reports its models at runtime.
+ */
 export interface FirstSendProjectCreation {
   workspaceRoot: string;
   title: string;
-  defaultModelSelection: ModelSelection;
 }
 
 export type FirstSendTargetResolution =
@@ -36,17 +39,21 @@ function buildProjectTitleFromWorkspaceRoot(workspaceRoot: string): string {
   return workspaceRoot.split(/[/\\]/).findLast((segment) => segment.length > 0) ?? workspaceRoot;
 }
 
+/**
+ * Threads started in the default workspace can relocate to the folder the user picked below the
+ * composer. That relocation is only meaningful before the thread has any provider turn.
+ */
 export function resolveFirstSendTarget(input: {
   activeProject: Project;
   isFirstMessage: boolean;
-  isHomeChatContainer: boolean;
+  isDefaultWorkspace: boolean;
   projects: readonly Project[];
   selectedWorkspaceRoot: string | null;
 }): FirstSendTargetResolution {
-  const { activeProject, isFirstMessage, isHomeChatContainer, projects, selectedWorkspaceRoot } =
+  const { activeProject, isFirstMessage, isDefaultWorkspace, projects, selectedWorkspaceRoot } =
     input;
 
-  if (!isFirstMessage || !isHomeChatContainer || !selectedWorkspaceRoot) {
+  if (!isFirstMessage || !isDefaultWorkspace || !selectedWorkspaceRoot) {
     return {
       kind: "current",
       target: buildProjectTarget(activeProject),
@@ -69,10 +76,6 @@ export function resolveFirstSendTarget(input: {
     creation: {
       workspaceRoot: selectedWorkspaceRoot,
       title: buildProjectTitleFromWorkspaceRoot(selectedWorkspaceRoot),
-      defaultModelSelection: {
-        provider: "pi",
-        model: "gpt-5.4-mini",
-      },
     },
   };
 }

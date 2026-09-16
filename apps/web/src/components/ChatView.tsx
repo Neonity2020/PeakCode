@@ -89,8 +89,10 @@ import {
 import { isElectron } from "../env";
 import { parseDiffRouteSearch, stripDiffSearchParams } from "../diffRouteSearch";
 import { resolveSubagentPresentationForThread } from "../lib/subagentPresentation";
-import { isHomeChatContainerProject } from "../lib/chatProjects";
+import { normalizeComposerInteractionMode } from "../lib/composerInteractionMode";
+import { isDefaultWorkspaceProject } from "../lib/defaultWorkspace";
 import { resolveFirstSendTarget } from "../lib/chatFirstSend";
+import { resolveProjectDefaultModelSelection } from "../lib/projectDefaultModelSelection";
 import {
   maybeResolveBrowserPromptAttachment,
   type BrowserPromptAttachmentResolution,
@@ -220,6 +222,12 @@ import {
   setupProjectScript,
 } from "~/projectScripts";
 import { newCommandId, newMessageId, newProjectId, newThreadId } from "~/lib/utils";
+import {
+  useAgentGoal,
+  useAgentRuntime,
+  useSetAgentApprovalMode,
+  useSetAgentGoalStatus,
+} from "~/lib/agentGoalReactQuery";
 import { readNativeApi } from "~/nativeApi";
 import {
   confirmTerminalTabClose,
@@ -298,8 +306,11 @@ import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalAc
 import { ComposerExtrasMenu } from "./chat/ComposerExtrasMenu";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
+import { ComposerApprovalChip } from "./chat/ComposerApprovalChip";
+import { ContextWindowMeter } from "./chat/ContextWindowMeter";
+import { ComposerGoalPanel } from "./chat/ComposerGoalPanel";
+import { ComposerModeChip } from "./chat/ComposerModeChip";
 import { ComposerPlanFollowUpBanner } from "./chat/ComposerPlanFollowUpBanner";
-import { ComposerVoiceButton } from "./chat/ComposerVoiceButton";
 import { ComposerVoiceRecorderBar } from "./chat/ComposerVoiceRecorderBar";
 import { ComposerReferenceAttachments } from "./chat/ComposerReferenceAttachments";
 import { TranscriptSelectionActionLayer } from "./chat/TranscriptSelectionActionLayer";
@@ -322,7 +333,6 @@ import {
 import {
   ACTIVE_TURN_LAYOUT_SETTLE_DELAY_MS,
   appendVoiceTranscriptToPrompt,
-  describeVoiceRecordingStartError,
   isVoiceAuthExpiredMessage,
   sanitizeVoiceErrorMessage,
   shouldStartActiveTurnLayoutGrace,
@@ -814,7 +824,6 @@ export default function ChatView({
     isRecording: isVoiceRecording,
     durationMs: voiceRecordingDurationMs,
     waveformLevels: voiceWaveformLevels,
-    startRecording: startVoiceRecording,
     stopRecording: stopVoiceRecording,
     cancelRecording: cancelVoiceRecording,
   } = useVoiceRecorder();
@@ -1123,8 +1132,9 @@ export default function ChatView({
   const activeThread = serverThread ?? localDraftThread;
   const runtimeMode =
     composerDraft.runtimeMode ?? activeThread?.runtimeMode ?? DEFAULT_RUNTIME_MODE;
-  const interactionMode =
-    composerDraft.interactionMode ?? activeThread?.interactionMode ?? DEFAULT_INTERACTION_MODE;
+  const interactionMode = normalizeComposerInteractionMode(
+    composerDraft.interactionMode ?? activeThread?.interactionMode,
+  );
   const isServerThread = serverThread !== undefined;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
@@ -1172,11 +1182,8 @@ export default function ChatView({
   );
   const homeDir = useWorkspaceStore((state) => state.homeDir);
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
-  const isHomeChatContainer = isHomeChatContainerProject(activeProject, homeDir);
-  const activeProjectDisplayName = isHomeChatContainer
-    ? activeProject?.folderName
-    : activeProject?.name;
-  const isChatProject = isHomeChatContainer;
+  const isDefaultWorkspace = isDefaultWorkspaceProject(activeProject, homeDir);
+  const activeProjectDisplayName = activeProject?.name;
   const activeProjectScripts =
     activeProject?.kind === "project" ? activeProject.scripts : undefined;
   const threadLineageThreads = useStore(
@@ -1975,11 +1982,10 @@ export default function ChatView({
     [activeThread?.proposedPlans, timelineMessages, workLogEntries],
   );
   // Empty top-level threads render the centered landing composer instead of the transcript pane.
-  // Home-scoped chats get the global "What should we work on?" copy plus the project picker,
+  // Default-workspace chats get the global "What should we work on?" copy plus the project picker,
   // while project-scoped drafts reuse the same centered layout with folder-specific copy.
   const isCenteredEmptyLanding = timelineEntries.length === 0 && !activeThread?.parentThreadId;
-  const isEmptyChatLanding =
-    isCenteredEmptyLanding && Boolean(homeDir) && activeProject?.cwd === homeDir;
+  const isEmptyChatLanding = isCenteredEmptyLanding && isDefaultWorkspace;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const turnDiffSummaryByAssistantMessageId = useMemo(() => {
@@ -2079,7 +2085,9 @@ export default function ChatView({
       })
     : null;
   const gitCwd = threadWorkspaceCwd;
-  const showGitActions = !isHomeChatContainer || Boolean(resolvedThreadWorktreePath);
+  // The default workspace is app-owned scratch space, so git actions only make sense once the
+  // thread was pointed at a real repository through a worktree or the folder picker.
+  const showGitActions = !isDefaultWorkspace || Boolean(resolvedThreadWorktreePath);
   const gitBranchSourceCwd = activeProject
     ? resolveThreadBranchSourceCwd({
         projectCwd: activeProject.cwd,
@@ -3416,46 +3424,21 @@ export default function ChatView({
     [activeProject, persistProjectScripts],
   );
 
-  const handleRuntimeModeChange = useCallback(
-    (mode: RuntimeMode) => {
-      if (mode === runtimeMode) return;
-      setComposerDraftRuntimeMode(threadId, mode);
-      if (isLocalDraftThread) {
-        setDraftThreadContext(threadId, { runtimeMode: mode });
-      }
-      if (serverThread) {
-        const api = readNativeApi();
-        if (api) {
-          void api.orchestration
-            .dispatchCommand({
-              type: "thread.runtime-mode.set",
-              commandId: newCommandId(),
-              threadId,
-              runtimeMode: mode,
-              createdAt: new Date().toISOString(),
-            })
-            .catch((error) => {
-              toastManager.add({
-                type: "error",
-                title: "Could not update access mode",
-                description:
-                  error instanceof Error ? error.message : "An unexpected error occurred.",
-              });
-            });
-        }
-      }
-      scheduleComposerFocus();
+  // Approval policy + context usage for the toolbar. Read from the same place the server's
+  // tool-call gate reads, so the chip cannot claim a policy that is not in force.
+  const agentRuntimeQuery = useAgentRuntime(threadId);
+  const setAgentApprovalMode = useSetAgentApprovalMode();
+  const approvalMode = agentRuntimeQuery.data?.approvalMode ?? "smart";
+
+  // Goal state is only meaningful for a persisted thread; a local draft has no server row yet.
+  const agentGoalQuery = useAgentGoal(threadId);
+  const setAgentGoalStatus = useSetAgentGoalStatus(threadId);
+  const activeGoal = agentGoalQuery.data?.goal ?? null;
+  const handleGoalStatusChange = useCallback(
+    (status: "active" | "paused" | "complete" | "dropped") => {
+      setAgentGoalStatus.mutate({ status });
     },
-    [
-      isLocalDraftThread,
-      runtimeMode,
-      scheduleComposerFocus,
-      serverThread,
-      setComposerDraftRuntimeMode,
-      setDraftThreadContext,
-      threadId,
-      toastManager,
-    ],
+    [setAgentGoalStatus],
   );
 
   const handleInteractionModeChange = useCallback(
@@ -3490,12 +3473,6 @@ export default function ChatView({
       return !open;
     });
   }, [activeTaskList?.turnId, sidebarProposedPlan?.turnId]);
-  const setPlanMode = useCallback(
-    (enabled: boolean) => {
-      handleInteractionModeChange(enabled ? "plan" : "default");
-    },
-    [handleInteractionModeChange],
-  );
   const persistThreadSettingsForNextTurn = useCallback(
     async (input: {
       threadId: ThreadId;
@@ -4391,50 +4368,6 @@ export default function ChatView({
     toggleTerminalVisibility,
   ]);
 
-  const startComposerVoiceRecording = useCallback(async () => {
-    if (!activeProject) {
-      return;
-    }
-    if (voiceProviderStatus?.authStatus === "unauthenticated") {
-      toastManager.add({
-        type: "error",
-        title: "Sign in to ChatGPT in Codex before using voice notes.",
-      });
-      return;
-    }
-    if (!canStartVoiceNotes) {
-      toastManager.add({
-        type: "error",
-        title: "Voice notes require a ChatGPT-authenticated Codex session.",
-      });
-      return;
-    }
-    if (pendingUserInputs.length > 0) {
-      toastManager.add({
-        type: "error",
-        title: "Answer plan questions before recording a voice note.",
-      });
-      return;
-    }
-
-    try {
-      await startVoiceRecording();
-      voiceRecordingStartedAtRef.current = performance.now();
-    } catch (error) {
-      toastManager.add({
-        type: "error",
-        title: "Could not start recording",
-        description: describeVoiceRecordingStartError(error),
-      });
-    }
-  }, [
-    activeProject,
-    canStartVoiceNotes,
-    pendingUserInputs.length,
-    startVoiceRecording,
-    voiceProviderStatus?.authStatus,
-  ]);
-
   const submitComposerVoiceRecording = useCallback(async () => {
     if (!activeProject || !isVoiceRecording) {
       return;
@@ -4564,21 +4497,6 @@ export default function ChatView({
 
   // Preserve the original "single mic button" contract:
   // first click starts recording, the next click submits/transcribes.
-  const toggleComposerVoiceRecording = useCallback(() => {
-    if (isVoiceTranscribing) {
-      return;
-    }
-    if (isVoiceRecording) {
-      void submitComposerVoiceRecording();
-      return;
-    }
-    void startComposerVoiceRecording();
-  }, [
-    isVoiceRecording,
-    isVoiceTranscribing,
-    startComposerVoiceRecording,
-    submitComposerVoiceRecording,
-  ]);
 
   // --- Composer attachment entry points -------------------------------------
   const addComposerImages = (files: File[]) => {
@@ -5099,9 +5017,9 @@ export default function ChatView({
     const firstSendTarget = resolveFirstSendTarget({
       activeProject,
       isFirstMessage,
-      isHomeChatContainer,
+      isDefaultWorkspace,
       projects: useStore.getState().projects,
-      selectedWorkspaceRoot: isHomeChatContainer ? (resolvedThreadWorktreePath ?? null) : null,
+      selectedWorkspaceRoot: isDefaultWorkspace ? (resolvedThreadWorktreePath ?? null) : null,
     });
     let {
       targetProjectId: targetProjectIdForSend,
@@ -5123,10 +5041,15 @@ export default function ChatView({
     let nextThreadBranch = activeThread.branch;
     let nextThreadWorktreePath = activeThread.worktreePath;
 
-    if (isFirstMessage && isHomeChatContainer && firstSendTarget.kind !== "current") {
+    if (isFirstMessage && isDefaultWorkspace && firstSendTarget.kind !== "current") {
       if (firstSendTarget.kind === "create-project") {
         const projectId = newProjectId();
         const createdAt = new Date().toISOString();
+        const newProjectDefaultModelSelection = await resolveProjectDefaultModelSelection({
+          queryClient,
+          binaryPath: settings.piBinaryPath || null,
+          agentDir: settings.piAgentDir || null,
+        });
         try {
           await api.orchestration.dispatchCommand({
             type: "project.create",
@@ -5135,15 +5058,16 @@ export default function ChatView({
             kind: "project",
             title: firstSendTarget.creation.title,
             workspaceRoot: firstSendTarget.creation.workspaceRoot,
-            defaultModelSelection: firstSendTarget.creation.defaultModelSelection,
+            ...(newProjectDefaultModelSelection
+              ? { defaultModelSelection: newProjectDefaultModelSelection }
+              : {}),
             createdAt,
           });
           targetProjectIdForSend = projectId;
           targetProjectKindForSend = "project";
           targetProjectCwdForSend = firstSendTarget.creation.workspaceRoot;
           targetProjectScriptsForSend = [];
-          targetProjectDefaultModelSelectionForSend =
-            firstSendTarget.creation.defaultModelSelection;
+          targetProjectDefaultModelSelectionForSend = newProjectDefaultModelSelection;
         } catch (error) {
           const description =
             error instanceof Error ? error.message : "Failed to create the selected project.";
@@ -5168,8 +5092,7 @@ export default function ChatView({
           targetProjectCwdForSend = recoveredProject.workspaceRoot;
           targetProjectScriptsForSend = [...recoveredProject.scripts];
           targetProjectDefaultModelSelectionForSend =
-            recoveredProject.defaultModelSelection ??
-            firstSendTarget.creation.defaultModelSelection;
+            recoveredProject.defaultModelSelection ?? newProjectDefaultModelSelection;
         }
       }
 
@@ -5722,7 +5645,7 @@ export default function ChatView({
     queuedTurn,
   }: {
     text: string;
-    interactionMode: "default" | "plan";
+    interactionMode: ProviderInteractionMode;
     dispatchMode: "queue" | "steer";
     queuedTurn?: QueuedComposerPlanFollowUp;
   }): Promise<boolean> {
@@ -7061,7 +6984,7 @@ export default function ChatView({
           threads: threadLineageThreads,
         }).fullLabel
       : null,
-    isHomeChat: isChatProject,
+    isDefaultWorkspace,
     isEmpty: timelineEntries.length === 0,
   });
 
@@ -7107,8 +7030,6 @@ export default function ChatView({
   };
 
   const runtimeUsageControlsProps = {
-    runtimeMode,
-    onRuntimeModeChange: handleRuntimeModeChange,
     contextWindow: runtimeUsageContextWindow,
     cumulativeCostUsd: activeCumulativeCostUsd,
     activeContextWindowLabel: contextWindowSelectionStatus.activeLabel,
@@ -7260,6 +7181,14 @@ export default function ChatView({
                   planTitle={proposedPlanTitle(activeProposedPlan.planMarkdown) ?? null}
                 />
               </div>
+            ) : activeGoal ? (
+              <div className="rounded-t-[23px] border-b border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)]">
+                <ComposerGoalPanel
+                  goal={activeGoal}
+                  isPending={setAgentGoalStatus.isPending}
+                  onSetStatus={handleGoalStatusChange}
+                />
+              </div>
             ) : null}
             <div className={cn("relative px-3.5 pb-1 pt-3")}>
               {composerMenuOpen && !isComposerApprovalState && (
@@ -7370,48 +7299,27 @@ export default function ChatView({
                   )}
                 >
                   <ComposerExtrasMenu
-                    interactionMode={interactionMode}
                     supportsFastMode={composerTraitSelection.caps.supportsFastMode}
                     fastModeEnabled={composerTraitSelection.fastModeEnabled}
                     onAddPhotos={addComposerImages}
                     onToggleFastMode={toggleFastMode}
-                    onSetPlanMode={setPlanMode}
+                  />
+
+                  <ComposerModeChip
+                    mode={interactionMode}
+                    disabled={isConnecting || isComposerApprovalState}
+                    onChange={handleInteractionModeChange}
+                  />
+
+                  <ComposerApprovalChip
+                    mode={approvalMode}
+                    disabled={isConnecting}
+                    isPending={setAgentApprovalMode.isPending}
+                    onChange={(mode) => setAgentApprovalMode.mutate(mode)}
                   />
 
                   {!isVoiceRecording && !isVoiceTranscribing ? (
                     <>
-                      {composerModelPickerControl}
-
-                      {composerTraitsPickerControl ? (
-                        <>
-                          <Separator
-                            orientation="vertical"
-                            className="mx-0.5 hidden h-4 sm:block"
-                          />
-                          {composerTraitsPickerControl}
-                        </>
-                      ) : null}
-
-                      {interactionMode === "plan" ? (
-                        <>
-                          <Separator
-                            orientation="vertical"
-                            className="mx-0.5 hidden h-4 sm:block"
-                          />
-                          <Button
-                            variant="ghost"
-                            className="shrink-0 whitespace-nowrap px-2 text-[length:var(--app-font-size-ui-sm,11px)] sm:text-[length:var(--app-font-size-ui-sm,11px)] font-normal text-[var(--color-text-foreground-secondary)] hover:bg-[var(--color-background-button-secondary-hover)] hover:text-[var(--color-text-foreground)] sm:px-3"
-                            size="sm"
-                            type="button"
-                            onClick={toggleInteractionMode}
-                            title="Plan mode — click to return to normal build mode"
-                          >
-                            <GoTasklist className="size-3.5" />
-                            <span className="sr-only sm:not-sr-only">Plan</span>
-                          </Button>
-                        </>
-                      ) : null}
-
                       {activeTaskList || sidebarProposedPlan || planSidebarOpen ? (
                         <>
                           <Separator
@@ -7448,6 +7356,29 @@ export default function ChatView({
                     isVoiceRecording || isVoiceTranscribing ? "min-w-0 flex-1" : "shrink-0",
                   )}
                 >
+                  {/* Ring first on the right, matching the reference layout: the question the
+                      toolbar answers at a glance is "how much room is left". */}
+                  {runtimeUsageContextWindow ? (
+                    <ContextWindowMeter
+                      usage={runtimeUsageContextWindow}
+                      {...(activeCumulativeCostUsd != null
+                        ? { cumulativeCostUsd: activeCumulativeCostUsd }
+                        : {})}
+                      activeWindowLabel={contextWindowSelectionStatus.activeLabel}
+                      pendingWindowLabel={contextWindowSelectionStatus.pendingSelectedLabel}
+                    />
+                  ) : null}
+
+                  {/* Model + thinking sit with the ring on the right: "who answers, how hard it
+                      thinks, how much room is left" is one decision, and splitting it across the
+                      toolbar hid the relationship. */}
+                  {!isVoiceRecording && !isVoiceTranscribing ? (
+                    <>
+                      {composerModelPickerControl}
+                      {composerTraitsPickerControl}
+                    </>
+                  ) : null}
+
                   {isPreparingWorktree ? (
                     <span className="text-[length:var(--app-font-size-ui-xs,10px)] text-[var(--color-text-foreground-secondary)]">
                       Preparing worktree...
@@ -7563,15 +7494,6 @@ export default function ChatView({
                       )
                     ) : (
                       <>
-                        {showVoiceNotesControl ? (
-                          <ComposerVoiceButton
-                            disabled={isComposerApprovalState || isConnecting || isSendBusy}
-                            isRecording={isVoiceRecording}
-                            isTranscribing={isVoiceTranscribing}
-                            durationLabel={voiceRecordingDurationLabel}
-                            onClick={toggleComposerVoiceRecording}
-                          />
-                        ) : null}
                         <button
                           type="submit"
                           className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-text-foreground)] text-[var(--color-background-surface)] transition-all duration-150 hover:scale-105 disabled:opacity-20 disabled:hover:scale-100 sm:h-8 sm:w-8"
@@ -8109,12 +8031,23 @@ export default function ChatView({
                               )}
                             >
                               <ComposerExtrasMenu
-                                interactionMode={interactionMode}
                                 supportsFastMode={composerTraitSelection.caps.supportsFastMode}
                                 fastModeEnabled={composerTraitSelection.fastModeEnabled}
                                 onAddPhotos={addComposerImages}
                                 onToggleFastMode={toggleFastMode}
-                                onSetPlanMode={setPlanMode}
+                              />
+
+                              <ComposerModeChip
+                                mode={interactionMode}
+                                disabled={isConnecting || isComposerApprovalState}
+                                onChange={handleInteractionModeChange}
+                              />
+
+                              <ComposerApprovalChip
+                                mode={approvalMode}
+                                disabled={isConnecting}
+                                isPending={setAgentApprovalMode.isPending}
+                                onChange={(mode) => setAgentApprovalMode.mutate(mode)}
                               />
 
                               {!isVoiceRecording && !isVoiceTranscribing ? (
@@ -8196,6 +8129,18 @@ export default function ChatView({
                                   : "shrink-0",
                               )}
                             >
+                              {runtimeUsageContextWindow ? (
+                                <ContextWindowMeter
+                                  usage={runtimeUsageContextWindow}
+                                  {...(activeCumulativeCostUsd != null
+                                    ? { cumulativeCostUsd: activeCumulativeCostUsd }
+                                    : {})}
+                                  activeWindowLabel={contextWindowSelectionStatus.activeLabel}
+                                  pendingWindowLabel={
+                                    contextWindowSelectionStatus.pendingSelectedLabel
+                                  }
+                                />
+                              ) : null}
                               {isPreparingWorktree ? (
                                 <span className="text-[length:var(--app-font-size-ui-xs,10px)] text-[var(--color-text-foreground-secondary)]">
                                   Preparing worktree...
@@ -8315,17 +8260,6 @@ export default function ChatView({
                                   )
                                 ) : (
                                   <>
-                                    {showVoiceNotesControl ? (
-                                      <ComposerVoiceButton
-                                        disabled={
-                                          isComposerApprovalState || isConnecting || isSendBusy
-                                        }
-                                        isRecording={isVoiceRecording}
-                                        isTranscribing={isVoiceTranscribing}
-                                        durationLabel={voiceRecordingDurationLabel}
-                                        onClick={toggleComposerVoiceRecording}
-                                      />
-                                    ) : null}
                                     <button
                                       type="submit"
                                       className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-text-foreground)] text-[var(--color-background-surface)] transition-all duration-150 hover:scale-105 disabled:opacity-20 disabled:hover:scale-100 sm:h-8 sm:w-8"

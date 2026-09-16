@@ -6,6 +6,7 @@ import type { KeybindingCommand, ProjectId, ThreadId } from "@peakcode/contracts
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "../appSettings";
 import type { ChatMessage, Project, SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
+import { resolveCurrentProjectTargetId } from "../lib/projectShortcutTargets";
 import { isDuplicateProjectCreateError } from "../lib/projectCreateRecovery";
 import { workspaceRootsEqual } from "@peakcode/shared/threadWorkspace";
 import {
@@ -165,6 +166,24 @@ export function resolveSidebarNewThreadEnvMode(input: {
   defaultEnvMode: SidebarNewThreadEnvMode;
 }): SidebarNewThreadEnvMode {
   return input.requestedEnvMode ?? input.defaultEnvMode;
+}
+
+export type SidebarNewThreadTarget =
+  | { kind: "project"; projectId: ProjectId }
+  | { kind: "default-workspace" };
+
+/**
+ * Resolves where a sidebar thread-creation action lands when it starts from the current
+ * context. Chats with no project to target belong in the default workspace: the action
+ * must stay a single click in every state, including when the focused thread lives in a
+ * container that is not a real project (a legacy home-rooted chat, or a deleted project).
+ */
+export function resolveSidebarNewThreadTarget(input: {
+  focusedProjectId: ProjectId | null;
+  projects: readonly Pick<Project, "id" | "kind">[];
+}): SidebarNewThreadTarget {
+  const projectId = resolveCurrentProjectTargetId(input.projects, input.focusedProjectId);
+  return projectId === null ? { kind: "default-workspace" } : { kind: "project", projectId };
 }
 
 // Drops remembered "show more" state for projects that are currently collapsed.

@@ -4,6 +4,7 @@ import { Layer } from "effect";
 import { CheckpointDiffQueryLive } from "./checkpointing/Layers/CheckpointDiffQuery";
 import { CheckpointStoreLive } from "./checkpointing/Layers/CheckpointStore";
 import { CheckpointReactorLive } from "./orchestration/Layers/CheckpointReactor";
+import { GoalContinuationReactorLive } from "./orchestration/Layers/GoalContinuationReactor";
 import { OrchestrationReactorLive } from "./orchestration/Layers/OrchestrationReactor";
 import { ProviderCommandReactorLive } from "./orchestration/Layers/ProviderCommandReactor";
 import { ProviderRuntimeIngestionLive } from "./orchestration/Layers/ProviderRuntimeIngestion";
@@ -29,6 +30,8 @@ import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResol
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
 import { AutomationServiceLive } from "./automation/Layers/AutomationService";
 import { AutomationRepositoryLive } from "./persistence/Layers/Automations";
+import { KanbanRunReactorLive } from "./kanban/Layers/KanbanRunReactor";
+import { KanbanServiceLive } from "./kanban/Layers/KanbanService";
 
 export { makeServerProviderLayer } from "./provider/runtimeLayer";
 
@@ -50,6 +53,12 @@ export function makeServerRuntimeServicesLayer() {
     Layer.provide(AutomationRepositoryLive),
     Layer.provideMerge(runtimeServicesLayer),
   );
+  const kanbanServiceLayer = KanbanServiceLive.pipe(
+    Layer.provideMerge(runtimeServicesLayer),
+    Layer.provideMerge(WorkspaceLayerLive),
+    Layer.provideMerge(TextGenerationLayerLive),
+  );
+  const kanbanRunReactorLayer = KanbanRunReactorLive.pipe(Layer.provideMerge(kanbanServiceLayer));
   const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
   );
@@ -62,10 +71,14 @@ export function makeServerRuntimeServicesLayer() {
   const checkpointReactorLayer = CheckpointReactorLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
   );
+  const goalContinuationReactorLayer = GoalContinuationReactorLive.pipe(
+    Layer.provideMerge(runtimeServicesLayer),
+  );
   const orchestrationReactorLayer = OrchestrationReactorLive.pipe(
     Layer.provideMerge(runtimeIngestionLayer),
     Layer.provideMerge(providerCommandReactorLayer),
     Layer.provideMerge(checkpointReactorLayer),
+    Layer.provideMerge(goalContinuationReactorLayer),
   );
   const threadDeletionReactorLayer = ThreadDeletionReactorLive.pipe(
     Layer.provideMerge(OrchestrationLayerLive),
@@ -107,5 +120,7 @@ export function makeServerRuntimeServicesLayer() {
     WorkspaceLayerLive,
     ProjectFaviconResolverLive,
     automationServiceLayer,
+    kanbanServiceLayer,
+    kanbanRunReactorLayer,
   ).pipe(Layer.provideMerge(NodeServices.layer));
 }

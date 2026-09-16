@@ -13,6 +13,7 @@ import path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
   CustomModelConfig,
+  ModelInputTypeKind,
   ModelProviderApiKind,
   ModelProviderConfig,
   ModelProvidersFile,
@@ -29,6 +30,7 @@ const MODEL_ENTRY_EDITABLE_KEYS = new Set<string>([
   "baseUrl",
   "reasoning",
   "input",
+  "inputTypes",
   "contextWindow",
   "maxTokens",
   "cost",
@@ -56,6 +58,10 @@ const MODEL_PROVIDER_API_KINDS: readonly string[] = [
 
 const MODEL_INPUT_KINDS: readonly string[] = ["text", "image"];
 
+// `inputTypes` is a Peak Code extension: pi ignores unknown model keys, and its
+// own schema rejects anything outside MODEL_INPUT_KINDS in `input`.
+const MODEL_INPUT_TYPE_KINDS: readonly string[] = ["text", "image", "video", "pdf"];
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -69,6 +75,15 @@ function asInputKinds(value: unknown): CustomModelConfig["input"] {
   const kinds = value.filter(
     (kind): kind is "text" | "image" =>
       typeof kind === "string" && MODEL_INPUT_KINDS.includes(kind),
+  );
+  return kinds.length > 0 ? kinds : undefined;
+}
+
+function asInputTypes(value: unknown): CustomModelConfig["inputTypes"] {
+  if (!Array.isArray(value)) return undefined;
+  const kinds = value.filter(
+    (kind): kind is ModelInputTypeKind =>
+      typeof kind === "string" && MODEL_INPUT_TYPE_KINDS.includes(kind),
   );
   return kinds.length > 0 ? kinds : undefined;
 }
@@ -107,6 +122,7 @@ export function modelEntryFromJson(raw: unknown): CustomModelConfig | null {
   if (id.length === 0) return null;
 
   const input = asInputKinds(raw.input);
+  const inputTypes = asInputTypes(raw.inputTypes);
   const cost = asNumberRecord(raw.cost);
   const samplingParams = isRecord(raw.samplingParams) ? raw.samplingParams : undefined;
   const headers = asStringRecord(raw.headers);
@@ -121,6 +137,7 @@ export function modelEntryFromJson(raw: unknown): CustomModelConfig | null {
       : {}),
     ...(typeof raw.reasoning === "boolean" ? { reasoning: raw.reasoning } : {}),
     ...(input ? { input } : {}),
+    ...(inputTypes ? { inputTypes } : {}),
     ...(typeof raw.contextWindow === "number" ? { contextWindow: raw.contextWindow } : {}),
     ...(typeof raw.maxTokens === "number" ? { maxTokens: raw.maxTokens } : {}),
     ...(cost ? { cost } : {}),
@@ -138,6 +155,7 @@ export function modelEntryToJson(entry: CustomModelConfig): Record<string, unkno
   if (entry.baseUrl) json.baseUrl = entry.baseUrl;
   if (entry.reasoning !== undefined) json.reasoning = entry.reasoning;
   if (entry.input) json.input = entry.input;
+  if (entry.inputTypes) json.inputTypes = entry.inputTypes;
   if (entry.contextWindow !== undefined) json.contextWindow = entry.contextWindow;
   if (entry.maxTokens !== undefined) json.maxTokens = entry.maxTokens;
   if (entry.cost) json.cost = entry.cost;

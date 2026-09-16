@@ -126,6 +126,34 @@ import type {
 } from "./providerDiscovery";
 import type { ProviderCompactThreadInput } from "./provider";
 import type {
+  AgentApprovalModeSetInput,
+  AgentApprovalModeSetResult,
+  AgentRuntimeGetInput,
+  AgentRuntimeGetResult,
+} from "./agentRuntime";
+import type {
+  AgentGoalGetInput,
+  AgentGoalGetResult,
+  AgentGoalSetStatusInput,
+  AgentGoalSetStatusResult,
+} from "./agentGoal";
+import type {
+  KanbanBoard,
+  KanbanAddTaskCommentInput,
+  KanbanCreateTaskInput,
+  KanbanDeleteTaskInput,
+  KanbanGenerateRequirementDraftInput,
+  KanbanGenerateRequirementDraftResult,
+  KanbanGenerateTaskRequirementInput,
+  KanbanGetBoardInput,
+  KanbanGetTaskDetailInput,
+  KanbanListProjectsInput,
+  KanbanListProjectsResult,
+  KanbanMoveTaskInput,
+  KanbanTaskDetail,
+  KanbanUpdateTaskInput,
+} from "./kanban";
+import type {
   Automation,
   AutomationRun,
   CreateAutomationInput,
@@ -459,6 +487,32 @@ export interface NativeApi {
   };
   skills: {
     listLocal: () => Promise<ListLocalUserSkillsResult>;
+  };
+  /** Composer toolbar state: approval policy + context usage for a thread. */
+  agentRuntime: {
+    get: (input: AgentRuntimeGetInput) => Promise<AgentRuntimeGetResult>;
+    setApprovalMode: (input: AgentApprovalModeSetInput) => Promise<AgentApprovalModeSetResult>;
+  };
+  /** Goal-mode state for the composer's goal panel. */
+  agentGoal: {
+    get: (input: AgentGoalGetInput) => Promise<AgentGoalGetResult>;
+    setStatus: (input: AgentGoalSetStatusInput) => Promise<AgentGoalSetStatusResult>;
+  };
+  kanban: {
+    listProjects: (input: KanbanListProjectsInput) => Promise<KanbanListProjectsResult>;
+    getBoard: (input: KanbanGetBoardInput) => Promise<KanbanBoard>;
+    createTask: (input: KanbanCreateTaskInput) => Promise<KanbanBoard>;
+    updateTask: (input: KanbanUpdateTaskInput) => Promise<KanbanBoard>;
+    moveTask: (input: KanbanMoveTaskInput) => Promise<KanbanBoard>;
+    deleteTask: (input: KanbanDeleteTaskInput) => Promise<KanbanBoard>;
+    getTaskDetail: (input: KanbanGetTaskDetailInput) => Promise<KanbanTaskDetail>;
+    addTaskComment: (input: KanbanAddTaskCommentInput) => Promise<KanbanTaskDetail>;
+    generateTaskRequirement: (
+      input: KanbanGenerateTaskRequirementInput,
+    ) => Promise<KanbanTaskDetail>;
+    generateRequirementDraft: (
+      input: KanbanGenerateRequirementDraftInput,
+    ) => Promise<KanbanGenerateRequirementDraftResult>;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;

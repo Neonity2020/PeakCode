@@ -1,11 +1,15 @@
 // FILE: useDesktopTopBarGutter.test.ts
-// Purpose: Covers the pure top-bar traffic-light gutter decision helper.
+// Purpose: Covers the pure top-bar traffic-light gutter decision helpers.
 // Layer: Hook unit tests
-// Depends on: shouldReserveDesktopTopBarTrafficLightGutter and Vitest assertions.
+// Depends on: shouldReserveDesktopTopBarTrafficLightGutter,
+// shouldReserveLeadingColumnTrafficLightGutter, and Vitest assertions.
 
 import { describe, expect, it } from "vitest";
 
-import { shouldReserveDesktopTopBarTrafficLightGutter } from "./useDesktopTopBarGutter";
+import {
+  shouldReserveDesktopTopBarTrafficLightGutter,
+  shouldReserveLeadingColumnTrafficLightGutter,
+} from "./useDesktopTopBarGutter";
 
 describe("shouldReserveDesktopTopBarTrafficLightGutter", () => {
   it("never reserves a gutter in the browser build", () => {
@@ -91,5 +95,31 @@ describe("shouldReserveDesktopTopBarTrafficLightGutter", () => {
         }),
       ).toBe(true);
     }
+  });
+});
+
+describe("shouldReserveLeadingColumnTrafficLightGutter", () => {
+  it("reserves a gutter for a column that replaces the sidebar on the macOS desktop app", () => {
+    expect(
+      shouldReserveLeadingColumnTrafficLightGutter({
+        isElectron: true,
+        isMacDesktop: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("never reserves a gutter in the browser build or on non-macOS desktop windows", () => {
+    expect(
+      shouldReserveLeadingColumnTrafficLightGutter({
+        isElectron: false,
+        isMacDesktop: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldReserveLeadingColumnTrafficLightGutter({
+        isElectron: true,
+        isMacDesktop: false,
+      }),
+    ).toBe(false);
   });
 });

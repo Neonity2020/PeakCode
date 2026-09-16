@@ -1,10 +1,11 @@
-import type { GitBranch, ProviderKind } from "@peakcode/contracts";
+import type { GitBranch, ProviderInteractionMode, ProviderKind } from "@peakcode/contracts";
 
 export const BUILT_IN_COMPOSER_SLASH_COMMANDS = [
   "clear",
   "compact",
   "model",
   "plan",
+  "goal",
   "default",
   "review",
   "fork",
@@ -108,6 +109,12 @@ const COMPOSER_SLASH_COMMAND_DEFINITIONS: Record<
     command: "plan",
     label: "/plan",
     description: "Switch this thread into plan mode",
+    source: "app",
+  },
+  goal: {
+    command: "goal",
+    label: "/goal",
+    description: "Switch this thread into goal mode — the agent keeps working across turns",
     source: "app",
   },
   default: {
@@ -217,7 +224,7 @@ export function canOfferForkSlashCommand(input: {
   terminalContextCount: number;
   selectedSkillCount: number;
   selectedMentionCount: number;
-  interactionMode: "default" | "plan";
+  interactionMode: ProviderInteractionMode;
 }): boolean {
   return (
     !hasMeaningfulComposerText(input.prompt) &&
@@ -235,7 +242,7 @@ export function canOfferSideSlashCommand(input: {
   terminalContextCount: number;
   selectedSkillCount: number;
   selectedMentionCount: number;
-  interactionMode: "default" | "plan";
+  interactionMode: ProviderInteractionMode;
   isSidechat: boolean;
 }): boolean {
   return (

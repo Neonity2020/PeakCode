@@ -2948,7 +2948,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("enables plan mode from the composer extras menu", async () => {
+  it("selects the Goal mode from the composer extras menu without clearing the draft", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -2958,13 +2958,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
     });
 
     try {
+      const draftText = "keep me while switching modes";
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, draftText);
+
       await page.getByLabelText("Composer extras").click();
-      await page.getByText("Plan mode").click();
+      await page.getByRole("menuitemradio", { name: "Goal" }).click();
 
       await vi.waitFor(() => {
-        expect(useComposerDraftStore.getState().draftsByThreadId[THREAD_ID]?.interactionMode).toBe(
-          "plan",
-        );
+        const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
+        expect(draft?.interactionMode).toBe("goal");
+        expect(draft?.prompt).toBe(draftText);
       });
     } finally {
       await mounted.cleanup();

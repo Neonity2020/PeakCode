@@ -1,0 +1,38 @@
+{
+  "name": "@peakcode/agent-toolkit",
+  "version": "0.0.0-alpha.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": {
+      "types": "./src/*.ts",
+      "import": "./src/*.ts"
+    },
+    "./runtime/*": {
+      "types": "./src/runtime/*.ts",
+      "import": "./src/runtime/*.ts"
+    },
+    "./store/*": {
+      "types": "./src/store/*.ts",
+      "import": "./src/store/*.ts"
+    },
+    "./skills/*": {
+      "types": "./src/skills/*.ts",
+      "import": "./src/skills/*.ts"
+    }
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "^0.74.0",
+    "@earendil-works/pi-ai": "^0.74.0"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -179,6 +179,22 @@ export const WS_METHODS = {
   // Local user skills (home-dir scan, independent of provider)
   skillsListLocal: "skills.listLocal",
 
+  // Kanban methods
+  agentRuntimeGet: "agentRuntime.get",
+  agentApprovalModeSet: "agentApprovalMode.set",
+  agentGoalGet: "agentGoal.get",
+  agentGoalSetStatus: "agentGoal.setStatus",
+  kanbanListProjects: "kanban.listProjects",
+  kanbanGetBoard: "kanban.getBoard",
+  kanbanCreateTask: "kanban.createTask",
+  kanbanUpdateTask: "kanban.updateTask",
+  kanbanMoveTask: "kanban.moveTask",
+  kanbanDeleteTask: "kanban.deleteTask",
+  kanbanGetTaskDetail: "kanban.getTaskDetail",
+  kanbanAddTaskComment: "kanban.addTaskComment",
+  kanbanGenerateTaskRequirement: "kanban.generateTaskRequirement",
+  kanbanGenerateRequirementDraft: "kanban.generateRequirementDraft",
+
   // Automation methods
   automationList: "automation.list",
   automationGet: "automation.get",

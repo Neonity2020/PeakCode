@@ -1,4 +1,4 @@
-import { ModelSelection, ThreadId } from "@peakcode/contracts";
+import { ModelSelection, ThreadId, type ProviderInteractionMode } from "@peakcode/contracts";
 import "../../index.css";
 
 import { page } from "vitest/browser";
@@ -11,7 +11,7 @@ import { useComposerDraftStore } from "../../composerDraftStore";
 
 async function mountMenu(props?: {
   activePlan?: boolean;
-  interactionMode?: "default" | "plan";
+  interactionMode?: ProviderInteractionMode;
   modelSelection?: ModelSelection;
   prompt?: string;
 }) {
@@ -50,6 +50,7 @@ async function mountMenu(props?: {
   document.body.append(host);
   const onPromptChange = vi.fn();
   const providerOptions = props?.modelSelection?.options;
+  const onSetInteractionMode = vi.fn();
   const screen = await render(
     <CompactComposerControlsMenu
       activePlan={props?.activePlan ?? false}
@@ -66,7 +67,7 @@ async function mountMenu(props?: {
           onPromptChange={onPromptChange}
         />
       }
-      onToggleInteractionMode={vi.fn()}
+      onSetInteractionMode={onSetInteractionMode}
       onTogglePlanSidebar={vi.fn()}
       onToggleRuntimeMode={vi.fn()}
     />,
@@ -81,6 +82,7 @@ async function mountMenu(props?: {
   return {
     [Symbol.asyncDispose]: cleanup,
     cleanup,
+    onSetInteractionMode,
   };
 }
 
@@ -95,16 +97,26 @@ describe("CompactComposerControlsMenu", () => {
     });
   });
 
-  it("shows both build and plan mode options", async () => {
+  it("shows agent, plan, and goal mode options", async () => {
     await using _ = await mountMenu();
 
     await page.getByLabelText("More composer controls").click();
 
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
-      expect(text).toContain("Build");
+      expect(text).toContain("Agent");
       expect(text).toContain("Plan");
+      expect(text).toContain("Goal");
     });
+  });
+
+  it("forwards the selected mode", async () => {
+    await using menu = await mountMenu();
+
+    await page.getByLabelText("More composer controls").click();
+    await page.getByRole("menuitemradio", { name: "Goal" }).click();
+
+    expect(menu.onSetInteractionMode).toHaveBeenCalledWith("goal");
   });
 
   it("shows the plan sidebar toggle when a plan is active", async () => {
@@ -131,7 +143,7 @@ describe("CompactComposerControlsMenu", () => {
     await page.getByLabelText("More composer controls").click();
 
     await vi.waitFor(() => {
-      expect(document.body.textContent ?? "").toContain("Build");
+      expect(document.body.textContent ?? "").toContain("Agent");
     });
   });
 });

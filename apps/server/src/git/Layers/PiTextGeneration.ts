@@ -37,6 +37,7 @@ import {
   type CommitMessageGenerationResult,
   type DiffSummaryGenerationResult,
   type PrContentGenerationResult,
+  type TaskRequirementGenerationResult,
   type ThreadTitleGenerationResult,
   type TextGenerationShape,
   PiTextGeneration,
@@ -47,11 +48,13 @@ import {
   buildCommitMessagePrompt,
   buildDiffSummaryPrompt,
   buildPrContentPrompt,
+  buildTaskRequirementPrompt,
   buildThreadTitlePrompt,
   extractJsonObject,
   sanitizeCommitSubject,
   sanitizeDiffSummary,
   sanitizePrTitle,
+  sanitizeTaskRequirement,
   toJsonSchemaObject,
 } from "../textGenerationShared.ts";
 
@@ -62,7 +65,8 @@ type GenerationOperation =
   | "generatePrContent"
   | "generateDiffSummary"
   | "generateBranchName"
-  | "generateThreadTitle";
+  | "generateThreadTitle"
+  | "generateTaskRequirement";
 
 type AgentContentBlock = TextContent | ImageContent;
 interface SlackAssistantMessage {
@@ -469,12 +473,36 @@ const makePiTextGeneration = Effect.gen(function* () {
     });
   };
 
+  const generateTaskRequirement: TextGenerationShape["generateTaskRequirement"] = (input) => {
+    return Effect.gen(function* () {
+      const { prompt, outputSchemaJson } = buildTaskRequirementPrompt({
+        title: input.title,
+        ...(input.notes ? { notes: input.notes } : {}),
+      });
+
+      const generated = yield* runPiJson({
+        operation: "generateTaskRequirement",
+        cwd: input.cwd,
+        prompt,
+        outputSchemaJson,
+        ...(input.model ? { model: input.model } : {}),
+        ...(input.modelSelection ? { modelSelection: input.modelSelection } : {}),
+        ...(input.providerOptions ? { providerOptions: input.providerOptions } : {}),
+      });
+
+      return {
+        requirement: sanitizeTaskRequirement(generated.requirement),
+      } satisfies TaskRequirementGenerationResult;
+    });
+  };
+
   return {
     generateCommitMessage,
     generatePrContent,
     generateDiffSummary,
     generateBranchName,
     generateThreadTitle,
+    generateTaskRequirement,
   } satisfies TextGenerationShape;
 });
 

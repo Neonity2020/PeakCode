@@ -51,11 +51,9 @@ export type Messages = {
   sidebar: {
     brandLabel: string;
     newChat: string;
-    newChatTooltip: string;
     newDisposableTooltip: string;
     search: string;
     threads: string;
-    chats: string;
     workspace: string;
     recent: string;
     settings: string;
@@ -70,15 +68,13 @@ export type Messages = {
     codeLabel: string;
     disposableChat: string;
     pendingApproval: string;
-    commandsHeading: string;
-    skillsLabel: string;
     pluginsLabel: string;
     automationsLabel: string;
+    kanbanLabel: string;
     automationsComingSoon: string;
     confirm: string;
     confirmArchive: string;
     archive: string;
-    openNewChatHome: string;
     settingsAria: string;
     showMore: string;
     showLess: string;
@@ -91,7 +87,6 @@ export type Messages = {
     intelOnArmTitle: string;
     sortProjects: string;
     sortThreads: string;
-    sortChats: string;
     sortRecentlyActive: string;
     sortRecentlyAdded: string;
     sortCreatedAt: string;
@@ -102,6 +97,7 @@ export type Messages = {
     pinThread: string;
     unpinThread: string;
     addProjectError: string;
+    newChatError: string;
     openFolderError: string;
     linkUnavailable: string;
     openPRError: string;
@@ -259,6 +255,14 @@ export type Messages = {
       workingForPrefix: string;
       working: string;
       emptyChat: string;
+      activityThinking: string;
+      activityRead: string;
+      activityCommand: string;
+      activityThinkingDuration: (duration: string) => string;
+      activityDurationSeconds: (seconds: number) => string;
+      activityDurationMinutes: (minutes: number, seconds: number) => string;
+      activityReadSearchCount: (count: number) => string;
+      activityReadFileCount: (count: number) => string;
     };
     copy: {
       buttonAria: string;
@@ -395,6 +399,97 @@ export type Messages = {
     createFailedTitle: string;
     createFailedDescription: string;
   };
+  kanban: {
+    subtitle: string;
+    project: string;
+    selectProject: string;
+    addTask: string;
+    newTask: string;
+    editTask: string;
+    taskTitle: string;
+    taskTitlePlaceholder: string;
+    taskDescription: string;
+    taskDescriptionPlaceholder: string;
+    agent: string;
+    agentModel: string;
+    defaultModel: string;
+    defaultModelWithName: (name: string) => string;
+    agentRun: string;
+    agentRunRunning: string;
+    agentRunDone: string;
+    agentRunFailed: string;
+    agentRunInterrupted: string;
+    agentRunUnknown: string;
+    openThread: string;
+    priority: string;
+    status: string;
+    pipeline: string;
+    pipelinePlaceholder: string;
+    assignee: string;
+    assigneePlaceholder: string;
+    create: string;
+    save: string;
+    cancel: string;
+    deleteTask: string;
+    deleteTaskConfirm: string;
+    noTasks: string;
+    loading: string;
+    updatedLabel: string;
+    boardFileLabel: string;
+    noProjectsTitle: string;
+    noProjectsDescription: string;
+    columns: {
+      todo: string;
+      inProgress: string;
+      done: string;
+      blocked: string;
+      archived: string;
+    };
+    priorities: {
+      high: string;
+      medium: string;
+      low: string;
+    };
+    failure: {
+      requirementTitle: string;
+      modelAccessDenied: string;
+      authFailed: string;
+      modelNotFound: string;
+      timeout: string;
+      providerError: string;
+      model: (model: string) => string;
+    };
+    detail: {
+      back: string;
+      requirement: string;
+      requirementEmpty: string;
+      requirementAppendHint: string;
+      requirementEditHint: string;
+      editRequirement: string;
+      saveRequirement: string;
+      comments: string;
+      noComments: string;
+      commentPlaceholder: string;
+      sendComment: string;
+      generateRequirement: string;
+      generatingRequirement: string;
+      generateRequirementConfirm: string;
+      generateRequirementHint: string;
+      steerComment: string;
+      steerUnavailable: string;
+      interruptRun: string;
+      authorAgent: string;
+      authorUser: string;
+      statusStarted: string;
+      statusDone: string;
+      statusFailed: string;
+      statusInterrupted: string;
+      statusSteered: string;
+      commentCount: (count: number) => string;
+      loading: string;
+      notFound: string;
+    };
+  };
   settings: {
     title: string;
     restoreDefaults: string;
@@ -404,16 +499,16 @@ export type Messages = {
       appearance: { label: string; description: string };
       notifications: { label: string; description: string };
       behavior: { label: string; description: string };
+      skills: { label: string; description: string };
       worktrees: { label: string; description: string };
       archived: { label: string; description: string };
-      models: { label: string; description: string };
-      providers: { label: string; description: string };
       modelProviders: { label: string; description: string };
       advanced: { label: string; description: string };
     };
     groups: {
-      app: string;
-      peakcode: string;
+      basics: string;
+      agent: string;
+      data: string;
     };
     general: {
       heading: string;
@@ -743,6 +838,8 @@ export type Messages = {
       emptyTitle: string;
       emptyDescription: string;
       loadFailedTitle: string;
+      builtinGroupLabel: string;
+      customGroupLabel: string;
       loadFailedFallback: string;
       addButton: string;
       addDialogTitle: string;
@@ -763,11 +860,18 @@ export type Messages = {
       providerModelsLabel: string;
       modelAddButton: string;
       modelIdLabel: string;
-      modelNameLabel: string;
-      modelReasoningLabel: string;
-      modelInputLabel: string;
-      modelInputText: string;
-      modelInputImage: string;
+      modelIdPlaceholder: string;
+      modelContextLabel: string;
+      modelContextBadge: (value: string) => string;
+      modelMaxTokensLabel: string;
+      modelMaxTokensBadge: (value: string) => string;
+      modelInputTypesLabel: string;
+      modelOutputTypesLabel: string;
+      inputTypes: Record<"text" | "image" | "video" | "pdf", string>;
+      modelAddTitle: string;
+      modelEditTitle: string;
+      modelSaveButton: string;
+      modelEditAria: (id: string) => string;
       modelRemoveAria: (id: string) => string;
       providerRemoveAria: (name: string) => string;
       providerRemoveConfirm: (name: string) => string;
@@ -1161,11 +1265,9 @@ const en: Messages = {
   sidebar: {
     brandLabel: "Peak",
     newChat: "New chat",
-    newChatTooltip: "New chat",
     newDisposableTooltip: "New disposable chat",
     search: "Search",
     threads: "Threads",
-    chats: "Chats",
     workspace: "Workspace",
     recent: "Recent",
     settings: "Settings",
@@ -1180,15 +1282,13 @@ const en: Messages = {
     codeLabel: "Code",
     disposableChat: "Disposable chat",
     pendingApproval: "Pending approval",
-    commandsHeading: "Commands",
-    skillsLabel: "Skills",
     pluginsLabel: "Plugins",
     automationsLabel: "Automations",
+    kanbanLabel: "Kanban",
     automationsComingSoon: "Coming soon",
     confirm: "Confirm",
     confirmArchive: "Confirm archive",
     archive: "Archive",
-    openNewChatHome: "Open new chat home",
     settingsAria: "Settings",
     showMore: "Show more",
     showLess: "Show less",
@@ -1201,7 +1301,6 @@ const en: Messages = {
     intelOnArmTitle: "Intel build on Apple Silicon",
     sortProjects: "Sort projects",
     sortThreads: "Sort threads",
-    sortChats: "Sort chats",
     sortRecentlyActive: "Recently active",
     sortRecentlyAdded: "Recently added",
     sortCreatedAt: "Created at",
@@ -1212,6 +1311,7 @@ const en: Messages = {
     pinThread: "Pin thread",
     unpinThread: "Unpin thread",
     addProjectError: "Unable to add project",
+    newChatError: "Unable to start a new chat",
     openFolderError: "Unable to open folder picker",
     linkUnavailable: "Link opening is unavailable.",
     openPRError: "Unable to open PR link",
@@ -1369,6 +1469,14 @@ const en: Messages = {
       workingForPrefix: "Working for ",
       working: "Working...",
       emptyChat: "Send a message to start the conversation.",
+      activityThinking: "Thinking",
+      activityRead: "Reading",
+      activityCommand: "Terminal",
+      activityThinkingDuration: (duration) => `lasted ${duration}`,
+      activityDurationSeconds: (seconds) => `${seconds}s`,
+      activityDurationMinutes: (minutes, seconds) => `${minutes}m ${seconds}s`,
+      activityReadSearchCount: (count) => (count === 1 ? "1 search" : `${count} searches`),
+      activityReadFileCount: (count) => (count === 1 ? "1 file" : `${count} files`),
     },
     copy: {
       buttonAria: "Copy to clipboard",
@@ -1508,6 +1616,103 @@ const en: Messages = {
     createFailedTitle: "Could not create automation",
     createFailedDescription: "An error occurred while creating the automation.",
   },
+  kanban: {
+    subtitle: "Tasks stored with each project in .kanban/board.json.",
+    project: "Project",
+    selectProject: "Select project",
+    addTask: "New task",
+    newTask: "New task",
+    editTask: "Edit task",
+    taskTitle: "Task title",
+    taskTitlePlaceholder: "What needs to be done?",
+    taskDescription: "Requirements",
+    taskDescriptionPlaceholder: "Context, acceptance criteria, references…",
+    agent: "Agent",
+    agentModel: "Model",
+    defaultModel: "Default model",
+    defaultModelWithName: (name) => `Default model (${name})`,
+    agentRun: "Agent run",
+    agentRunRunning: "Running",
+    agentRunDone: "Done",
+    agentRunFailed: "Failed",
+    agentRunInterrupted: "Interrupted",
+    agentRunUnknown: "Not started",
+    openThread: "Open thread",
+    priority: "Priority",
+    status: "Status",
+    pipeline: "Pipeline",
+    pipelinePlaceholder: "e.g. Full-stack pipeline",
+    assignee: "Assignee",
+    assigneePlaceholder: "e.g. Full-stack dev",
+    create: "Create",
+    save: "Save",
+    cancel: "Cancel",
+    deleteTask: "Delete task",
+    deleteTaskConfirm: "Delete this task?",
+    noTasks: "No tasks",
+    loading: "Loading board...",
+    updatedLabel: "Updated",
+    boardFileLabel: "Board file",
+    noProjectsTitle: "No projects yet",
+    noProjectsDescription: "Kanban boards live inside a project directory, so add a project first.",
+    columns: {
+      todo: "To do",
+      inProgress: "In progress",
+      done: "Done",
+      blocked: "Blocked",
+      archived: "Archived",
+    },
+    priorities: {
+      high: "High",
+      medium: "Medium",
+      low: "Low",
+    },
+    failure: {
+      requirementTitle: "Could not generate the requirement",
+      modelAccessDenied:
+        "The model is not allowed for the configured key — pick a model the key can access, or check its permissions in Settings → Model providers.",
+      authFailed:
+        "The model credentials are missing or invalid — check the API key in Settings → Model providers.",
+      modelNotFound: "The model was not found — check the model ID, or pick another model.",
+      timeout: "The model took too long to answer — try again, or pick a faster model.",
+      providerError:
+        "The model provider returned an error — check the endpoint and network, then try again.",
+      model: (model) => `model ${model}`,
+    },
+    detail: {
+      back: "Board",
+      requirement: "Requirements",
+      requirementEmpty: "No requirements yet — write them here, or draft them from the title.",
+      requirementAppendHint:
+        "The requirement is the brief the task runs with; add to or correct it in the comments below.",
+      requirementEditHint:
+        "Rewriting replaces the brief the task runs with — the comments below are the place for additions.",
+      editRequirement: "Edit",
+      saveRequirement: "Save requirements",
+      comments: "Comments",
+      noComments: "No comments yet.",
+      commentPlaceholder: "Add to the requirement, or leave a note for this task…",
+      sendComment: "Comment",
+      generateRequirement: "Generate",
+      generatingRequirement: "Generating…",
+      generateRequirementConfirm: "Replace the current requirements with a generated brief?",
+      generateRequirementHint:
+        "Draft an agile brief with acceptance criteria from the title and the requirements you wrote",
+      steerComment: "Insert and interrupt",
+      steerUnavailable: "Only available while the agent is running",
+      interruptRun: "Interrupt run",
+      authorAgent: "Agent",
+      authorUser: "You",
+      statusStarted: "Took the task and started working",
+      statusDone: "Finished the work",
+      statusFailed: "Blocked",
+      statusInterrupted: "Run interrupted",
+      statusSteered: "Comment inserted into the running turn",
+      commentCount: (count) => (count === 1 ? "1 comment" : `${count} comments`),
+      loading: "Loading task…",
+      notFound: "This task no longer exists on the board.",
+    },
+  },
   settings: {
     title: "Settings",
     restoreDefaults: "Restore defaults",
@@ -1529,6 +1734,10 @@ const en: Messages = {
         label: "Behavior",
         description: "Streaming, diff handling, and destructive confirmations.",
       },
+      skills: {
+        label: "Skills",
+        description: "Installed skills available to agents in this workspace.",
+      },
       worktrees: {
         label: "Worktrees",
         description: "Review and clean up the worktrees created by Peak Code.",
@@ -1536,14 +1745,6 @@ const en: Messages = {
       archived: {
         label: "Archived",
         description: "View and restore archived threads.",
-      },
-      models: {
-        label: "Models",
-        description: "Git writing defaults and custom model slugs.",
-      },
-      providers: {
-        label: "Providers",
-        description: "Choose visible providers, review CLI installs, and update provider tools.",
       },
       modelProviders: {
         label: "Model Providers",
@@ -1555,8 +1756,9 @@ const en: Messages = {
       },
     },
     groups: {
-      app: "App",
-      peakcode: "Peak Code",
+      basics: "Basics",
+      agent: "Agent",
+      data: "Data & stats",
     },
     general: {
       heading: "General",
@@ -1907,6 +2109,8 @@ const en: Messages = {
         "Pi already ships common providers (OpenAI, Anthropic, Google, MiniMax). Only add a provider here when you need custom endpoints or extra models.",
       emptyTitle: "No providers configured",
       emptyDescription: "Add a provider from a known template, or write a custom one.",
+      builtinGroupLabel: "Built-in",
+      customGroupLabel: "Custom providers",
       loadFailedTitle: "Could not load model providers",
       loadFailedFallback:
         "This can happen when models.json is malformed. Fix the file manually, then reload.",
@@ -1930,12 +2134,24 @@ const en: Messages = {
       providerApiKeyPlaceholder: (env) => `Reference an env var, e.g. ${env}`,
       providerModelsLabel: "Models",
       modelAddButton: "Add model",
-      modelIdLabel: "Model id",
-      modelNameLabel: "Display name",
-      modelReasoningLabel: "Reasoning",
-      modelInputLabel: "Input",
-      modelInputText: "Text",
-      modelInputImage: "Image",
+      modelIdLabel: "Model ID",
+      modelIdPlaceholder: "Model ID",
+      modelContextLabel: "Context window",
+      modelContextBadge: (value) => `Context ${value}`,
+      modelMaxTokensLabel: "Max output tokens",
+      modelMaxTokensBadge: (value) => `Output ${value}`,
+      modelInputTypesLabel: "Input types",
+      modelOutputTypesLabel: "Output types",
+      inputTypes: {
+        text: "Text",
+        image: "Image",
+        video: "Video",
+        pdf: "PDF",
+      },
+      modelAddTitle: "Add model",
+      modelEditTitle: "Edit model",
+      modelSaveButton: "Save",
+      modelEditAria: (id) => `Edit ${id}`,
       modelRemoveAria: (id) => `Remove model ${id}`,
       providerRemoveAria: (name) => `Remove provider ${name}`,
       providerRemoveConfirm: (name) =>
@@ -2341,11 +2557,9 @@ const zh: Messages = {
   sidebar: {
     brandLabel: "Peak",
     newChat: "新建会话",
-    newChatTooltip: "新建会话",
     newDisposableTooltip: "新建一次性会话",
     search: "搜索",
     threads: "线程",
-    chats: "聊天",
     workspace: "工作区",
     recent: "最近",
     settings: "设置",
@@ -2360,15 +2574,13 @@ const zh: Messages = {
     codeLabel: "代码",
     disposableChat: "一次性聊天",
     pendingApproval: "待审批",
-    commandsHeading: "命令",
-    skillsLabel: "技能",
     pluginsLabel: "插件",
     automationsLabel: "自动化",
+    kanbanLabel: "看板",
     automationsComingSoon: "即将推出",
     confirm: "确认",
     confirmArchive: "确认归档",
     archive: "归档",
-    openNewChatHome: "打开新聊天首页",
     settingsAria: "设置",
     showMore: "展开更多",
     showLess: "收起",
@@ -2381,7 +2593,6 @@ const zh: Messages = {
     intelOnArmTitle: "Apple Silicon 上的 Intel 构建",
     sortProjects: "项目排序",
     sortThreads: "线程排序",
-    sortChats: "聊天排序",
     sortRecentlyActive: "最近活跃",
     sortRecentlyAdded: "最近添加",
     sortCreatedAt: "创建时间",
@@ -2392,6 +2603,7 @@ const zh: Messages = {
     pinThread: "置顶线程",
     unpinThread: "取消置顶",
     addProjectError: "无法添加项目",
+    newChatError: "无法新建会话",
     openFolderError: "无法打开文件夹选择器",
     linkUnavailable: "链接打开不可用。",
     openPRError: "无法打开 PR 链接",
@@ -2549,6 +2761,14 @@ const zh: Messages = {
       workingForPrefix: "已工作 ",
       working: "处理中…",
       emptyChat: "发送一条消息以开始对话。",
+      activityThinking: "思考",
+      activityRead: "查阅",
+      activityCommand: "终端",
+      activityThinkingDuration: (duration) => `持续了 ${duration}`,
+      activityDurationSeconds: (seconds) => `${seconds} 秒`,
+      activityDurationMinutes: (minutes, seconds) => `${minutes} 分 ${seconds} 秒`,
+      activityReadSearchCount: (count) => `${count} 搜索`,
+      activityReadFileCount: (count) => `${count} 文件`,
     },
     copy: {
       buttonAria: "复制到剪贴板",
@@ -2687,6 +2907,98 @@ const zh: Messages = {
     createFailedTitle: "无法创建自动化",
     createFailedDescription: "创建自动化时发生错误。",
   },
+  kanban: {
+    subtitle: "任务随项目存放于 .kanban/board.json，智能体与界面读写同一份文件。",
+    project: "项目",
+    selectProject: "选择项目",
+    addTask: "新增任务",
+    newTask: "新增任务",
+    editTask: "编辑任务",
+    taskTitle: "任务标题",
+    taskTitlePlaceholder: "要做什么？",
+    taskDescription: "需求描述",
+    taskDescriptionPlaceholder: "补充背景、验收标准、参考链接…",
+    agent: "智能体",
+    agentModel: "模型",
+    defaultModel: "默认模型",
+    defaultModelWithName: (name) => `默认模型（${name}）`,
+    agentRun: "智能体执行",
+    agentRunRunning: "执行中",
+    agentRunDone: "已完成",
+    agentRunFailed: "执行失败",
+    agentRunInterrupted: "已中断",
+    agentRunUnknown: "尚未执行",
+    openThread: "打开会话",
+    priority: "优先级",
+    status: "状态",
+    pipeline: "流水线",
+    pipelinePlaceholder: "例如：全栈开发流水线",
+    assignee: "负责人",
+    assigneePlaceholder: "例如：全栈开发",
+    create: "创建",
+    save: "保存",
+    cancel: "取消",
+    deleteTask: "删除任务",
+    deleteTaskConfirm: "确定删除这个任务？",
+    noTasks: "暂无数据",
+    loading: "正在加载看板…",
+    updatedLabel: "更新于",
+    boardFileLabel: "看板文件",
+    noProjectsTitle: "还没有项目",
+    noProjectsDescription: "看板挂在项目目录上，请先在应用里添加一个项目。",
+    columns: {
+      todo: "待开始",
+      inProgress: "进行中",
+      done: "已完成",
+      blocked: "已阻塞",
+      archived: "归档",
+    },
+    priorities: {
+      high: "高",
+      medium: "中",
+      low: "低",
+    },
+    failure: {
+      requirementTitle: "需求生成失败",
+      modelAccessDenied:
+        "当前模型没有访问权限：换一个该 Key 可用的模型，或在「设置 → 模型提供商」里检查授权。",
+      authFailed: "模型凭证无效或缺失：请在「设置 → 模型提供商」里检查 API Key。",
+      modelNotFound: "找不到这个模型：请确认模型 ID 是否可用，或换一个模型。",
+      timeout: "模型响应超时：请稍后重试，或换一个更快的模型。",
+      providerError: "模型服务返回错误：请检查端点与网络后重试。",
+      model: (model) => `模型 ${model}`,
+    },
+    detail: {
+      back: "看板",
+      requirement: "需求描述",
+      requirementEmpty: "还没有需求描述：点「编辑」自己写，或用「一键生成」起草一版。",
+      requirementAppendHint: "需求是任务执行时的说明；要补充或修正，写在下面的评论里。",
+      requirementEditHint: "改写会替换掉任务当前的说明；只是补充内容的话，写在下面的评论里。",
+      editRequirement: "编辑",
+      saveRequirement: "保存需求",
+      comments: "评论",
+      noComments: "还没有评论。",
+      commentPlaceholder: "补充需求或留言，跟踪这个任务…",
+      sendComment: "发表评论",
+      generateRequirement: "一键生成",
+      generatingRequirement: "生成中…",
+      generateRequirementConfirm: "用生成的需求替换当前需求描述？",
+      generateRequirementHint: "根据标题和当前需求，生成一份带验收标准的敏捷需求",
+      steerComment: "插入并打断",
+      steerUnavailable: "仅在智能体执行中可以插入",
+      interruptRun: "打断执行",
+      authorAgent: "智能体",
+      authorUser: "我",
+      statusStarted: "已接手任务，开始执行",
+      statusDone: "执行完成",
+      statusFailed: "执行失败",
+      statusInterrupted: "执行已中断",
+      statusSteered: "留言已插入到当前执行",
+      commentCount: (count) => `${count} 条评论`,
+      loading: "正在加载任务…",
+      notFound: "这个任务已经不在看板上了。",
+    },
+  },
   settings: {
     title: "设置",
     restoreDefaults: "恢复默认",
@@ -2708,6 +3020,10 @@ const zh: Messages = {
         label: "行为",
         description: "流式输出、差异处理与危险操作的二次确认。",
       },
+      skills: {
+        label: "技能",
+        description: "当前工作区里智能体可用的技能。",
+      },
       worktrees: {
         label: "工作树",
         description: "查看并清理由 Peak Code 创建的工作树。",
@@ -2715,14 +3031,6 @@ const zh: Messages = {
       archived: {
         label: "已归档",
         description: "查看和恢复已归档的线程。",
-      },
-      models: {
-        label: "模型",
-        description: "写入 Git 的默认模型与自定义模型。",
-      },
-      providers: {
-        label: "提供方",
-        description: "选择可见的提供方、查看 CLI 安装状态并更新提供方工具。",
       },
       modelProviders: {
         label: "模型提供商",
@@ -2734,8 +3042,9 @@ const zh: Messages = {
       },
     },
     groups: {
-      app: "应用",
-      peakcode: "Peak Code",
+      basics: "基础设置",
+      agent: "Agent 能力",
+      data: "数据与统计",
     },
     general: {
       heading: "通用",
@@ -3073,6 +3382,8 @@ const zh: Messages = {
         "Pi 已内置常见提供商（OpenAI、Anthropic、Google、MiniMax）。仅当需要自定义端点或额外模型时，才在这里添加提供商。",
       emptyTitle: "尚未配置提供商",
       emptyDescription: "从常用模板添加一个提供商，或自定义填写。",
+      builtinGroupLabel: "内置",
+      customGroupLabel: "自定义供应商",
       loadFailedTitle: "无法加载模型提供商",
       loadFailedFallback: "这通常意味着 models.json 格式损坏。请先手动修复文件，再重新加载。",
       addButton: "添加提供商",
@@ -3094,11 +3405,23 @@ const zh: Messages = {
       providerModelsLabel: "模型",
       modelAddButton: "添加模型",
       modelIdLabel: "模型 ID",
-      modelNameLabel: "显示名称",
-      modelReasoningLabel: "推理",
-      modelInputLabel: "输入",
-      modelInputText: "文本",
-      modelInputImage: "图像",
+      modelIdPlaceholder: "模型 ID",
+      modelContextLabel: "上下文窗口",
+      modelContextBadge: (value) => `上下文 ${value}`,
+      modelMaxTokensLabel: "最大输出 Token",
+      modelMaxTokensBadge: (value) => `输出 ${value}`,
+      modelInputTypesLabel: "输入类型",
+      modelOutputTypesLabel: "输出类型",
+      inputTypes: {
+        text: "文本",
+        image: "图片",
+        video: "视频",
+        pdf: "PDF",
+      },
+      modelAddTitle: "添加模型",
+      modelEditTitle: "编辑模型",
+      modelSaveButton: "保存",
+      modelEditAria: (id) => `编辑 ${id}`,
       modelRemoveAria: (id) => `移除模型 ${id}`,
       providerRemoveAria: (name) => `移除提供商 ${name}`,
       providerRemoveConfirm: (name) => `确定移除提供商 ${name}？保存前无法恢复。`,

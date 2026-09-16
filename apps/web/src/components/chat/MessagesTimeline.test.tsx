@@ -1512,7 +1512,7 @@ describe("MessagesTimeline", () => {
     );
   });
 
-  it("renders command rows with a readable summary and keeps the full command on hover", async () => {
+  it("renders command steps with the command text and the full command on hover", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1555,8 +1555,7 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Searched");
-    expect(markup).toContain('data-work-entry-action-word="true"');
+    expect(markup).toContain("Terminal");
     expect(markup).toContain("rg -n &quot;ProjectionSnapshotQuery&quot; apps/server/src");
     expect(markup).toContain(
       `title="/bin/zsh -lc &#x27;rg -n &quot;ProjectionSnapshotQuery&quot; apps/server/src&#x27;"`,
@@ -1608,10 +1607,9 @@ describe("MessagesTimeline", () => {
       />,
     );
 
-    expect(markup).toContain("Listed");
-    expect(markup).toContain('data-work-entry-action-word="true"');
+    expect(markup).toContain("Terminal");
     expect(markup).toContain("find apps/web/src -maxdepth 2 -type d");
-    expect(markup).not.toContain(">Listed web<");
+    expect(markup).not.toContain(">Terminal web<");
   });
 
   it("renders plain location details as file basenames", async () => {
@@ -1708,7 +1706,7 @@ describe("MessagesTimeline", () => {
     expect(markup).not.toContain("data-file-change-row");
   });
 
-  it("shows a globe icon next to compact web-search rows", async () => {
+  it("collapses web searches into a read step with its search count", async () => {
     const { MessagesTimeline } = await import("./MessagesTimeline");
     const markup = renderToStaticMarkup(
       <MessagesTimeline
@@ -1750,9 +1748,9 @@ describe("MessagesTimeline", () => {
       />,
     );
 
+    expect(markup).toContain("Reading");
+    expect(markup).toContain("1 search");
     expect(markup).toContain("Searched the web");
-    expect(markup).toContain("48 files found");
-    expect(markup).toContain("tabler-icon-world");
   });
 
   it("shows a GitHub icon next to compact GitHub MCP rows", async () => {

@@ -4,6 +4,8 @@ import path from "node:path";
 import {
   AuthStorage,
   ModelRegistry,
+  type ExtensionFactory,
+  type ToolDefinition,
   SessionManager,
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -28,8 +30,13 @@ import {
   type ProviderListCommandsResult,
   type ProviderListModelsResult,
   type ProviderListSkillsResult,
+  type CanonicalRequestType,
+  type ProviderApprovalDecision,
+  type ProviderUserInputAnswers,
   ProviderItemId,
+  type ProviderInteractionMode,
   type ProviderRuntimeEvent,
+  RuntimeRequestId,
   type ProviderSession,
   RuntimeItemId,
   ThreadId,
@@ -38,6 +45,19 @@ import {
 } from "@peakcode/contracts";
 import { Effect, FileSystem, Layer, Queue, Stream } from "effect";
 
+import { buildThreadToolkitTools, threadConversationKey } from "../../agentToolkit";
+import { makeToolkitApprovalExtension } from "../../agentToolkitApprovals";
+import {
+  activeToolNamesForMode,
+  forgetThreadContextWindow,
+  handleGoalTool,
+  handleWritePlan,
+  makeToolkitContextExtension,
+  rememberThreadContextWindow,
+} from "../../agentToolkitMode";
+import type { PermissionReply } from "@peakcode/agent-toolkit/agent-interactions";
+import { rememberPromptTokens } from "@peakcode/agent-toolkit/agent-context";
+import { writeTodos } from "@peakcode/agent-toolkit/agent-todos";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import {
@@ -49,10 +69,18 @@ import {
 import { PiAdapter, type PiAdapterShape } from "../Services/PiAdapter.ts";
 import type { ProviderThreadSnapshot } from "../Services/ProviderAdapter.ts";
 import { classifyPiTurnFailure } from "../piTurnFailure.ts";
+import { extractProposedPlanMarkdown, withProviderPlanModePrompt } from "../planMode.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 
 const PROVIDER = "pi" as const;
 const DEFAULT_PI_THINKING_LEVEL: ThinkingLevel = "medium";
+/**
+ * How long an unanswered approval prompt stays open. Matches the toolkit's own
+ * interaction timeout: after this the call is denied rather than left hanging.
+ */
+const APPROVAL_TIMEOUT_MS = 10 * 60_000;
+/** `ask_user` gets the same window: an unanswered question must not block the turn forever. */
+const QUESTION_TIMEOUT_MS = 10 * 60_000;
 const LOCAL_PI_MODEL_ADDITIONS: ReadonlyArray<Model<Api>> = [
   {
     id: "MiniMax-M3",
@@ -100,6 +128,31 @@ interface PiSessionContext {
   stopped: boolean;
   lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
   unsubscribe: (() => void) | undefined;
+  /**
+   * Assistant prose accumulated for the active turn. The stream is forwarded to the UI as
+   * deltas and never re-assembled there, so the plan-tag fallback needs its own copy.
+   */
+  activeTurnText: string;
+  /**
+   * In-flight approval prompts, keyed by the request id handed to the UI. The tool-call
+   * extension blocks on the stored resolver; `respondToRequest` wakes it up.
+   */
+  pendingApprovals: Map<string, PiPendingApproval>;
+  /** Same idea for `ask_user` questions answered through the user-input panel. */
+  pendingQuestions: Map<string, PiPendingQuestion>;
+}
+
+/** An approval prompt waiting on the user, plus what the panel needs to clear it. */
+interface PiPendingApproval {
+  requestType: CanonicalRequestType;
+  resolve: (decision: ProviderApprovalDecision) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+/** An `ask_user` question set waiting on the user. */
+interface PiPendingQuestion {
+  resolve: (answers: ProviderUserInputAnswers) => void;
+  timer: ReturnType<typeof setTimeout>;
 }
 
 interface PiStoredTurn {
@@ -763,6 +816,11 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
     const fileSystem = yield* FileSystem.FileSystem;
     const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
     const sessions = new Map<ThreadId, PiSessionContext>();
+    /**
+     * The mode the current turn is running in. Kept outside `PiSessionContext` because the
+     * context extension and `sendTurn` both read it lazily, and a session outlives any one mode.
+     */
+    const sessionInteractionModes = new Map<ThreadId, ProviderInteractionMode>();
     const modelRegistries = new Map<string, ModelRegistry>();
     const ownsNativeEventLogger = options?.nativeEventLogger === undefined;
     const nativeEventLogger =
@@ -878,6 +936,15 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       context.unsubscribe?.();
       context.unsubscribe = undefined;
       context.stopped = true;
+      // Answer every in-flight prompt with "cancel" before tearing down: the tool-call
+      // handler is awaiting these promises, and the timers would otherwise outlive the
+      // session and fire into a disposed runtime.
+      for (const requestId of [...context.pendingApprovals.keys()]) {
+        settleApproval(context, requestId, "cancel");
+      }
+      context.pendingQuestions.clear();
+      sessionInteractionModes.delete(context.session.threadId);
+      forgetThreadContextWindow(context.session.threadId);
       await context.runtime.dispose();
     };
 
@@ -900,6 +967,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             raw: { source: "pi.sdk.event", messageType: event.type, payload: event },
           } satisfies ProviderRuntimeEvent);
         }
+        context.activeTurnText += update.delta;
         recordItem(context, { type: "assistant_message", delta: update.delta });
         offerRuntimeEvent({
           ...makeEventBase(context),
@@ -1111,6 +1179,15 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           const stats = context.runtime.session.getSessionStats();
           const usage = normalizeTokenUsage(stats, context.runtime.session.model?.contextWindow);
           context.lastKnownTokenUsage = usage;
+          // Feed the composer's context ring. The window is per model, so it is reported here
+          // rather than read from a global setting; the used side prefers the provider's own
+          // measurement and only falls back to an estimate when there is none.
+          if (usage?.maxTokens !== undefined) {
+            rememberThreadContextWindow(context.session.threadId, usage.maxTokens);
+          }
+          if (usage?.usedTokens !== undefined && usage.usedTokens > 0) {
+            rememberPromptTokens(threadConversationKey(context.session.threadId), usage.usedTokens);
+          }
           const turnId = context.activeTurnId;
           const errorMessage = context.runtime.session.agent.state.errorMessage;
           const failure = errorMessage ? classifyPiTurnFailure(errorMessage) : undefined;
@@ -1162,10 +1239,17 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             });
           }
           const completionBase = makeEventBase(context);
+          // Fallback for a plan written in prose instead of via `write_plan`. Emitted before
+          // the turn is cleared so it still carries the turn id the proposed-plan row is keyed on.
+          if (sessionInteractionModes.get(context.session.threadId) === "plan") {
+            const tagged = extractProposedPlanMarkdown(context.activeTurnText);
+            if (tagged) emitProposedPlan(context.session.threadId, tagged);
+          }
           context.activeTurnId = undefined;
           context.activeAssistantItemId = undefined;
           context.activeReasoningItemId = undefined;
           context.activeToolItems.clear();
+          context.activeTurnText = "";
           context.session = makeSessionSnapshot(context);
           offerRuntimeEvent({
             ...completionBase,
@@ -1194,6 +1278,9 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       sessionManager: SessionManager;
       modelId?: string;
       thinkingLevel?: ThinkingLevel;
+      toolkitTools?: ToolDefinition[];
+      approvalExtension?: ExtensionFactory;
+      contextExtension?: ExtensionFactory;
     }) => {
       const registry = getModelRegistry(input.agentDir);
       const createRuntime: CreateAgentSessionRuntimeFactory = async ({
@@ -1206,6 +1293,18 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           cwd,
           agentDir,
           modelRegistry: registry,
+          // The tool-call gate lives here: pi installs these handlers as
+          // `agent.beforeToolCall`, so a blocked call never reaches the tool.
+          ...(input.approvalExtension
+            ? {
+                resourceLoaderOptions: {
+                  extensionFactories: [
+                    input.approvalExtension,
+                    ...(input.contextExtension ? [input.contextExtension] : []),
+                  ],
+                },
+              }
+            : {}),
         });
         const model = findModelInRegistry(services.modelRegistry, input.modelId);
         if (input.modelId && !model) {
@@ -1220,6 +1319,11 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             ...(sessionStartEvent ? { sessionStartEvent } : {}),
             ...(model ? { model } : {}),
             thinkingLevel: input.thinkingLevel ?? DEFAULT_PI_THINKING_LEVEL,
+            // Agent-toolkit tools (read_file/glob/grep/apply_patch/todo_write/read_skill/…)
+            // ride alongside pi's built-ins. Names do not collide with read/write/edit/bash.
+            ...(input.toolkitTools && input.toolkitTools.length > 0
+              ? { customTools: input.toolkitTools }
+              : {}),
           })),
           services,
           diagnostics: services.diagnostics,
@@ -1232,6 +1336,167 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       });
       await runtime.session.bindExtensions({});
       return { runtime, modelRegistry: runtime.services.modelRegistry };
+    };
+
+    /**
+     * Publish a plan the model just wrote, so PeakCode's existing proposed-plan pipeline
+     * (ingestion → projection → `ProposedPlanCard`) picks it up. Emitted for the active turn,
+     * which is what `proposedPlanIdForTurn` keys the row on — a second write in the same turn
+     * updates that row instead of adding another.
+     */
+    const emitProposedPlan = (threadId: ThreadId, planMarkdown: string) => {
+      const context = sessions.get(threadId);
+      if (!context) return;
+      offerRuntimeEvent({
+        ...makeEventBase(context),
+        itemId: RuntimeItemId.makeUnsafe(`pi-plan-${context.activeTurnId ?? threadId}`),
+        type: "turn.proposed.completed",
+        payload: { planMarkdown },
+      });
+    };
+
+    /**
+     * Wake an in-flight approval prompt. Emits `request.resolved` on the way out so the
+     * UI's panel clears whether the answer came from the user, a timeout, or a restart.
+     */
+    const settleApproval = (
+      context: PiSessionContext,
+      requestId: string,
+      decision: ProviderApprovalDecision,
+    ): boolean => {
+      const pending = context.pendingApprovals.get(requestId);
+      if (!pending) return false;
+      context.pendingApprovals.delete(requestId);
+      clearTimeout(pending.timer);
+      offerRuntimeEvent({
+        ...makeEventBase(context),
+        requestId: RuntimeRequestId.makeUnsafe(requestId),
+        type: "request.resolved",
+        payload: { requestType: pending.requestType, decision },
+      });
+      pending.resolve(decision);
+      return true;
+    };
+
+    /**
+     * Raise one approval in the UI and wait for the answer.
+     *
+     * Runs on the agent loop's thread (the extension handler is awaited by pi before the
+     * tool executes), so it must never hang: the timeout is the same 10 minutes the
+     * toolkit's own interaction layer uses, and it resolves as `cancel` — an unanswered
+     * prompt must not silently become an approval.
+     */
+    const promptForApproval = async (
+      threadId: ThreadId,
+      input: {
+        requestType: CanonicalRequestType;
+        title: string;
+        detail: string;
+        toolName: string;
+      },
+    ): Promise<PermissionReply> => {
+      const context = sessions.get(threadId);
+      if (!context) return "deny";
+
+      const requestId = crypto.randomUUID();
+      const decision = await new Promise<ProviderApprovalDecision>((resolve) => {
+        const timer = setTimeout(() => {
+          settleApproval(context, requestId, "cancel");
+        }, APPROVAL_TIMEOUT_MS);
+        context.pendingApprovals.set(requestId, {
+          requestType: input.requestType,
+          resolve,
+          timer,
+        });
+        offerRuntimeEvent({
+          ...makeEventBase(context),
+          requestId: RuntimeRequestId.makeUnsafe(requestId),
+          type: "request.opened",
+          payload: {
+            requestType: input.requestType,
+            detail: `${input.title}｜${input.detail}`,
+            args: { toolName: input.toolName },
+          },
+        });
+      });
+
+      if (decision === "accept") return "once";
+      if (decision === "acceptForSession") return "session";
+      return "deny";
+    };
+
+    /** Wake an in-flight `ask_user` prompt and clear it from the panel. */
+    const settleQuestion = (
+      context: PiSessionContext,
+      requestId: string,
+      answers: ProviderUserInputAnswers,
+    ): boolean => {
+      const pending = context.pendingQuestions.get(requestId);
+      if (!pending) return false;
+      context.pendingQuestions.delete(requestId);
+      clearTimeout(pending.timer);
+      offerRuntimeEvent({
+        ...makeEventBase(context),
+        requestId: RuntimeRequestId.makeUnsafe(requestId),
+        type: "user-input.resolved",
+        payload: { answers },
+      });
+      pending.resolve(answers);
+      return true;
+    };
+
+    /**
+     * Raise `ask_user` questions and wait for the answers.
+     *
+     * The toolkit hands questions over as a plain array and expects answers back in the same
+     * order; PeakCode's contract keys them by id, so the index is the id and the answers are
+     * re-collapsed afterwards. An unanswered set resolves as "no answers" — the toolkit's
+     * `ask_user` renders that as "user skipped", which is a legitimate outcome.
+     */
+    const promptForQuestions = async (
+      threadId: ThreadId,
+      questions: readonly {
+        question: string;
+        header?: string | undefined;
+        options?: readonly { label: string; description?: string | undefined }[] | undefined;
+        multiple?: boolean | undefined;
+      }[],
+    ): Promise<string[][]> => {
+      const context = sessions.get(threadId);
+      if (!context) return questions.map(() => []);
+
+      const requestId = crypto.randomUUID();
+      const answers = await new Promise<ProviderUserInputAnswers>((resolve) => {
+        const timer = setTimeout(() => {
+          settleQuestion(context, requestId, {});
+        }, QUESTION_TIMEOUT_MS);
+        context.pendingQuestions.set(requestId, { resolve, timer });
+        offerRuntimeEvent({
+          ...makeEventBase(context),
+          requestId: RuntimeRequestId.makeUnsafe(requestId),
+          type: "user-input.requested",
+          payload: {
+            questions: questions.map((question, index) => ({
+              id: String(index),
+              // `header` is required and non-empty in the contract; the toolkit treats it
+              // as optional decoration, so fall back to a positional label.
+              header: question.header?.trim() || `问题 ${index + 1}`,
+              question: question.question,
+              options: (question.options ?? []).map((option) => ({
+                label: option.label,
+                description: option.description?.trim() || option.label,
+              })),
+              multiSelect: question.multiple ?? false,
+            })),
+          },
+        });
+      });
+
+      return questions.map((_, index) => {
+        const answer = answers[String(index)];
+        if (answer === null || answer === undefined) return [];
+        return Array.isArray(answer) ? answer : [answer];
+      });
     };
 
     const startSession: PiAdapterShape["startSession"] = (input) =>
@@ -1262,12 +1527,49 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
               }),
           });
         }
+        // The full toolkit catalogue is registered once per session; which subset is live is
+        // decided per turn from `interactionMode` (see `activeToolNamesForMode`). Runtime mode
+        // is no longer part of this decision: write tools stay available under
+        // `approval-required` and every one of them goes through the approval gate below.
+        const toolkitConversationId = threadConversationKey(input.threadId);
+        const toolkitTools = buildThreadToolkitTools({
+          cwd,
+          conversationId: toolkitConversationId,
+          callbacks: {
+            askUser: (questions) => promptForQuestions(input.threadId, questions),
+            // The checklist persists to SQLite; PeakCode has no todo panel yet, but a
+            // stored checklist still beats the tool refusing to run.
+            onTodoWrite: (todos) => {
+              writeTodos(toolkitConversationId, todos as never);
+            },
+            onGoal: (goal) => handleGoalTool(toolkitConversationId, goal),
+            onWritePlan: (content) => {
+              const written = handleWritePlan(toolkitConversationId, cwd, content);
+              if (written.planMarkdown) {
+                emitProposedPlan(input.threadId, written.planMarkdown);
+              }
+              return written.outcome;
+            },
+          },
+        });
+        const approvalExtension = makeToolkitApprovalExtension({
+          cwd,
+          conversationId: toolkitConversationId,
+          prompt: (prompt) => promptForApproval(input.threadId, prompt),
+        });
+        const contextExtension = makeToolkitContextExtension({
+          conversationId: toolkitConversationId,
+          currentMode: () => sessionInteractionModes.get(input.threadId) ?? "default",
+        });
         const { runtime, modelRegistry } = yield* Effect.tryPromise({
           try: () =>
             createSdkRuntime({
               cwd,
               agentDir,
               sessionManager,
+              toolkitTools,
+              approvalExtension,
+              contextExtension,
               ...(modelId ? { modelId } : {}),
               ...(thinkingLevel ? { thinkingLevel } : {}),
             }),
@@ -1298,6 +1600,9 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         const context: PiSessionContext = {
           runtime,
           modelRegistry,
+          pendingApprovals: new Map(),
+          pendingQuestions: new Map(),
+          activeTurnText: "",
           session,
           turns: [],
           activeTurnId: undefined,
@@ -1441,9 +1746,34 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             context.runtime.session.setThinkingLevel(thinkingLevel);
           }
         }
-        const payload = yield* buildPromptPayload(input);
+        // Switch the tool set before the loop starts. `setActiveToolsByName` also rebuilds
+        // pi's base system prompt, so plan mode stops advertising tools it cannot use.
+        const interactionMode = input.interactionMode ?? "default";
+        sessionInteractionModes.set(input.threadId, interactionMode);
+        yield* Effect.sync(() => {
+          const session = context.runtime.session;
+          session.setActiveToolsByName(
+            activeToolNamesForMode(
+              interactionMode,
+              session.getAllTools().map((tool) => tool.name),
+            ),
+          );
+        });
+
+        const rawPayload = yield* buildPromptPayload(input);
+        // Tells the model it is in plan mode, and how to present the plan if it decides not
+        // to call `write_plan`. Both paths end in the same proposed-plan event, so a model
+        // that ignores the tool still produces a plan the user can act on.
+        const payload = {
+          ...rawPayload,
+          text: withProviderPlanModePrompt({
+            text: rawPayload.text,
+            interactionMode,
+          }),
+        };
         const turnId = TurnId.makeUnsafe(crypto.randomUUID());
         context.activeTurnId = turnId;
+        context.activeTurnText = "";
         context.turns.push({ id: turnId, items: [] });
         context.session = makeSessionSnapshot(context);
         if (payload.images.length === 0 && isPiReloadCommand(payload.text)) {
@@ -1568,15 +1898,6 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           }),
         ),
         Effect.asVoid,
-      );
-
-    const respondUnsupported = (threadId: ThreadId, method: string) =>
-      Effect.fail(
-        new ProviderAdapterRequestError({
-          provider: PROVIDER,
-          method,
-          detail: `Pi does not expose Peak Code approval/user-input requests for thread ${threadId}.`,
-        }),
       );
 
     const stopSession: PiAdapterShape["stopSession"] = (threadId) =>
@@ -1879,8 +2200,30 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       sendTurn,
       steerTurn,
       interruptTurn,
-      respondToRequest: (threadId) => respondUnsupported(threadId, "request/respond"),
-      respondToUserInput: (threadId) => respondUnsupported(threadId, "user-input/respond"),
+      respondToRequest: (threadId, requestId, decision) =>
+        Effect.gen(function* () {
+          const context = yield* requireSession(threadId);
+          const settled = settleApproval(context, requestId, decision);
+          if (!settled) {
+            // A stale answer (the prompt timed out, or the session restarted) is not an
+            // error the user can act on; the panel has already cleared itself.
+            yield* Effect.logDebug("pi approval response had no pending request", {
+              threadId,
+              requestId,
+            });
+          }
+        }),
+      respondToUserInput: (threadId, requestId, answers) =>
+        Effect.gen(function* () {
+          const context = yield* requireSession(threadId);
+          const settled = settleQuestion(context, requestId, answers);
+          if (!settled) {
+            yield* Effect.logDebug("pi user-input response had no pending request", {
+              threadId,
+              requestId,
+            });
+          }
+        }),
       stopSession,
       listSessions,
       hasSession,

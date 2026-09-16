@@ -18,6 +18,8 @@ import {
   type RuntimeMode,
   type ServerConfigShape,
 } from "./config";
+import { configureAgentToolkit, openAgentToolkitStore } from "./agentToolkit";
+import { createLogger } from "./logger";
 import { migrateLegacyHomeIfNeeded } from "./homeMigration";
 import { fixPath, resolveBaseDir } from "./os-jank";
 import { Open } from "./open";
@@ -285,6 +287,36 @@ const makeServerProgram = (input: CliInput) =>
     yield* cliConfig.fixPath;
 
     const config = yield* ServerConfig;
+
+    // Point the agent toolkit at this server's state directory and route its diagnostics
+    // into the server log. Must happen before any provider session starts.
+    yield* Effect.sync(() => {
+      const agentToolkitLog = createLogger("agent-toolkit");
+      const store = openAgentToolkitStore(config.dbPath);
+      if (!store) {
+        agentToolkitLog.warn(
+          "agent toolkit state is falling back to memory (state.sqlite could not be opened)",
+        );
+      }
+      configureAgentToolkit({
+        stateDir: config.stateDir,
+        store: store ?? undefined,
+        log: (entry) => {
+          const context =
+            entry.detail === undefined ? undefined : { detail: JSON.stringify(entry.detail) };
+          switch (entry.level) {
+            case "error":
+              agentToolkitLog.error(`${entry.event}: ${entry.message}`, context);
+              break;
+            case "warn":
+              agentToolkitLog.warn(`${entry.event}: ${entry.message}`, context);
+              break;
+            default:
+              agentToolkitLog.info(`${entry.event}: ${entry.message}`, context);
+          }
+        },
+      });
+    });
 
     if (!config.devUrl && !config.staticDir) {
       yield* Effect.logWarning(

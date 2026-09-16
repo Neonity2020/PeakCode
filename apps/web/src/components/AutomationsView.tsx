@@ -79,9 +79,8 @@ export function AutomationsView() {
   const messages = useMessages();
   const latestProjectId = useLatestProjectStore((s) => s.latestProjectId);
   const projects = useStore((state) => state.projects);
-  // Automations can be created from any chat, including the hidden Home chat
-  // container project (kind === "chat"). Surface those too so automations
-  // created from the Home chat are not silently invisible here.
+  // Automations can belong to any project, including the default workspace, so every
+  // project id is surfaced here instead of filtering by project kind.
   const projectIds = useMemo(() => projects.map((project) => project.id), [projects]);
   const targetProjectId =
     latestProjectId && projectIds.includes(latestProjectId)

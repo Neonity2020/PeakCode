@@ -9,16 +9,12 @@ import type { LastThreadRoute } from "../chatRouteRestore";
 const SIDEBAR_UI_STATE_STORAGE_KEY = "peakcode:sidebar-ui:v1";
 
 export type SidebarUiState = {
-  chatSectionExpanded: boolean;
-  chatThreadListExpanded: boolean;
   expandedProjectThreadListCwds: string[];
   dismissedThreadStatusKeyByThreadId: Record<string, string>;
   lastThreadRoute: LastThreadRoute | null;
 };
 
 const DEFAULT_SIDEBAR_UI_STATE: SidebarUiState = {
-  chatSectionExpanded: false,
-  chatThreadListExpanded: false,
   expandedProjectThreadListCwds: [],
   dismissedThreadStatusKeyByThreadId: {},
   lastThreadRoute: null,
@@ -40,8 +36,6 @@ export function readSidebarUiState(): SidebarUiState {
     }
 
     const parsed = JSON.parse(raw) as {
-      chatSectionExpanded?: boolean;
-      chatThreadListExpanded?: boolean;
       expandedProjectThreadListCwds?: string[];
       dismissedThreadStatusKeyByThreadId?: Record<string, string>;
       lastThreadRoute?: {
@@ -64,8 +58,6 @@ export function readSidebarUiState(): SidebarUiState {
         : null;
 
     return {
-      chatSectionExpanded: parsed.chatSectionExpanded === true,
-      chatThreadListExpanded: parsed.chatThreadListExpanded === true,
       expandedProjectThreadListCwds: [
         ...new Set(
           (parsed.expandedProjectThreadListCwds ?? [])
@@ -99,8 +91,6 @@ export function persistSidebarUiState(input: SidebarUiState): void {
     window.localStorage.setItem(
       SIDEBAR_UI_STATE_STORAGE_KEY,
       JSON.stringify({
-        chatSectionExpanded: input.chatSectionExpanded,
-        chatThreadListExpanded: input.chatThreadListExpanded,
         expandedProjectThreadListCwds: [
           ...new Set(
             input.expandedProjectThreadListCwds

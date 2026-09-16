@@ -79,7 +79,17 @@ export type ProviderStartOptions = typeof ProviderStartOptions.Type;
 export const RuntimeMode = Schema.Literals(["approval-required", "full-access"]);
 export type RuntimeMode = typeof RuntimeMode.Type;
 export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
-export const ProviderInteractionMode = Schema.Literals(["default", "plan"]);
+/**
+ * How the agent should approach the turn.
+ *
+ * - `default` — ordinary build work; the full tool set is available.
+ * - `plan`    — read-only exploration plus `write_plan`; the workspace stays untouched and
+ *               the plan comes back as a proposed plan for the user to accept.
+ * - `goal`    — the full tool set plus the `goal` tool. The agent keeps the objective and
+ *               acceptance criteria in state and the harness continues the work across
+ *               turns until the goal is completed, abandoned, or out of budget.
+ */
+export const ProviderInteractionMode = Schema.Literals(["default", "plan", "goal"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
 export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "default";
 const SidechatSourceThreadId = Schema.optional(Schema.NullOr(ThreadId)).pipe(
@@ -564,6 +574,7 @@ const ProjectMetaUpdateCommand = Schema.Struct({
   kind: Schema.optional(ProjectKind),
   title: Schema.optional(TrimmedNonEmptyString),
   workspaceRoot: Schema.optional(TrimmedNonEmptyString),
+  createWorkspaceRootIfMissing: Schema.optional(Schema.Boolean),
   defaultModelSelection: Schema.optional(Schema.NullOr(ModelSelection)),
   scripts: Schema.optional(Schema.Array(ProjectScript)),
 });

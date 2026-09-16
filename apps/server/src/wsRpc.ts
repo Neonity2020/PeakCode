@@ -15,6 +15,10 @@ import {
   type ServerConfigStreamEvent,
   type ServerDiagnosticsResult,
   type ServerLifecycleStreamEvent,
+  type AgentApprovalModeSetInput,
+  type AgentGoalGetInput,
+  type AgentRuntimeGetInput,
+  type AgentGoalSetStatusInput,
 } from "@peakcode/contracts";
 import { clamp } from "effect/Number";
 import { Effect, FileSystem, Layer, Option, Path, Queue, Schema, Stream } from "effect";
@@ -60,6 +64,25 @@ import type {
   RunAutomationInput,
   UpdateAutomationInput,
 } from "@peakcode/contracts";
+import type {
+  KanbanCreateTaskInput,
+  KanbanDeleteTaskInput,
+  KanbanAddTaskCommentInput,
+  KanbanGenerateRequirementDraftInput,
+  KanbanGenerateTaskRequirementInput,
+  KanbanGetBoardInput,
+  KanbanGetTaskDetailInput,
+  KanbanListProjectsInput,
+  KanbanMoveTaskInput,
+  KanbanUpdateTaskInput,
+} from "@peakcode/contracts";
+import {
+  applyGoalStatus,
+  readAgentRuntimeStatus,
+  readGoalView,
+  setAgentApprovalMode,
+} from "./agentToolkitMode.ts";
+import { KanbanService } from "./kanban/Services/KanbanService.ts";
 
 const MAX_DIAGNOSTIC_CHILD_PROCESSES = 80;
 const MAX_DIAGNOSTIC_ARGS_CHARS = 500;
@@ -210,6 +233,7 @@ export const makeWsRpcLayer = () =>
       const workspaceEntries = yield* WorkspaceEntries;
       const workspaceFileSystem = yield* WorkspaceFileSystem;
       const automationService = yield* AutomationService;
+      const kanbanService = yield* KanbanService;
 
       const canonicalizeProjectWorkspaceRoot = Effect.fnUntraced(function* (
         workspaceRoot: string,
@@ -761,6 +785,56 @@ export const makeWsRpcLayer = () =>
           rpcEffect(automationService.run(input), "Failed to run automation"),
         [WS_METHODS.automationListRuns]: (input: ListAutomationRunsInput) =>
           rpcEffect(automationService.listRuns(input), "Failed to list automation runs"),
+
+        // Kanban methods
+        [WS_METHODS.agentRuntimeGet]: (input: AgentRuntimeGetInput) =>
+          rpcEffect(
+            Effect.sync(() => readAgentRuntimeStatus(input.threadId)),
+            "Failed to read agent runtime state",
+          ),
+        [WS_METHODS.agentApprovalModeSet]: (input: AgentApprovalModeSetInput) =>
+          rpcEffect(
+            Effect.sync(() => ({ approvalMode: setAgentApprovalMode(input.approvalMode) })),
+            "Failed to set the agent approval mode",
+          ),
+        [WS_METHODS.agentGoalGet]: (input: AgentGoalGetInput) =>
+          rpcEffect(
+            Effect.sync(() => ({ goal: readGoalView(input.threadId) })),
+            "Failed to read agent goal",
+          ),
+        [WS_METHODS.agentGoalSetStatus]: (input: AgentGoalSetStatusInput) =>
+          rpcEffect(
+            Effect.sync(() => ({
+              goal: applyGoalStatus(input.threadId, input.status, input.outcome),
+            })),
+            "Failed to update agent goal",
+          ),
+        [WS_METHODS.kanbanListProjects]: (input: KanbanListProjectsInput) =>
+          rpcEffect(kanbanService.listProjects(input), "Failed to list kanban projects"),
+        [WS_METHODS.kanbanGetBoard]: (input: KanbanGetBoardInput) =>
+          rpcEffect(kanbanService.getBoard(input), "Failed to load kanban board"),
+        [WS_METHODS.kanbanCreateTask]: (input: KanbanCreateTaskInput) =>
+          rpcEffect(kanbanService.createTask(input), "Failed to create kanban task"),
+        [WS_METHODS.kanbanUpdateTask]: (input: KanbanUpdateTaskInput) =>
+          rpcEffect(kanbanService.updateTask(input), "Failed to update kanban task"),
+        [WS_METHODS.kanbanMoveTask]: (input: KanbanMoveTaskInput) =>
+          rpcEffect(kanbanService.moveTask(input), "Failed to move kanban task"),
+        [WS_METHODS.kanbanDeleteTask]: (input: KanbanDeleteTaskInput) =>
+          rpcEffect(kanbanService.deleteTask(input), "Failed to delete kanban task"),
+        [WS_METHODS.kanbanGetTaskDetail]: (input: KanbanGetTaskDetailInput) =>
+          rpcEffect(kanbanService.getTaskDetail(input), "Failed to load kanban task"),
+        [WS_METHODS.kanbanAddTaskComment]: (input: KanbanAddTaskCommentInput) =>
+          rpcEffect(kanbanService.addTaskComment(input), "Failed to add kanban task comment"),
+        [WS_METHODS.kanbanGenerateTaskRequirement]: (input: KanbanGenerateTaskRequirementInput) =>
+          rpcEffect(
+            kanbanService.generateTaskRequirement(input),
+            "Failed to generate kanban task requirement",
+          ),
+        [WS_METHODS.kanbanGenerateRequirementDraft]: (input: KanbanGenerateRequirementDraftInput) =>
+          rpcEffect(
+            kanbanService.generateRequirementDraft(input),
+            "Failed to generate a kanban requirement draft",
+          ),
       });
     }),
   );

@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 
-import { ensureHomeChatProject } from "../lib/chatProjects";
+import { ensureDefaultWorkspaceProject } from "../lib/defaultWorkspace";
 import type { NewThreadOptions } from "../lib/threadBootstrap";
 import { useWorkspaceStore } from "../workspaceStore";
 import { useHandleNewThread } from "./useHandleNewThread";
@@ -14,11 +14,11 @@ export function useHandleNewChat() {
       if (!homeDir) {
         return {
           ok: false,
-          error: "Home folder is not available yet.",
+          error: "The default workspace is not available yet.",
         };
       }
 
-      const projectId = await ensureHomeChatProject(homeDir);
+      const projectId = await ensureDefaultWorkspaceProject(homeDir);
       if (!projectId) {
         return {
           ok: false,

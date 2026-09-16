@@ -2,6 +2,18 @@ import { Schema } from "effect";
 import * as Rpc from "effect/unstable/rpc/Rpc";
 import * as RpcGroup from "effect/unstable/rpc/RpcGroup";
 
+import {
+  AgentApprovalModeSetInput,
+  AgentApprovalModeSetResult,
+  AgentRuntimeGetInput,
+  AgentRuntimeGetResult,
+} from "./agentRuntime";
+import {
+  AgentGoalGetInput,
+  AgentGoalGetResult,
+  AgentGoalSetStatusInput,
+  AgentGoalSetStatusResult,
+} from "./agentGoal";
 import { OpenInEditorInput } from "./editor";
 import { FilesystemBrowseInput, FilesystemBrowseResult } from "./filesystem";
 import {
@@ -38,6 +50,22 @@ import {
   GitSummarizeDiffResult,
 } from "./git";
 import { KeybindingRule } from "./keybindings";
+import {
+  KanbanBoard,
+  KanbanCreateTaskInput,
+  KanbanAddTaskCommentInput,
+  KanbanDeleteTaskInput,
+  KanbanGetBoardInput,
+  KanbanGenerateRequirementDraftInput,
+  KanbanGenerateRequirementDraftResult,
+  KanbanGenerateTaskRequirementInput,
+  KanbanGetTaskDetailInput,
+  KanbanListProjectsInput,
+  KanbanListProjectsResult,
+  KanbanMoveTaskInput,
+  KanbanTaskDetail,
+  KanbanUpdateTaskInput,
+} from "./kanban";
 import {
   Automation,
   AutomationRun,
@@ -644,6 +672,96 @@ export const WsAutomationListRunsRpc = Rpc.make(WS_METHODS.automationListRuns, {
   error: WsRpcError,
 });
 
+export const WsAgentRuntimeGetRpc = Rpc.make(WS_METHODS.agentRuntimeGet, {
+  payload: AgentRuntimeGetInput,
+  success: AgentRuntimeGetResult,
+  error: WsRpcError,
+});
+
+export const WsAgentApprovalModeSetRpc = Rpc.make(WS_METHODS.agentApprovalModeSet, {
+  payload: AgentApprovalModeSetInput,
+  success: AgentApprovalModeSetResult,
+  error: WsRpcError,
+});
+
+export const WsAgentGoalGetRpc = Rpc.make(WS_METHODS.agentGoalGet, {
+  payload: AgentGoalGetInput,
+  success: AgentGoalGetResult,
+  error: WsRpcError,
+});
+
+export const WsAgentGoalSetStatusRpc = Rpc.make(WS_METHODS.agentGoalSetStatus, {
+  payload: AgentGoalSetStatusInput,
+  success: AgentGoalSetStatusResult,
+  error: WsRpcError,
+});
+
+export const WsKanbanListProjectsRpc = Rpc.make(WS_METHODS.kanbanListProjects, {
+  payload: KanbanListProjectsInput,
+  success: KanbanListProjectsResult,
+  error: WsRpcError,
+});
+
+export const WsKanbanGetBoardRpc = Rpc.make(WS_METHODS.kanbanGetBoard, {
+  payload: KanbanGetBoardInput,
+  success: KanbanBoard,
+  error: WsRpcError,
+});
+
+export const WsKanbanCreateTaskRpc = Rpc.make(WS_METHODS.kanbanCreateTask, {
+  payload: KanbanCreateTaskInput,
+  success: KanbanBoard,
+  error: WsRpcError,
+});
+
+export const WsKanbanUpdateTaskRpc = Rpc.make(WS_METHODS.kanbanUpdateTask, {
+  payload: KanbanUpdateTaskInput,
+  success: KanbanBoard,
+  error: WsRpcError,
+});
+
+export const WsKanbanMoveTaskRpc = Rpc.make(WS_METHODS.kanbanMoveTask, {
+  payload: KanbanMoveTaskInput,
+  success: KanbanBoard,
+  error: WsRpcError,
+});
+
+export const WsKanbanDeleteTaskRpc = Rpc.make(WS_METHODS.kanbanDeleteTask, {
+  payload: KanbanDeleteTaskInput,
+  success: KanbanBoard,
+  error: WsRpcError,
+});
+
+export const WsKanbanGetTaskDetailRpc = Rpc.make(WS_METHODS.kanbanGetTaskDetail, {
+  payload: KanbanGetTaskDetailInput,
+  success: KanbanTaskDetail,
+  error: WsRpcError,
+});
+
+export const WsKanbanAddTaskCommentRpc = Rpc.make(WS_METHODS.kanbanAddTaskComment, {
+  payload: KanbanAddTaskCommentInput,
+  success: KanbanTaskDetail,
+  error: WsRpcError,
+});
+
+export const WsKanbanGenerateTaskRequirementRpc = Rpc.make(
+  WS_METHODS.kanbanGenerateTaskRequirement,
+  {
+    payload: KanbanGenerateTaskRequirementInput,
+    success: KanbanTaskDetail,
+    error: WsRpcError,
+  },
+);
+
+export const WsKanbanGenerateRequirementDraftRpc = Rpc.make(
+  WS_METHODS.kanbanGenerateRequirementDraft,
+  {
+    payload: KanbanGenerateRequirementDraftInput,
+    success: KanbanGenerateRequirementDraftResult,
+    error: WsRpcError,
+  },
+);
+
 export const WsRpcGroup = RpcGroup.make(
   WsOrchestrationDispatchCommandRpc,
   WsOrchestrationImportThreadRpc,
@@ -724,4 +842,18 @@ export const WsRpcGroup = RpcGroup.make(
   WsAutomationDeleteRpc,
   WsAutomationRunRpc,
   WsAutomationListRunsRpc,
+  WsAgentRuntimeGetRpc,
+  WsAgentApprovalModeSetRpc,
+  WsAgentGoalGetRpc,
+  WsAgentGoalSetStatusRpc,
+  WsKanbanListProjectsRpc,
+  WsKanbanGetBoardRpc,
+  WsKanbanCreateTaskRpc,
+  WsKanbanUpdateTaskRpc,
+  WsKanbanMoveTaskRpc,
+  WsKanbanDeleteTaskRpc,
+  WsKanbanGetTaskDetailRpc,
+  WsKanbanAddTaskCommentRpc,
+  WsKanbanGenerateTaskRequirementRpc,
+  WsKanbanGenerateRequirementDraftRpc,
 );

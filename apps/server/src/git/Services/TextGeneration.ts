@@ -101,6 +101,25 @@ export interface ThreadTitleGenerationResult {
   title: string;
 }
 
+export interface TaskRequirementGenerationInput {
+  cwd: string;
+  /** Task title the requirement is written from. */
+  title: string;
+  /** Any notes the requester already wrote for this task. */
+  notes?: string | undefined;
+  /** Model to use for generation. Defaults to gpt-5.4-mini if not specified. */
+  model?: string;
+  /** Optional provider-aware selection for providers that need more than a raw model slug. */
+  modelSelection?: ModelSelection;
+  /** Optional provider startup overrides, such as custom binary paths or server URLs. */
+  providerOptions?: ProviderStartOptions;
+}
+
+export interface TaskRequirementGenerationResult {
+  /** Markdown requirement brief with scope and acceptance criteria. */
+  requirement: string;
+}
+
 export interface TextGenerationService {
   generateCommitMessage(
     input: CommitMessageGenerationInput,
@@ -109,6 +128,9 @@ export interface TextGenerationService {
   generateDiffSummary(input: DiffSummaryGenerationInput): Promise<DiffSummaryGenerationResult>;
   generateBranchName(input: BranchNameGenerationInput): Promise<BranchNameGenerationResult>;
   generateThreadTitle(input: ThreadTitleGenerationInput): Promise<ThreadTitleGenerationResult>;
+  generateTaskRequirement(
+    input: TaskRequirementGenerationInput,
+  ): Promise<TaskRequirementGenerationResult>;
 }
 
 /**
@@ -149,6 +171,14 @@ export interface TextGenerationShape {
   readonly generateThreadTitle: (
     input: ThreadTitleGenerationInput,
   ) => Effect.Effect<ThreadTitleGenerationResult, TextGenerationError>;
+
+  /**
+   * Turn a kanban task title into a short requirement brief with acceptance
+   * criteria, ready to hand to an agent.
+   */
+  readonly generateTaskRequirement: (
+    input: TaskRequirementGenerationInput,
+  ) => Effect.Effect<TaskRequirementGenerationResult, TextGenerationError>;
 }
 
 /**
