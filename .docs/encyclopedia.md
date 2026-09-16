@@ -105,7 +105,7 @@ The safety/access mode for a thread or session. In [the contracts][1], the main 
 
 #### Interaction mode
 
-The agent interaction style for a thread. In [the contracts][1], the main values are `default` and `plan`. See [runtime-modes.md][18].
+The agent interaction style for a thread. In [the contracts][1], the main values are `default` (Agent), `plan` and `goal`. See [runtime-modes.md][18].
 
 #### Assistant delivery mode
 

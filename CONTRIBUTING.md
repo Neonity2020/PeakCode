@@ -172,15 +172,16 @@ If the UI shows no threads after connecting, the issue is likely a WebSocket aut
 
 ### Monorepo Packages
 
-| Path                  | Role                                                                                                                         |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `apps/server`         | Node.js WebSocket server. Wraps Codex app-server (JSON-RPC over stdio), serves the React web app, manages provider sessions. |
-| `apps/web`            | React/Vite UI. Session UX, conversation rendering, client-side state. Connects via WebSocket.                                |
-| `apps/desktop`        | Electron desktop shell. Wraps the web app as a native desktop application.                                                   |
-| `apps/marketing`      | Marketing / landing page site.                                                                                               |
-| `packages/contracts`  | Effect-TS Schema definitions and TypeScript contracts. Schema-only — no runtime logic.                                       |
-| `packages/shared`     | Runtime utilities consumed by server and web. Uses explicit subpath exports — no barrel index.                               |
-| `packages/effect-acp` | Effect-TS ACP (Agents, Context, Policies) integration.                                                                       |
+| Path                     | Role                                                                                                                         |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `apps/server`            | Node.js WebSocket server. Wraps Codex app-server (JSON-RPC over stdio), serves the React web app, manages provider sessions. |
+| `apps/web`               | React/Vite UI. Session UX, conversation rendering, client-side state. Connects via WebSocket.                                |
+| `apps/desktop`           | Electron desktop shell. Wraps the web app as a native desktop application.                                                   |
+| `apps/marketing`         | Marketing / landing page site.                                                                                               |
+| `packages/agent-toolkit` | Agent harness hosted from the server: tools, plans, goals, approvals, skills and the sqlite store behind them.               |
+| `packages/contracts`     | Effect-TS Schema definitions and TypeScript contracts. Schema-only — no runtime logic.                                       |
+| `packages/shared`        | Runtime utilities consumed by server and web. Uses explicit subpath exports — no barrel index.                               |
+| `packages/effect-acp`    | Effect-TS ACP (Agents, Context, Policies) integration.                                                                       |
 
 ### Event Lifecycle
 

@@ -101,6 +101,33 @@ Seamlessly switch between AI coding providers without changing your workflow:
 | Kilo Code      | Supported |
 | OpenCode       | Supported |
 
+### Run Modes — Agent, Plan, Goal
+
+The composer picks how a turn is handled, and the mode travels with the message:
+
+- **Agent** (default) — the full tool set; the agent works directly on the workspace.
+- **Plan** — read-only exploration plus `write_plan`. The workspace stays untouched and the result comes back as a plan you accept.
+- **Goal** — the full tool set plus the `goal` tool. The objective and its acceptance criteria are kept in state, and the harness continues the work across turns — within a token budget and a continuation cap — until the goal is completed, dropped, or out of budget.
+
+A goal appears in the composer's goal panel, where it can be paused, resumed, completed or dropped. A goal that ran out of budget shows as `budget-limited`.
+
+### Model Providers
+
+Settings → Model Providers edits the `models.json` that the pi runtime loads, so you can point Peak Code at OpenAI-, Anthropic- or Google-compatible endpoints:
+
+- Built-in templates for OpenAI, Anthropic, Google Gemini, OpenRouter, Ollama, DeepSeek and 智谱 AI (GLM), plus a custom provider entry with the `ENV_VAR` / `!shell` API-key hint.
+- Add and edit models inline: model id, context window, max output tokens and the input kinds the model accepts (text, image, video, PDF).
+- Saving never breaks the file pi loads. pi validates `models.json` strictly and rejects unknown input kinds, so `video`/`pdf` are kept in a key pi ignores, and clearing a field removes it from the saved config instead of writing an empty value.
+
+### Kanban Boards
+
+Every project has a board inside its directory at `.kanban/board.json`, so the app, a coding agent, and any other tooling read and write the same file:
+
+- Columns 待开始 / 进行中 / 已完成 / 已阻塞 / 归档, with drag-and-drop between them.
+- Moving a task into 进行中 — or creating it there — dispatches it to an agent. The task's requirement is an agile brief with acceptance criteria, which an agent can draft from the title.
+- Run status is written back onto the task: 已完成 on success, 已阻塞 on failure, 待开始 when the run was interrupted.
+- The task detail view merges board comments with the agent's own messages from the thread it ran in, and lets you steer or interrupt a running turn.
+
 ### Real-Time Streaming
 
 Watch AI agents work in real-time — see code being written, tools being invoked, and results appearing instantly. No polling, no refreshing.
