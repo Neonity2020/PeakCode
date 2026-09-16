@@ -25,7 +25,7 @@
  * managed hooks / 显式信任来防这一手）。
  */
 import { killProcessTree } from "./runtime/proc.ts";
-import { readStreamText, type SpawnedProcess, spawnProcess } from "./runtime/spawn.ts";
+import { readStreamText, spawnProcess, writeStdin, type SpawnedProcess } from "./runtime/spawn.ts";
 import { getSetting } from "./runtime/settings.ts";
 import { logEvent } from "./runtime/log.ts";
 
@@ -163,8 +163,7 @@ export async function runHook(
       detached: true,
     });
     // 事件 JSON 从 stdin 交给脚本（Codex 的 hook 也是这个契约）。
-    proc.stdin?.write(serialized);
-    proc.stdin?.end();
+    writeStdin(proc, serialized);
   } catch (error) {
     return {
       blocked: false,

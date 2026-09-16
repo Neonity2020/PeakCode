@@ -137,6 +137,22 @@ export function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * 把数据交给子进程的 stdin 并收尾。
+ *
+ * 脚本可能不读 stdin 就退出（`echo`、`exit 1` 这类），此时写入以 EPIPE 失败。
+ * 流上没有 error 监听器时，这个失败会以未处理事件冒到进程级 —— 测试环境里
+ * vitest 会把它记成 unhandled error，整个测试运行直接判失败。投递 stdin 本来就是
+ * 尽力而为：同一份 payload 也在环境变量里，调用方按自己的契约处理失败。
+ */
+export function writeStdin(proc: SpawnedProcess, data: string): void {
+  const stdin = proc.stdin;
+  if (!stdin) return;
+  stdin.on("error", () => {});
+  stdin.write(data);
+  stdin.end();
+}
+
+/**
  * 单层 glob（`*\/name`）。
  *
  * 原实现用 `new Bun.Glob("...").scanSync()`。工具箱只用到这一种固定形状 ——

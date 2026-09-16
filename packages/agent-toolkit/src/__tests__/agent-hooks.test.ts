@@ -14,6 +14,7 @@ import {
   type HookConfig,
 } from "../agent-hooks.ts";
 import { updateSettings } from "../runtime/settings.ts";
+import { sleep, spawnProcess, writeStdin } from "../runtime/spawn.ts";
 
 /**
  * 生命周期 hooks（对齐 Codex 的 SessionStart / UserPromptSubmit）。
@@ -219,6 +220,21 @@ describe("单条 hook 的契约", () => {
     // 200ms 超时 + 2s 宽限 + 余量：关键是**远小于**脚本自己要睡的 30s。
     expect(elapsed).toBeLessThan(10_000);
   }, 15_000);
+
+  test("脚本不读 stdin（提前退出或关掉它）时，EPIPE 不会变成未捕获异常", async () => {
+    // 脚本不等 stdin 就收尾（`echo`、`exit 1`），或干脆 `exec 0<&-` 把读端关掉，
+    // 之后写入会以 EPIPE 失败 —— 而且是在写回调里异步冒出来的。流上没有 error
+    // 监听器时它就是未捕获异常，vitest 记成 unhandled error，整轮测试直接判失败。
+    const proc = spawnProcess([process.env.SHELL || "/bin/sh", "-c", "exec 0<&-; sleep 1"], {
+      stdin: "pipe",
+      detached: true,
+    });
+
+    await sleep(250);
+    expect(() => writeStdin(proc, JSON.stringify({ conversationId: 1 }))).not.toThrow();
+    await sleep(100);
+    proc.kill("SIGKILL");
+  });
 });
 
 describe("一次事件跑多条", () => {
