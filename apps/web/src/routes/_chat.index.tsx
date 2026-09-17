@@ -1,7 +1,8 @@
 // FILE: _chat.index.tsx
-// Purpose: Restores the last chat route on app launch, falling back to a fresh default-workspace draft.
+// Purpose: Restores the last chat route on app launch, falling back to a fresh draft —
+//          in the project a phone hand-off link carried, when there is one.
 // Layer: Routing
-// Depends on: sidebar UI persistence plus shared new-chat handler for the empty-state fallback.
+// Depends on: sidebar UI persistence plus the shared new-chat handler for the empty-state fallback.
 
 import { ThreadId } from "@peakcode/contracts";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -11,11 +12,15 @@ import { SplashScreen } from "../components/SplashScreen";
 import { readSidebarUiState } from "../components/Sidebar.uiState";
 import { resolveRestorableThreadRoute } from "../chatRouteRestore";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
+import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { readHandedOffProjectId } from "../mobilePairing";
 import { useSplitViewStore } from "../splitViewStore";
 import { useStore } from "../store";
 
 function ChatIndexRouteView() {
   const { handleNewChat } = useHandleNewChat();
+  const { handleNewThread } = useHandleNewThread();
+  const projects = useStore((state) => state.projects);
   const navigate = useNavigate();
   const threadsHydrated = useStore((store) => store.threadsHydrated);
   const threadIds = useStore((state) => state.threadIds ?? []);
@@ -57,6 +62,19 @@ function ChatIndexRouteView() {
         return;
       }
 
+      // A phone that paired from a chat which had not sent anything yet arrives with a
+      // project instead of a thread; starting the fresh draft there is the closest thing
+      // to continuing where the desktop was.
+      const handedOffProjectId = readHandedOffProjectId();
+      const handedOffProject =
+        handedOffProjectId === null
+          ? null
+          : (projects.find((project) => project.id === handedOffProjectId) ?? null);
+      if (handedOffProject !== null) {
+        await handleNewThread(handedOffProject.id, { fresh: true });
+        return;
+      }
+
       const result = await handleNewChat({ fresh: true });
       if (cancelled || result.ok) {
         return;
@@ -70,7 +88,9 @@ function ChatIndexRouteView() {
   }, [
     attempt,
     handleNewChat,
+    handleNewThread,
     navigate,
+    projects,
     splitViewIds,
     splitViewsHydrated,
     threadIds,

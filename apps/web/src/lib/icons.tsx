@@ -30,6 +30,7 @@ import {
   IconChevronRight,
   IconChevronUp,
   IconCircleCheck,
+  IconCircleDashed,
   IconCloudUpload,
   IconColumns2,
   IconCopy,
@@ -38,6 +39,7 @@ import {
   IconExternalLink,
   IconEye,
   IconFile,
+  IconFilter,
   IconFlag,
   IconFlask2,
   IconFolder,
@@ -52,6 +54,7 @@ import {
   IconLayoutSidebarLeftExpand,
   IconLayoutSidebarRightCollapse,
   IconLayoutDistributeHorizontal,
+  IconList,
   IconListCheck,
   IconListDetails,
   IconLoader2,
@@ -59,13 +62,16 @@ import {
   IconLockOpen,
   IconMaximize,
   IconMinimize,
+  IconMinus,
   IconDeviceLaptop,
+  IconDeviceMobile,
   IconMessageCircle,
   IconMicrophone,
   IconMoon,
   IconPalette,
   IconPackage,
   IconPaperclip,
+  IconQrcode,
   IconPinnedFilled,
   IconPlayerPause,
   IconPlayerPlay,
@@ -88,6 +94,7 @@ import {
   IconTextWrap,
   IconTool,
   IconTrash,
+  IconUserCircle,
   IconWorld,
   IconX,
   type TablerIcon,
@@ -142,6 +149,7 @@ export const ChevronUpIcon = adaptIcon(IconChevronUp);
 export const ChevronsUpDownIcon = adaptIcon(IconSelector);
 export const CircleAlertIcon = adaptIcon(IconAlertCircle);
 export const CircleCheckIcon = adaptIcon(IconCircleCheck);
+export const CircleDashedIcon = adaptIcon(IconCircleDashed);
 export const CloudUploadIcon = adaptIcon(IconCloudUpload);
 export const Columns2Icon = adaptIcon(IconColumns2);
 export const CopyIcon = adaptIcon(IconCopy);
@@ -157,6 +165,7 @@ export const AdjustmentsIcon = adaptIcon(IconAdjustments);
 export const ArchiveIcon = adaptIcon(IconArchive);
 export const BrainIcon = adaptIcon(IconBrain);
 export const FileIcon = adaptIcon(IconFile);
+export const FilterIcon = adaptIcon(IconFilter);
 export const FlagIcon = adaptIcon(IconFlag);
 export const FlaskConicalIcon = adaptIcon(IconFlask2);
 export const FolderClosedIcon = adaptIcon(IconFolder);
@@ -199,6 +208,7 @@ export const HandoffIcon: LucideIcon = (props) => (
 );
 export const InfoIcon = adaptIcon(IconInfoCircle);
 export const KanbanIcon = adaptIcon(IconLayoutKanban);
+export const ListIcon = adaptIcon(IconList);
 export const ListChecksIcon = adaptIcon(IconListCheck);
 export const ListTodoIcon = adaptIcon(IconListDetails);
 export const Loader2Icon = adaptIcon(IconLoader2);
@@ -209,6 +219,9 @@ export const LockOpenIcon = adaptIcon(IconLockOpen);
 export const Maximize2 = adaptIcon(IconMaximize);
 export const Minimize2 = adaptIcon(IconMinimize);
 export const MessageCircleIcon = adaptIcon(IconMessageCircle);
+export const MinusIcon = adaptIcon(IconMinus);
+export const DeviceMobileIcon = adaptIcon(IconDeviceMobile);
+export const QrCodeIcon = adaptIcon(IconQrcode);
 export const MicIcon = adaptIcon(IconMicrophone);
 export const PanelLeftCloseIcon = adaptIcon(IconLayoutSidebarLeftCollapse);
 export const PanelLeftIcon = adaptIcon(IconLayoutSidebarLeftExpand);
@@ -264,6 +277,7 @@ export const TextWrapIcon = adaptIcon(IconTextWrap);
 export const Trash2 = adaptIcon(IconTrash);
 export const TriangleAlertIcon = adaptIcon(IconAlertTriangle);
 export const Undo2Icon = adaptIcon(IconArrowBackUp);
+export const UserCircleIcon = adaptIcon(IconUserCircle);
 export const WrenchIcon = adaptIcon(IconTool);
 export const WorktreeIcon: LucideIcon = (props) => (
   <LuSplit
