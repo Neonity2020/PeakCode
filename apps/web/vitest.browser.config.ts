@@ -15,7 +15,11 @@ export default mergeConfig(
       },
     },
     test: {
-      include: ["src/components/**/*.browser.tsx"],
+      include: [
+        "src/components/**/*.browser.tsx",
+        // The phone page lives outside the desktop components and renders in a browser too.
+        "src/mobile/**/*.browser.tsx",
+      ],
       browser: {
         enabled: true,
         provider: playwright(),

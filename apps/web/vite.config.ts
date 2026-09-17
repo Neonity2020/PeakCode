@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 import tailwindcss from "@tailwindcss/vite";
 import react, { reactCompilerPreset } from "@vitejs/plugin-react";
 import babel from "@rolldown/plugin-babel";
@@ -60,5 +62,14 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     sourcemap: buildSourcemap,
+    rollupOptions: {
+      // Two pages, two audiences: `index.html` is the desktop app, `mobile.html` is the
+      // phone's remote control. Building them together keeps their shared modules in one
+      // bundle instead of shipping the phone a second copy of the contracts.
+      input: {
+        index: fileURLToPath(new URL("./index.html", import.meta.url)),
+        mobile: fileURLToPath(new URL("./mobile.html", import.meta.url)),
+      },
+    },
   },
 });
