@@ -354,7 +354,22 @@ export class DesktopBrowserManager {
     };
   }
 
-  getBrowserUseSnapshot(): BrowserUseSnapshot | null {
+  /**
+   * The browser state a caller should act on.
+   *
+   * Pass `threadId` when the caller knows which conversation it is serving: a browser-use
+   * session must drive its own thread's pane, or a background thread's agent would silently
+   * operate the page the user is looking at in a different thread. Without the argument the
+   * active pane wins, which is what the desktop's own UI callers want.
+   */
+  getBrowserUseSnapshot(threadId?: ThreadId): BrowserUseSnapshot | null {
+    if (threadId !== undefined) {
+      const requested = this.states.get(threadId);
+      if (requested?.open) {
+        return { threadId, state: this.snapshotThreadState(threadId, requested) };
+      }
+    }
+
     if (this.activeThreadId) {
       const activeState = this.states.get(this.activeThreadId);
       if (activeState?.open) {
@@ -365,11 +380,11 @@ export class DesktopBrowserManager {
       }
     }
 
-    for (const [threadId, state] of this.states) {
+    for (const [candidateThreadId, state] of this.states) {
       if (state.open) {
         return {
-          threadId,
-          state: this.snapshotThreadState(threadId, state),
+          threadId: candidateThreadId,
+          state: this.snapshotThreadState(candidateThreadId, state),
         };
       }
     }

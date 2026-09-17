@@ -1,33 +1,26 @@
 // FILE: browserUsePipeServer.ts
 // Purpose: Exposes the in-app browser over a Codex-compatible browser-use native pipe.
 // Layer: Desktop browser automation bridge
-// Depends on: DesktopBrowserManager and Node net server primitives
+// Depends on: DesktopBrowserManager, the shared pipe contract, Node net server primitives
 
 import * as FS from "node:fs";
 import * as Net from "node:net";
-import * as OS from "node:os";
 import * as Path from "node:path";
 
 import type { BrowserExecuteCdpInput, ThreadBrowserState, ThreadId } from "@peakcode/contracts";
+import {
+  BROWSER_USE_METHODS,
+  resolveConfiguredBrowserUsePipePath,
+  decodeBrowserUseFrames,
+  encodeBrowserUseFrame,
+  type BrowserUseRpcRequest,
+} from "@peakcode/shared/browserUsePipe";
 
 import type { DesktopBrowserManager } from "./browserManager";
 
-const BROWSER_USE_HEADER_BYTES = 4;
-const BROWSER_USE_MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
 const BROWSER_USE_INITIAL_URL = "about:blank";
 const BROWSER_USE_PANEL_READY_TIMEOUT_MS = 2_000;
 const BROWSER_USE_PANEL_READY_POLL_MS = 50;
-const BROWSER_USE_PIPE_DIR = "codex-browser-use";
-const BROWSER_USE_PIPE_NAME_PREFIX = "peakcode-iab";
-export const PEAKCODE_BROWSER_USE_PIPE_ENV = "PEAKCODE_BROWSER_USE_PIPE_PATH";
-
-type BrowserUseRpcId = string | number;
-
-interface BrowserUseRpcRequest {
-  id?: BrowserUseRpcId;
-  method?: string;
-  params?: unknown;
-}
 
 interface BrowserUseTrackedTab {
   id: number;
@@ -38,26 +31,6 @@ interface BrowserUseTrackedTab {
 interface BrowserUsePipeServerOptions {
   pipePath?: string;
   requestOpenPanel?: () => void | Promise<void>;
-}
-
-export function resolveDefaultBrowserUsePipePath(platform = process.platform): string {
-  if (platform === "win32") {
-    return String.raw`\\.\pipe\codex-browser-use-${BROWSER_USE_PIPE_NAME_PREFIX}-${process.pid}`;
-  }
-  return Path.join(
-    OS.tmpdir(),
-    BROWSER_USE_PIPE_DIR,
-    `${BROWSER_USE_PIPE_NAME_PREFIX}-${process.pid}.sock`,
-  );
-}
-
-export function resolveConfiguredBrowserUsePipePath(
-  env: NodeJS.ProcessEnv = process.env,
-  platform = process.platform,
-): string {
-  const configured =
-    env[PEAKCODE_BROWSER_USE_PIPE_ENV]?.trim() || env[PEAKCODE_BROWSER_USE_PIPE_ENV]?.trim();
-  return configured || resolveDefaultBrowserUsePipePath(platform);
 }
 
 export const PEAKCODE_BROWSER_USE_PIPE_PATH = resolveConfiguredBrowserUsePipePath();
@@ -83,41 +56,6 @@ function requireSessionId(params: unknown): string {
     throw new Error("Missing required browser session_id");
   }
   return sessionId;
-}
-
-function encodeBrowserUseFrame(message: unknown): Buffer {
-  const payload = Buffer.from(JSON.stringify(message), "utf8");
-  const header = Buffer.alloc(BROWSER_USE_HEADER_BYTES);
-  if (OS.endianness() === "LE") {
-    header.writeUInt32LE(payload.length, 0);
-  } else {
-    header.writeUInt32BE(payload.length, 0);
-  }
-  return Buffer.concat([header, payload]);
-}
-
-function decodeBrowserUseFrames(buffer: Buffer): { messages: string[]; remaining: Buffer } | null {
-  let offset = 0;
-  const messages: string[] = [];
-  while (buffer.length - offset >= BROWSER_USE_HEADER_BYTES) {
-    const messageLength =
-      OS.endianness() === "LE" ? buffer.readUInt32LE(offset) : buffer.readUInt32BE(offset);
-    if (messageLength > BROWSER_USE_MAX_MESSAGE_BYTES) {
-      return null;
-    }
-    const frameLength = BROWSER_USE_HEADER_BYTES + messageLength;
-    if (buffer.length - offset < frameLength) {
-      break;
-    }
-    messages.push(
-      buffer.subarray(offset + BROWSER_USE_HEADER_BYTES, offset + frameLength).toString("utf8"),
-    );
-    offset += frameLength;
-  }
-  return {
-    messages,
-    remaining: buffer.subarray(offset),
-  };
 }
 
 function ensurePipeParentDirectory(pipePath: string): void {
@@ -261,9 +199,9 @@ export class BrowserUsePipeServer {
 
   private async handleRequest(method: string, params: unknown): Promise<unknown> {
     switch (method) {
-      case "ping":
+      case BROWSER_USE_METHODS.ping:
         return "pong";
-      case "getInfo":
+      case BROWSER_USE_METHODS.getInfo: {
         const sessionId = asString(asObject(params)?.session_id);
         return {
           name: "Peak Code In-app Browser",
@@ -271,25 +209,52 @@ export class BrowserUsePipeServer {
           type: "iab",
           ...(sessionId ? { metadata: { codexSessionId: sessionId } } : {}),
         };
-      case "getTabs":
+      }
+      case BROWSER_USE_METHODS.getTabs:
         return this.getTabsForSession(requireSessionId(params));
-      case "createTab":
+      case BROWSER_USE_METHODS.createTab:
         return this.createTabForSession(requireSessionId(params));
-      case "nameSession":
+      case BROWSER_USE_METHODS.closeTab:
+        return this.closeTabForSession(requireSessionId(params), params);
+      case BROWSER_USE_METHODS.nameSession:
         requireSessionId(params);
         if (!asString(asObject(params)?.name)) {
           throw new Error("nameSession requires a name");
         }
         return {};
-      case "attach":
+      case BROWSER_USE_METHODS.attach:
         return this.attachForSession(requireSessionId(params), params);
-      case "detach":
+      case BROWSER_USE_METHODS.detach:
         return this.detachForSession(requireSessionId(params));
-      case "executeCdp":
+      case BROWSER_USE_METHODS.executeCdp:
         return this.executeCdpForSession(requireSessionId(params), params);
       default:
         throw new Error(`No handler registered for method: ${method}`);
     }
+  }
+
+  /**
+   * The browser pane a pipe session should act on.
+   *
+   * The server sends its thread id as `session_id`, so a request is answered from that
+   * thread's own pane whenever it has one. Without this, two threads with browser panes
+   * open would race for whichever pane happened to be active, and the agent working in
+   * the background thread would drive the page the user is looking at somewhere else.
+   *
+   * Falling back to the active pane keeps the old single-pane behaviour working for a
+   * session whose thread has no pane yet — opening a pane happens in the renderer, which
+   * only knows the thread the user is on, so a session cannot conjure a pane for an
+   * arbitrary thread from here.
+   */
+  private getBrowserHostStateForSession(sessionId: string): {
+    threadId: ThreadId;
+    state: ThreadBrowserState;
+  } | null {
+    const forThread = this.browserManager.getBrowserUseSnapshot(sessionId as ThreadId);
+    if (forThread?.state.open) {
+      return forThread;
+    }
+    return this.getActiveBrowserHostState();
   }
 
   private getActiveBrowserHostState(): {
@@ -303,11 +268,11 @@ export class BrowserUsePipeServer {
     return snapshot;
   }
 
-  private async waitForActiveBrowserHostState(): Promise<{
+  private async waitForActiveBrowserHostState(sessionId: string): Promise<{
     threadId: ThreadId;
     state: ThreadBrowserState;
   } | null> {
-    const existing = this.getActiveBrowserHostState();
+    const existing = this.getBrowserHostStateForSession(sessionId);
     if (existing) {
       return existing;
     }
@@ -315,7 +280,7 @@ export class BrowserUsePipeServer {
     await this.requestOpenPanel?.();
     const deadline = Date.now() + BROWSER_USE_PANEL_READY_TIMEOUT_MS;
     while (Date.now() < deadline) {
-      const snapshot = this.getActiveBrowserHostState();
+      const snapshot = this.getBrowserHostStateForSession(sessionId);
       if (snapshot) {
         return snapshot;
       }
@@ -347,7 +312,7 @@ export class BrowserUsePipeServer {
     active: boolean;
     url: string;
   }> {
-    const snapshot = this.getActiveBrowserHostState();
+    const snapshot = this.getBrowserHostStateForSession(sessionId);
     if (!snapshot) {
       return [];
     }
@@ -371,7 +336,7 @@ export class BrowserUsePipeServer {
     active: boolean;
     url: string;
   }> {
-    const snapshot = await this.waitForActiveBrowserHostState();
+    const snapshot = await this.waitForActiveBrowserHostState(sessionId);
     if (!snapshot) {
       throw new Error("No active Peak Code browser pane available");
     }
@@ -395,6 +360,25 @@ export class BrowserUsePipeServer {
     };
   }
 
+  private async closeTabForSession(
+    sessionId: string,
+    params: unknown,
+  ): Promise<Record<string, never>> {
+    const tracked = this.resolveTrackedTabForSession(sessionId, params);
+    // The tab is going away, so the CDP event subscription and the session's selection
+    // are both meaningless now. Dropping them here keeps a later request from asking the
+    // browser manager about a runtime that has already been destroyed.
+    this.cdpListenerDisposeBySessionId.get(sessionId)?.();
+    this.cdpListenerDisposeBySessionId.delete(sessionId);
+    if (this.selectedTrackedTabIdBySessionId.get(sessionId) === tracked.id) {
+      this.selectedTrackedTabIdBySessionId.delete(sessionId);
+    }
+    this.trackedTabById.delete(tracked.id);
+    this.trackedTabByKey.delete(`${tracked.threadId}:${tracked.tabId}`);
+    this.browserManager.closeTab({ threadId: tracked.threadId, tabId: tracked.tabId });
+    return {};
+  }
+
   private resolveTrackedTabForSession(sessionId: string, params: unknown): BrowserUseTrackedTab {
     const requestedTrackedTabId = asNumber(asObject(params)?.tabId);
     const trackedTabId =
@@ -405,6 +389,19 @@ export class BrowserUsePipeServer {
     const tracked = this.trackedTabById.get(trackedTabId);
     if (!tracked) {
       throw new Error(`Unknown tab: ${trackedTabId}`);
+    }
+
+    /**
+     * A session may only act on a tab inside the pane it is bound to.
+     *
+     * Tracked ids are global, so without this check a session that somehow holds another
+     * thread's id would silently drive that thread's page — the cross-thread leak the
+     * session-scoped pane resolution exists to prevent. An unresolved pane (no pane open
+     * anywhere yet) skips the check rather than rejecting everything.
+     */
+    const paneThreadId = this.getBrowserHostStateForSession(sessionId)?.threadId;
+    if (paneThreadId !== undefined && tracked.threadId !== paneThreadId) {
+      throw new Error(`Tab ${trackedTabId} is not in this session's browser pane.`);
     }
     return tracked;
   }
