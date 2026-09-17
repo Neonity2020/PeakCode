@@ -1,11 +1,7 @@
-/**
- * ComposerDraftStorePersistence - Persisted-value validation, migration and hydration for composer drafts.
- *
- * @module ComposerDraftStorePersistence
- */
-// FILE: composerDraftStore.ts
-// Purpose: Stores composer drafts, model selections, queued turns, and sticky provider choices.
+// FILE: composerDraftStore.persistence.ts
+// Purpose: Persisted-value validation, migration and hydration for composer drafts.
 // Layer: Web state store
+
 // Depends on: contracts schemas, app model resolution helpers, and zustand persistence.
 
 import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
@@ -60,6 +56,7 @@ import {
 } from "./composerDraftStore.modelSelection";
 import {
   normalizeAssistantSelections,
+  normalizePluginMentions,
   normalizeTerminalContextsForThread,
   projectDraftThreadEntryPointFromKey,
   projectIdFromDraftThreadMappingKey,
@@ -316,6 +313,9 @@ export function normalizePersistedQueuedTurns(
       const mentions = Array.isArray(candidate.mentions)
         ? candidate.mentions.filter(Schema.is(ProviderMentionReference))
         : [];
+      const plugins = Array.isArray(candidate.plugins)
+        ? candidate.plugins.filter(Schema.is(ProviderMentionReference))
+        : [];
       const interactionMode = Schema.is(ProviderInteractionMode)(candidate.interactionMode)
         ? candidate.interactionMode
         : null;
@@ -336,6 +336,7 @@ export function normalizePersistedQueuedTurns(
         terminalContexts,
         skills: [...skills],
         mentions: [...mentions],
+        plugins: [...plugins],
         selectedProvider,
         selectedModel,
         selectedPromptEffort,
@@ -544,6 +545,9 @@ export function normalizePersistedDraftsByThreadId(
         })
       : [];
     const queuedTurns = normalizePersistedQueuedTurns(draftCandidate.queuedTurns);
+    const plugins = Array.isArray(draftCandidate.plugins)
+      ? normalizePluginMentions(draftCandidate.plugins.filter(Schema.is(ProviderMentionReference)))
+      : [];
     const runtimeMode =
       draftCandidate.runtimeMode === "approval-required" ||
       draftCandidate.runtimeMode === "full-access"
@@ -610,6 +614,7 @@ export function normalizePersistedDraftsByThreadId(
       promptCandidate.length === 0 &&
       attachments.length === 0 &&
       terminalContexts.length === 0 &&
+      plugins.length === 0 &&
       !hasQueuedTurns &&
       !hasModelData &&
       !runtimeMode &&
@@ -621,6 +626,7 @@ export function normalizePersistedDraftsByThreadId(
       prompt,
       attachments,
       ...(terminalContexts.length > 0 ? { terminalContexts } : {}),
+      ...(plugins.length > 0 ? { plugins } : {}),
       ...(hasQueuedTurns ? { queuedTurns: normalizedQueuedTurns } : {}),
       ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
       ...(runtimeMode ? { runtimeMode } : {}),
@@ -718,6 +724,7 @@ export function partializeComposerDraftStoreState(
           })),
           skills: [...queuedTurn.skills],
           mentions: [...queuedTurn.mentions],
+          plugins: [...queuedTurn.plugins],
           selectedProvider: queuedTurn.selectedProvider,
           selectedModel: queuedTurn.selectedModel,
           selectedPromptEffort: queuedTurn.selectedPromptEffort,
@@ -755,6 +762,7 @@ export function partializeComposerDraftStoreState(
       draft.prompt.length === 0 &&
       draft.persistedAttachments.length === 0 &&
       draft.assistantSelections.length === 0 &&
+      draft.plugins.length === 0 &&
       draft.terminalContexts.length === 0 &&
       !hasQueuedTurns &&
       !hasModelData &&
@@ -788,6 +796,7 @@ export function partializeComposerDraftStoreState(
             })),
           }
         : {}),
+      ...(draft.plugins.length > 0 ? { plugins: [...draft.plugins] } : {}),
       ...(hasQueuedTurns ? { queuedTurns: persistedQueuedTurns } : {}),
       ...(hasModelData
         ? {
@@ -1006,6 +1015,7 @@ export function hydrateQueuedTurnsFromPersisted(
         terminalContexts: normalizeTerminalContextsForThread(threadId, queuedTurn.terminalContexts),
         skills: [...queuedTurn.skills],
         mentions: [...queuedTurn.mentions],
+        plugins: normalizePluginMentions(queuedTurn.plugins ?? []),
       };
     }
     return { ...queuedTurn };
@@ -1027,6 +1037,7 @@ export function toHydratedThreadDraft(
     nonPersistedImageIds: [],
     persistedAttachments: [...persistedDraft.attachments],
     assistantSelections: normalizeAssistantSelections(persistedDraft.assistantSelections ?? []),
+    plugins: normalizePluginMentions(persistedDraft.plugins ?? []),
     terminalContexts:
       persistedDraft.terminalContexts?.map((context) => ({
         ...context,

@@ -21,6 +21,7 @@ import { createComposerMentionTokenRegex } from "~/lib/composerMentions";
 import type { ChatMessage } from "../types";
 
 import type { ComposerImageAttachment } from "../composerDraftStore";
+import { pluginMentionDedupKey } from "../composerDraftStore.draft";
 import { formatTerminalContextLabel, type TerminalContextDraft } from "../lib/terminalContext";
 import { formatAssistantSelectionQueuePreview } from "../lib/assistantSelections";
 
@@ -309,6 +310,30 @@ export const providerMentionReferencesEqual = (
   left.every(
     (mention, index) => mention.path === right[index]?.path && mention.name === right[index]?.name,
   );
+
+/**
+ * The plugins one turn carries.
+ *
+ * `@name` in the prompt and a `+` menu chip are two ways to say the same thing, so a plugin
+ * picked both ways is sent once. Prompt mentions come first because they are the ones the
+ * message text already names; the chips follow in the order they were attached.
+ */
+export function mergePluginMentions(
+  promptMentions: ReadonlyArray<ProviderMentionReference>,
+  attachedPlugins: ReadonlyArray<ProviderMentionReference>,
+): ProviderMentionReference[] {
+  const merged: ProviderMentionReference[] = [];
+  const seenKeys = new Set<string>();
+  for (const mention of [...promptMentions, ...attachedPlugins]) {
+    const key = pluginMentionDedupKey(mention);
+    if (key.length === 0 || seenKeys.has(key)) {
+      continue;
+    }
+    seenKeys.add(key);
+    merged.push(mention);
+  }
+  return merged;
+}
 
 export const syncTerminalContextsByIds = (
   contexts: ReadonlyArray<TerminalContextDraft>,

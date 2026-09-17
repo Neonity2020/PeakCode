@@ -324,7 +324,8 @@ export const ChatHeader = memo(function ChatHeader({
           />
         ) : null}
 
-        {!isDisposableThread && inlineChatLayoutAction ? (
+        {/* Chat panes are a desktop affordance: a phone shows one chat at a time. */}
+        {!isDisposableThread && !isMobile && inlineChatLayoutAction ? (
           <Tooltip>
             <TooltipTrigger
               render={
@@ -369,7 +370,8 @@ export const ChatHeader = memo(function ChatHeader({
               side="bottom"
               className="w-50 rounded-lg border-[color:var(--color-border)] bg-[var(--composer-surface)] shadow-lg"
             >
-              {activeProjectName ? (
+              {/* Opening the host's editor is a desktop action; the phone cannot use it. */}
+              {activeProjectName && !isMobile ? (
                 <MenuItem
                   onClick={() => {
                     const api = readNativeApi();
@@ -388,7 +390,7 @@ export const ChatHeader = memo(function ChatHeader({
               <MenuItem onClick={onToggleTerminal} disabled={!terminalAvailable}>
                 <BsTerminal className="size-3.5 shrink-0" />
                 <span>{terminalOpen ? "Hide terminal" : "Show terminal"}</span>
-                {terminalToggleShortcutLabel && (
+                {terminalToggleShortcutLabel && !isMobile && (
                   <span className="ml-auto text-[11px] opacity-60">
                     {terminalToggleShortcutLabel}
                   </span>
@@ -398,14 +400,16 @@ export const ChatHeader = memo(function ChatHeader({
                 <MenuItem onClick={onToggleBrowser}>
                   <GlobeIcon className="size-3.5 shrink-0" />
                   <span>{browserOpen ? "Hide browser" : "Show browser"}</span>
-                  {browserToggleShortcutLabel && (
+                  {browserToggleShortcutLabel && !isMobile && (
                     <span className="ml-auto text-[11px] opacity-60">
                       {browserToggleShortcutLabel}
                     </span>
                   )}
                 </MenuItem>
               ) : null}
-              {menuChatLayoutAction ? (
+              {/* Splitting is desktop-only; maximizing stays reachable so a phone that
+                  opened a split route can still get back to a single chat. */}
+              {menuChatLayoutAction && !(isMobile && menuChatLayoutAction.kind === "split") ? (
                 <MenuItem onClick={menuChatLayoutAction.onClick}>
                   {menuChatLayoutAction.kind === "split" ? (
                     <BsLayoutSplit className="size-3.5 shrink-0" />

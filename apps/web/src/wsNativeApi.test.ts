@@ -335,6 +335,18 @@ describe("wsNativeApi", () => {
         providers: {
           pi: { enabled: true, binaryPath: "pi", agentDir: "", customModels: [] },
         },
+        im: {
+          defaultProjectId: "",
+          sessionIdleHours: 12,
+          runtimeMode: "approval-required" as const,
+          wechat: { botToken: "", botId: "", baseUrl: "", cursor: "" },
+          feishu: { domain: "feishu" as const, appId: "", appSecret: "" },
+          qq: { appId: "", appSecret: "" },
+          wecom: { corpId: "", agentId: "", secret: "", callbackToken: "", encodingAesKey: "" },
+          wechatMp: { appId: "", appSecret: "", callbackToken: "", encodingAesKey: "" },
+          webhooks: { wecomUrl: "", dingtalkUrl: "", dingtalkSecret: "", secret: "" },
+          remoteAccess: { enabled: false, binaryPath: "cloudflared", url: "" },
+        },
       },
     } as const;
     emitPush(WS_CHANNELS.serverSettingsUpdated, payload);

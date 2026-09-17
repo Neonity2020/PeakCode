@@ -1,11 +1,7 @@
-/**
- * ComposerDraftStoreModelSelection - Model selection normalization and effective-model derivation for composer drafts.
- *
- * @module ComposerDraftStoreModelSelection
- */
-// FILE: composerDraftStore.ts
-// Purpose: Stores composer drafts, model selections, queued turns, and sticky provider choices.
+// FILE: composerDraftStore.modelSelection.ts
+// Purpose: Model selection normalization and effective-model derivation for composer drafts.
 // Layer: Web state store
+
 // Depends on: contracts schemas, app model resolution helpers, and zustand persistence.
 
 import {
@@ -246,6 +242,8 @@ export function deriveEffectiveComposerModelState(input: {
   selectedProvider: ProviderKind;
   threadModelSelection: ModelSelection | null | undefined;
   projectModelSelection: ModelSelection | null | undefined;
+  /** The server-wide default for new chats; absent when nobody configured one. */
+  serverDefaultModelSelection?: ModelSelection | null | undefined;
   customModelsByProvider: Record<ProviderKind, readonly string[]>;
   availableModelOptionsByProvider?: Partial<
     Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>
@@ -258,26 +256,20 @@ export function deriveEffectiveComposerModelState(input: {
     }
     return resolveSelectableModel(input.selectedProvider, candidate, availableOptions);
   };
+  // Every source below only speaks for the provider currently selected in the composer.
+  const modelOf = (selection: ModelSelection | null | undefined): string | null =>
+    selection?.provider === input.selectedProvider ? selection.model : null;
+  const persistedModelOf = (selection: ModelSelection | null | undefined): string | null => {
+    const model = modelOf(selection);
+    return model === null ? null : (normalizeModelSlug(model, input.selectedProvider) ?? model);
+  };
   const baseModel = resolveModelSlugForProvider(
     input.selectedProvider,
-    (input.threadModelSelection?.provider === input.selectedProvider
-      ? input.threadModelSelection.model
-      : null) ??
-      (input.projectModelSelection?.provider === input.selectedProvider
-        ? input.projectModelSelection.model
-        : null) ??
+    modelOf(input.threadModelSelection) ??
+      modelOf(input.projectModelSelection) ??
+      modelOf(input.serverDefaultModelSelection) ??
       getDefaultModel(input.selectedProvider),
   );
-  const persistedThreadModel =
-    input.threadModelSelection?.provider === input.selectedProvider
-      ? (normalizeModelSlug(input.threadModelSelection.model, input.selectedProvider) ??
-        input.threadModelSelection.model)
-      : null;
-  const persistedProjectModel =
-    input.projectModelSelection?.provider === input.selectedProvider
-      ? (normalizeModelSlug(input.projectModelSelection.model, input.selectedProvider) ??
-        input.projectModelSelection.model)
-      : null;
   const activeSelection = input.draft?.modelSelectionByProvider?.[input.selectedProvider];
   const selectedDraftModel = activeSelection?.model
     ? resolveAppModelSelection(
@@ -289,19 +281,13 @@ export function deriveEffectiveComposerModelState(input: {
   const unlistedDraftModel = input.selectedProvider === "pi" ? selectedDraftModel : null;
   const selectedModel =
     resolveAvailableModel(activeSelection?.model) ??
-    resolveAvailableModel(
-      input.threadModelSelection?.provider === input.selectedProvider
-        ? input.threadModelSelection.model
-        : null,
-    ) ??
-    resolveAvailableModel(
-      input.projectModelSelection?.provider === input.selectedProvider
-        ? input.projectModelSelection.model
-        : null,
-    ) ??
+    resolveAvailableModel(modelOf(input.threadModelSelection)) ??
+    resolveAvailableModel(modelOf(input.projectModelSelection)) ??
+    resolveAvailableModel(modelOf(input.serverDefaultModelSelection)) ??
     resolveAvailableModel(selectedDraftModel) ??
-    persistedThreadModel ??
-    persistedProjectModel ??
+    persistedModelOf(input.threadModelSelection) ??
+    persistedModelOf(input.projectModelSelection) ??
+    persistedModelOf(input.serverDefaultModelSelection) ??
     unlistedDraftModel ??
     input.availableModelOptionsByProvider?.[input.selectedProvider]?.[0]?.slug ??
     selectedDraftModel ??
@@ -325,6 +311,8 @@ export function resolvePreferredComposerModelSelection(input: {
     | undefined;
   threadModelSelection: ModelSelection | null | undefined;
   projectModelSelection: ModelSelection | null | undefined;
+  /** The server-wide default for new chats; absent when nobody configured one. */
+  serverDefaultModelSelection?: ModelSelection | null | undefined;
   defaultProvider?: ProviderKind | null | undefined;
 }): ModelSelection {
   const draftProviderWithSelection =
@@ -336,6 +324,7 @@ export function resolvePreferredComposerModelSelection(input: {
     draftProviderWithSelection ??
     input.threadModelSelection?.provider ??
     input.projectModelSelection?.provider ??
+    input.serverDefaultModelSelection?.provider ??
     input.defaultProvider ??
     "pi";
 
@@ -346,6 +335,9 @@ export function resolvePreferredComposerModelSelection(input: {
       : null) ??
     (input.projectModelSelection?.provider === preferredProvider
       ? input.projectModelSelection
+      : null) ??
+    (input.serverDefaultModelSelection?.provider === preferredProvider
+      ? input.serverDefaultModelSelection
       : null) ?? {
       provider: preferredProvider,
       model: getDefaultModel(preferredProvider) ?? "",

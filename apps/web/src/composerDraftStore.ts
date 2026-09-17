@@ -48,6 +48,8 @@ import {
   composerImageDedupKey,
   createEmptyThreadDraft,
   normalizeAssistantSelection,
+  normalizePluginMentions,
+  pluginMentionDedupKey,
   normalizeTerminalContextForThread,
   normalizeTerminalContextsForThread,
   projectDraftThreadMappingKey,
@@ -990,6 +992,51 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
+      addPlugin: (threadId, plugin) => {
+        if (threadId.length === 0) {
+          return false;
+        }
+        const [normalizedPlugin] = normalizePluginMentions([plugin]);
+        if (!normalizedPlugin) {
+          return false;
+        }
+        let inserted = false;
+        set((state) => {
+          const existing = state.draftsByThreadId[threadId] ?? createEmptyThreadDraft();
+          const dedupKey = pluginMentionDedupKey(normalizedPlugin);
+          if (existing.plugins.some((entry) => pluginMentionDedupKey(entry) === dedupKey)) {
+            return state;
+          }
+          inserted = true;
+          return {
+            draftsByThreadId: {
+              ...state.draftsByThreadId,
+              [threadId]: {
+                ...existing,
+                plugins: [...existing.plugins, normalizedPlugin],
+              },
+            },
+          };
+        });
+        return inserted;
+      },
+      removePlugin: (threadId, pluginPath) => {
+        const dedupKey = pluginMentionDedupKey({ path: pluginPath });
+        if (threadId.length === 0 || dedupKey.length === 0) {
+          return;
+        }
+        set((state) => {
+          const current = state.draftsByThreadId[threadId];
+          if (!current || current.plugins.length === 0) {
+            return state;
+          }
+          const nextDraft: ComposerThreadDraftState = {
+            ...current,
+            plugins: current.plugins.filter((plugin) => pluginMentionDedupKey(plugin) !== dedupKey),
+          };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
+        });
+      },
       insertTerminalContext: (threadId, prompt, context, index) => {
         if (threadId.length === 0) {
           return false;
@@ -1176,6 +1223,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             nonPersistedImageIds: [],
             persistedAttachments: [],
             assistantSelections: [],
+            plugins: [],
             terminalContexts: [],
           };
           return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
@@ -1219,6 +1267,8 @@ export function useEffectiveComposerModelState(input: {
   selectedProvider: ProviderKind;
   threadModelSelection: ModelSelection | null | undefined;
   projectModelSelection: ModelSelection | null | undefined;
+  /** The server-wide default for new chats; absent when nobody configured one. */
+  serverDefaultModelSelection?: ModelSelection | null | undefined;
   customModelsByProvider: Record<ProviderKind, readonly string[]>;
   availableModelOptionsByProvider?: Partial<
     Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>
@@ -1233,6 +1283,7 @@ export function useEffectiveComposerModelState(input: {
         selectedProvider: input.selectedProvider,
         threadModelSelection: input.threadModelSelection,
         projectModelSelection: input.projectModelSelection,
+        serverDefaultModelSelection: input.serverDefaultModelSelection,
         customModelsByProvider: input.customModelsByProvider,
         ...(input.availableModelOptionsByProvider !== undefined
           ? { availableModelOptionsByProvider: input.availableModelOptionsByProvider }
@@ -1244,6 +1295,7 @@ export function useEffectiveComposerModelState(input: {
       input.customModelsByProvider,
       input.projectModelSelection,
       input.selectedProvider,
+      input.serverDefaultModelSelection,
       input.threadModelSelection,
     ],
   );

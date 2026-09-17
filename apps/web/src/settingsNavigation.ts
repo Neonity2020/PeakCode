@@ -5,6 +5,7 @@
 
 import {
   AdjustmentsIcon,
+  DeviceMobileIcon,
   ArchiveIcon,
   BellIcon,
   BookIcon,
@@ -23,6 +24,7 @@ export const SETTINGS_SECTION_IDS = [
   "appearance",
   "notifications",
   "behavior",
+  "channels",
   "skills",
   "piPackages",
   "modelProviders",
@@ -78,6 +80,13 @@ const SETTINGS_NAV_ITEM_SPECS_INTERNAL: readonly SettingsNavItemSpec[] = [
     icon: AdjustmentsIcon,
     labelKey: "behavior",
     descriptionKey: "behavior",
+  },
+  {
+    id: "channels",
+    group: "basics",
+    icon: DeviceMobileIcon,
+    labelKey: "channels",
+    descriptionKey: "channels",
   },
   {
     id: "modelProviders",

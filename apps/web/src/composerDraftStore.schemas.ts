@@ -1,11 +1,7 @@
-/**
- * ComposerDraftStoreSchemas - Persisted composer draft schemas, storage key and legacy shapes.
- *
- * @module ComposerDraftStoreSchemas
- */
-// FILE: composerDraftStore.ts
-// Purpose: Stores composer drafts, model selections, queued turns, and sticky provider choices.
+// FILE: composerDraftStore.schemas.ts
+// Purpose: Persisted composer draft schemas, storage key and legacy shapes.
 // Layer: Web state store
+
 // Depends on: contracts schemas, app model resolution helpers, and zustand persistence.
 
 import {
@@ -64,6 +60,8 @@ export interface QueuedComposerChatTurn {
   terminalContexts: TerminalContextDraft[];
   skills: ProviderSkillReference[];
   mentions: ProviderMentionReference[];
+  /** Plugins the turn carries whether or not their `@name` appears in the prompt. */
+  plugins: ProviderMentionReference[];
   selectedProvider: ProviderKind;
   selectedModel: string | null;
   selectedPromptEffort: string | null;
@@ -133,6 +131,7 @@ export const PersistedQueuedComposerChatTurn = Schema.Struct({
   terminalContexts: Schema.Array(PersistedQueuedTerminalContextDraft),
   skills: Schema.Array(ProviderSkillReference),
   mentions: Schema.Array(ProviderMentionReference),
+  plugins: Schema.optionalKey(Schema.Array(ProviderMentionReference)),
   selectedProvider: ProviderKind,
   selectedModel: Schema.NullOr(Schema.String),
   selectedPromptEffort: Schema.NullOr(Schema.String),
@@ -179,6 +178,7 @@ export const PersistedComposerThreadDraftState = Schema.Struct({
     ),
   ),
   terminalContexts: Schema.optionalKey(Schema.Array(PersistedTerminalContextDraft)),
+  plugins: Schema.optionalKey(Schema.Array(ProviderMentionReference)),
   queuedTurns: Schema.optionalKey(Schema.Array(PersistedQueuedComposerTurn)),
   modelSelectionByProvider: Schema.optionalKey(
     Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),

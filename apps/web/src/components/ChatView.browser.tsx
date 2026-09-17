@@ -90,11 +90,18 @@ const DEFAULT_VIEWPORT: ViewportSpec = {
   textTolerancePx: 44,
   attachmentTolerancePx: 56,
 };
+const NARROW_VIEWPORT: ViewportSpec = {
+  name: "narrow",
+  width: 320,
+  height: 700,
+  textTolerancePx: 84,
+  attachmentTolerancePx: 56,
+};
 const TEXT_VIEWPORT_MATRIX = [
   DEFAULT_VIEWPORT,
   { name: "tablet", width: 720, height: 1_024, textTolerancePx: 44, attachmentTolerancePx: 56 },
   { name: "mobile", width: 430, height: 932, textTolerancePx: 56, attachmentTolerancePx: 56 },
-  { name: "narrow", width: 320, height: 700, textTolerancePx: 84, attachmentTolerancePx: 56 },
+  NARROW_VIEWPORT,
 ] as const satisfies readonly ViewportSpec[];
 const ATTACHMENT_VIEWPORT_MATRIX = [
   DEFAULT_VIEWPORT,
@@ -1010,6 +1017,16 @@ function findModeChip(): HTMLButtonElement | null {
   );
 }
 
+function findComposerPickerTriggerByText(label: string): HTMLButtonElement | null {
+  const footer = document.querySelector<HTMLElement>("[data-chat-composer-footer='true']");
+  if (!footer) return null;
+  return (
+    Array.from(footer.querySelectorAll<HTMLButtonElement>("button[aria-haspopup='menu']")).find(
+      (button) => button.textContent?.trim() === label,
+    ) ?? null
+  );
+}
+
 /**
  * Clicks send until the turn actually dispatches. The button can be re-rendered between the
  * lookup and the click, which would drop the first click on a detached node.
@@ -1652,6 +1669,49 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
+  it("sends the plugins attached as chips with the turn", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-plugin-chips" as MessageId,
+        targetText: "plugin chip target",
+      }),
+    });
+
+    try {
+      const attachedPlugin = { name: "browser-use", path: "plugin://browser-use@peakcode" };
+      useComposerDraftStore.getState().addPlugin(THREAD_ID, attachedPlugin);
+      useComposerDraftStore.getState().setPrompt(THREAD_ID, "drive the browser for me");
+
+      await vi.waitFor(
+        () => {
+          expect(
+            document.querySelector("[data-testid='composer-plugin-chip']")?.textContent,
+          ).toContain("browser-use");
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      const sendButton = await waitForSendButton();
+      await clickUntilTurnStarts(sendButton);
+
+      await vi.waitFor(
+        () => {
+          const turnStart = server
+            .requestsFor(ORCHESTRATION_WS_METHODS.dispatchCommand)
+            .find((request) => request.payload.type === "thread.turn.start");
+          expect(turnStart?.payload.message).toMatchObject({ mentions: [attachedPlugin] });
+        },
+        { timeout: 8_000, interval: 16 },
+      );
+
+      // The chip is part of the draft, so sending clears it with the rest of the message.
+      expect(document.querySelector("[data-testid='composer-plugin-chip']")).toBeNull();
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
   it.each(ATTACHMENT_VIEWPORT_MATRIX)(
     "keeps user attachment estimate close at the $name viewport",
     async (viewport) => {
@@ -1981,6 +2041,80 @@ describe("ChatView timeline estimator parity (full app)", () => {
         expect(text).toContain("GPT-5");
         expect(text).toContain("Pi Coder XL");
       });
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the model and effort pickers in the composer's right actions cluster", async () => {
+    const mounted = await mountChatView({
+      viewport: DEFAULT_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-picker-alignment" as MessageId,
+        targetText: "picker alignment",
+      }),
+    });
+
+    try {
+      const sendButton = await waitForSendButton();
+      const rightCluster = await waitForElement(
+        () => document.querySelector<HTMLElement>("[data-chat-composer-actions='right']"),
+        "Unable to find the composer right actions cluster.",
+      );
+      const modeChip = await waitForElement(
+        () => findModeChip(),
+        "Unable to find the composer mode chip.",
+      );
+      const modelPicker = await waitForElement(
+        () => findComposerPickerTriggerByText("GPT-5"),
+        "Unable to find the composer model picker.",
+      );
+      const effortPicker = await waitForElement(
+        () => findComposerPickerTriggerByText("Low"),
+        "Unable to find the composer effort picker.",
+      );
+
+      expect(rightCluster.contains(sendButton)).toBe(true);
+      expect(rightCluster.contains(modelPicker)).toBe(true);
+      expect(rightCluster.contains(effortPicker)).toBe(true);
+      expect(rightCluster.contains(modeChip)).toBe(false);
+      expect(modeChip.getBoundingClientRect().right).toBeLessThanOrEqual(
+        modelPicker.getBoundingClientRect().left,
+      );
+      expect(modelPicker.getBoundingClientRect().right).toBeLessThanOrEqual(
+        sendButton.getBoundingClientRect().left,
+      );
+    } finally {
+      await mounted.cleanup();
+    }
+  });
+
+  it("keeps the composer footer on one row at the narrow viewport", async () => {
+    const mounted = await mountChatView({
+      viewport: NARROW_VIEWPORT,
+      snapshot: createSnapshotForTargetUser({
+        targetMessageId: "msg-user-footer-overflow" as MessageId,
+        targetText: "footer overflow",
+      }),
+    });
+
+    try {
+      const sendButton = await waitForSendButton();
+      const footer = await waitForElement(
+        () => document.querySelector<HTMLElement>("[data-chat-composer-footer='true']"),
+        "Unable to find the composer footer.",
+      );
+      const rightCluster = await waitForElement(
+        () => document.querySelector<HTMLElement>("[data-chat-composer-actions='right']"),
+        "Unable to find the composer right actions cluster.",
+      );
+
+      expect(footer.scrollWidth).toBeLessThanOrEqual(footer.clientWidth + 0.5);
+      expect(rightCluster.contains(sendButton)).toBe(true);
+      expect(
+        rightCluster.contains(findComposerPickerTriggerByText("GPT-5")),
+        "The model picker should stay in the right actions cluster in compact mode.",
+      ).toBe(true);
     } finally {
       await mounted.cleanup();
     }
@@ -2327,6 +2461,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         terminalContexts: [],
         skills: [],
         mentions: [],
+        plugins: [],
         selectedProvider: "pi",
         selectedModel: "gpt-5",
         selectedPromptEffort: null,
@@ -2349,6 +2484,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         terminalContexts: [],
         skills: [],
         mentions: [],
+        plugins: [],
         selectedProvider: "pi",
         selectedModel: "gpt-5",
         selectedPromptEffort: null,
@@ -2923,6 +3059,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
           nonPersistedImageIds: [],
           persistedAttachments: [],
           assistantSelections: [],
+          plugins: [],
           terminalContexts: [],
           queuedTurns: [],
           modelSelectionByProvider: {

@@ -11,11 +11,13 @@ import {
   MAX_CHAT_FONT_SIZE_PX,
   MIN_CHAT_FONT_SIZE_PX,
   normalizeChatFontSizePx,
+  resolveDefaultModelSelection,
   type LanguageSetting,
   useAppSettings,
 } from "../appSettings";
 import { APP_VERSION } from "../branding";
 import { ModelProvidersSettingsPanel } from "../components/ModelProvidersSettingsPanel";
+import { ImChannelsSettingsPanel } from "../components/ImChannelsSettingsPanel";
 import { PiPackagesSettingsPanel } from "../components/PiPackagesSettingsPanel";
 import { SettingsNav } from "../components/SettingsNav";
 import { SkillsPanel } from "../components/SkillsPanel";
@@ -39,6 +41,7 @@ import { isElectron } from "../env";
 import { useTheme } from "../hooks/useTheme";
 import { gitRemoveWorktreeMutationOptions } from "../lib/gitReactQuery";
 import { ArchiveIcon, ChevronDownIcon, RotateCcwIcon, Undo2Icon } from "../lib/icons";
+import { providerModelsQueryOptions } from "../lib/providerDiscoveryReactQuery";
 import {
   serverConfigQueryOptions,
   serverQueryKeys,
@@ -65,6 +68,12 @@ import { formatRelativeTime } from "../components/Sidebar";
 import { formatWorktreePathForDisplay } from "../worktreeCleanup";
 
 // ── Settings taxonomy ──────────────────────────────────────────────────────
+
+/**
+ * Stand-in for "no default model" in the picker: a Select needs a value per item, and an
+ * empty string would be indistinguishable from "the user has not chosen yet".
+ */
+const NO_DEFAULT_MODEL_OPTION = "__first-available-model__";
 
 // ── Settings UI primitives ────────────────────────────────────────────────
 
@@ -274,6 +283,17 @@ function SettingsRouteView() {
     return groups;
   }, []);
 
+  // The default model needs the provider's own catalogue: Pi's models are discovered at
+  // runtime, so there is no static list to offer.
+  const defaultModelOptionsQuery = useQuery(
+    providerModelsQueryOptions({
+      provider: "pi",
+      binaryPath: settings.piBinaryPath || null,
+      agentDir: settings.piAgentDir || null,
+    }),
+  );
+  const defaultModelSelection = resolveDefaultModelSelection(settings);
+
   const currentGitTextGenerationProvider = settings.textGenerationProvider ?? "pi";
   const currentGitTextGenerationModel =
     settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
@@ -349,6 +369,7 @@ function SettingsRouteView() {
     ...(isGitTextGenerationModelDirty
       ? [messages.settings.changedSettingLabel.gitWritingModel]
       : []),
+    ...(defaultModelSelection !== null ? [messages.settings.changedSettingLabel.defaultModel] : []),
     ...(settings.customPiModels.length > 0
       ? [messages.settings.changedSettingLabel.customModels]
       : []),
@@ -744,6 +765,51 @@ function SettingsRouteView() {
                   <SelectItem hideIndicator value="worktree">
                     {messages.settings.general.newThreads.worktree}
                   </SelectItem>
+                </SelectPopup>
+              </Select>
+            }
+          />
+
+          <SettingsRow
+            title={messages.settings.general.defaultModel.title}
+            description={messages.settings.general.defaultModel.description}
+            resetAction={
+              defaultModelSelection !== null ? (
+                <SettingResetButton
+                  label={messages.settings.general.defaultModel.resetLabel}
+                  onClick={() => updateSettings({ defaultModel: "" })}
+                />
+              ) : null
+            }
+            control={
+              <Select
+                value={settings.defaultModel ?? NO_DEFAULT_MODEL_OPTION}
+                onValueChange={(value) => {
+                  if (value === null) return;
+                  updateSettings({
+                    // Clearing goes through the server as an empty model; see `ServerSettingsPatch`.
+                    defaultModel: value === NO_DEFAULT_MODEL_OPTION ? "" : value,
+                    defaultModelProvider: "pi",
+                  });
+                }}
+              >
+                <SelectTrigger
+                  className="w-full sm:w-44"
+                  aria-label={messages.settings.general.defaultModel.title}
+                >
+                  <SelectValue>
+                    {settings.defaultModel ?? messages.settings.general.defaultModel.automatic}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectPopup align="end" alignItemWithTrigger={false}>
+                  <SelectItem hideIndicator value={NO_DEFAULT_MODEL_OPTION}>
+                    {messages.settings.general.defaultModel.automatic}
+                  </SelectItem>
+                  {(defaultModelOptionsQuery.data?.models ?? []).map((model) => (
+                    <SelectItem hideIndicator key={model.slug} value={model.slug}>
+                      {model.name.length > 0 ? model.name : model.slug}
+                    </SelectItem>
+                  ))}
                 </SelectPopup>
               </Select>
             }
@@ -1736,6 +1802,8 @@ function SettingsRouteView() {
             agentDir={settings.piAgentDir.trim()}
           />
         );
+      case "channels":
+        return <ImChannelsSettingsPanel />;
       case "modelProviders":
         return (
           <ModelProvidersSettingsPanel
@@ -1752,7 +1820,8 @@ function SettingsRouteView() {
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-[var(--color-background-elevated-secondary)] text-foreground">
-      <div className="flex h-full min-h-0 min-w-0 flex-1">
+      {/* Phones stack the section strip above the panel; a wider window keeps the column. */}
+      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col md:flex-row">
         <SettingsNav
           items={localizedNavItems}
           groups={localizedNavGroups}

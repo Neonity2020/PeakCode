@@ -1,11 +1,7 @@
-/**
- * ComposerDraftStoreTypes - Public composer draft types and the store state contract.
- *
- * @module ComposerDraftStoreTypes
- */
-// FILE: composerDraftStore.ts
-// Purpose: Stores composer drafts, model selections, queued turns, and sticky provider choices.
+// FILE: composerDraftStore.types.ts
+// Purpose: Public composer draft types and the store state contract.
 // Layer: Web state store
+
 // Depends on: contracts schemas, app model resolution helpers, and zustand persistence.
 
 import {
@@ -15,6 +11,7 @@ import {
   ProjectId,
   ProviderInteractionMode,
   ProviderKind,
+  ProviderMentionReference,
   ProviderModelOptions,
   RuntimeMode,
   ThreadId,
@@ -37,6 +34,14 @@ export interface ComposerThreadDraftState {
   nonPersistedImageIds: string[];
   persistedAttachments: PersistedComposerImageAttachment[];
   assistantSelections: ComposerAssistantSelectionAttachment[];
+  /**
+   * Plugins picked for the next turn, as `plugin://` mention references.
+   *
+   * Separate from the `@name` tokens in the prompt: a chip keeps a plugin on the turn
+   * even when the user never types its name, which is how the composer's `+` menu and
+   * the plugin library's "use" action attach one.
+   */
+  plugins: ProviderMentionReference[];
   terminalContexts: TerminalContextDraft[];
   queuedTurns: QueuedComposerTurn[];
   modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
@@ -148,6 +153,8 @@ export interface ComposerDraftStoreState {
   ) => boolean;
   removeAssistantSelection: (threadId: ThreadId, selectionId: string) => void;
   clearAssistantSelections: (threadId: ThreadId) => void;
+  addPlugin: (threadId: ThreadId, plugin: ProviderMentionReference) => boolean;
+  removePlugin: (threadId: ThreadId, pluginPath: string) => void;
   insertTerminalContext: (
     threadId: ThreadId,
     prompt: string,

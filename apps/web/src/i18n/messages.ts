@@ -28,6 +28,43 @@ export type Messages = {
   appShell: {
     connecting: string;
   };
+  // The phone page a paired device opens: a remote control for this computer, with its
+  // own copy because none of the desktop surface is rendered there.
+  remoteControl: {
+    title: string;
+    connected: string;
+    connecting: string;
+    disconnected: string;
+    disconnectedHint: string;
+    notice: string;
+    sectionTitle: string;
+    counts: (workspaces: string, tasks: string) => string;
+    bucket: {
+      today: string;
+      yesterday: string;
+      earlier: string;
+    };
+    empty: string;
+    retry: string;
+    refresh: string;
+    back: string;
+    noMessages: string;
+    composerPlaceholder: string;
+    send: string;
+    sending: string;
+    stop: string;
+    approve: string;
+    deny: string;
+    approvalTitle: string;
+    status: {
+      running: string;
+      waiting: string;
+      completed: string;
+      failed: string;
+      interrupted: string;
+      idle: string;
+    };
+  };
   appNavigation: {
     back: string;
     backMac: string;
@@ -340,6 +377,10 @@ export type Messages = {
     placeholderDisconnected: string;
     moreAria: string;
     extrasAria: string;
+    addImage: string;
+    pluginsLabel: string;
+    pluginsHint: string;
+    removePlugin: (name: string) => string;
     modeLabel: string;
     buildLabel: string;
     planLabel: string;
@@ -413,6 +454,30 @@ export type Messages = {
     enableAria: (name: string) => string;
     enabledHint: string;
     disabledHint: string;
+  };
+  // The plugin marketplace surface. Category headings come from the manifest's machine key,
+  // so an unknown one falls back to the raw value rather than disappearing.
+  plugins: {
+    title: string;
+    subtitle: string;
+    searchPlaceholder: string;
+    installedHeading: string;
+    installedCount: string;
+    refresh: string;
+    loading: string;
+    emptyTitle: string;
+    emptyDescription: string;
+    emptySearchTitle: string;
+    emptySearchDescription: string;
+    unavailableTitle: string;
+    unavailableDescription: string;
+    category: Record<string, string>;
+    detailCapabilities: string;
+    detailSkills: string;
+    detailExamples: string;
+    detailUse: string;
+    useFailedTitle: string;
+    useFailedDescription: string;
   };
   automations: {
     subtitle: string;
@@ -499,6 +564,11 @@ export type Messages = {
     taskTitlePlaceholder: string;
     taskDescription: string;
     taskDescriptionPlaceholder: string;
+    taskImages: string;
+    addImage: string;
+    imageHint: string;
+    removeImage: string;
+    imageRejected: string;
     agent: string;
     agentModel: string;
     defaultModel: string;
@@ -526,6 +596,25 @@ export type Messages = {
     loading: string;
     updatedLabel: string;
     boardFileLabel: string;
+    filterAll: string;
+    searchPlaceholder: string;
+    clearSearch: string;
+    viewBoard: string;
+    viewList: string;
+    clearFilters: string;
+    noMatches: string;
+    noMatchesDescription: string;
+    noMatchesColumn: string;
+    taskId: string;
+    unassigned: string;
+    showSidebar: string;
+    hideSidebar: string;
+    addTaskIn: (column: string) => string;
+    taskCount: (count: number) => string;
+    showingCount: (count: number) => string;
+    sections: {
+      projects: string;
+    };
     noProjectsTitle: string;
     noProjectsDescription: string;
     columns: {
@@ -595,6 +684,7 @@ export type Messages = {
       archived: { label: string; description: string };
       modelProviders: { label: string; description: string };
       advanced: { label: string; description: string };
+      channels: { label: string; description: string };
     };
     groups: {
       basics: string;
@@ -616,6 +706,13 @@ export type Messages = {
         title: string;
         description: string;
         resetLabel: string;
+      };
+      defaultModel: {
+        title: string;
+        description: string;
+        resetLabel: string;
+        automatic: string;
+        automaticDescription: string;
       };
       newThreads: {
         title: string;
@@ -984,6 +1081,163 @@ export type Messages = {
       unsavedHint: string;
       cancelButton: string;
     };
+    channels: {
+      heading: string;
+      description: string;
+      names: {
+        wechat: string;
+        feishu: string;
+        qq: string;
+        wecom: string;
+        wechatMp: string;
+        webhook: string;
+      };
+      status: {
+        connected: string;
+        connecting: string;
+        off: string;
+        failed: string;
+        notConfigured: string;
+      };
+      actions: {
+        save: string;
+        saving: string;
+        saved: string;
+        test: string;
+        testing: string;
+        disconnect: string;
+        forget: string;
+        refresh: string;
+      };
+      wechat: {
+        title: string;
+        description: string;
+        scan: string;
+        rescan: string;
+        scanHint: string;
+        waiting: string;
+        scanned: string;
+        expired: string;
+        confirmed: string;
+        disconnectConfirm: string;
+      };
+      feishu: {
+        title: string;
+        description: string;
+        domain: string;
+        domainFeishu: string;
+        domainLark: string;
+        appId: string;
+        appSecret: string;
+        secretPlaceholder: string;
+      };
+      qq: {
+        title: string;
+        description: string;
+        appId: string;
+        appSecret: string;
+      };
+      wecom: {
+        title: string;
+        description: string;
+        callbackHint: string;
+        corpId: string;
+        agentId: string;
+        secret: string;
+        callbackToken: string;
+        encodingAesKey: string;
+      };
+      wechatMp: {
+        title: string;
+        description: string;
+        callbackHint: string;
+        appId: string;
+        appSecret: string;
+        callbackToken: string;
+        encodingAesKey: string;
+      };
+      webhooks: {
+        title: string;
+        description: string;
+        wecomUrl: string;
+        dingtalkUrl: string;
+        dingtalkSecret: string;
+        inboundSecret: string;
+        taskHint: string;
+      };
+      behavior: {
+        title: string;
+        description: string;
+        project: string;
+        projectAuto: string;
+        idleHours: string;
+        idleHoursHint: string;
+        runtimeMode: string;
+        modeApproval: string;
+        modeFull: string;
+        runtimeModeHint: string;
+      };
+      conversations: {
+        title: string;
+        description: string;
+        empty: string;
+        forget: string;
+      };
+      log: {
+        title: string;
+        empty: string;
+        incoming: string;
+        outgoing: string;
+        error: string;
+      };
+      mobile: {
+        title: string;
+        description: string;
+        phoneTitle: string;
+        phoneDescription: string;
+        waiting: string;
+        ready: string;
+        stop: string;
+        refresh: string;
+        copyLink: string;
+        copied: string;
+        linkHint: string;
+        botTitle: string;
+        botDescription: string;
+        openSettings: string;
+        manageTitle: string;
+        manageDescription: string;
+        manageEmpty: string;
+        loadFailed: string;
+        sidebarTooltip: string;
+        opensThread: (title: string) => string;
+        opensProject: (project: string) => string;
+        defaultModelSet: (model: string) => string;
+        defaultModelUnset: string;
+      };
+      remote: {
+        title: string;
+        description: string;
+        start: string;
+        starting: string;
+        stop: string;
+        connected: string;
+        connecting: string;
+        off: string;
+        failed: string;
+        urlLabel: string;
+        copy: string;
+        copied: string;
+        publicWarning: string;
+        needsToken: string;
+        autoStart: string;
+        autoStartHint: string;
+        binaryPath: string;
+        binaryPathHint: string;
+        lastUrl: string;
+        openHint: string;
+      };
+    };
     piPackages: {
       heading: string;
       description: string;
@@ -1065,6 +1319,7 @@ export type Messages = {
       darkThemePack: string;
       lightThemePack: string;
       defaultProvider: string;
+      defaultModel: string;
       newThreadMode: string;
       sidebarPosition: string;
       projectSortOrder: string;
@@ -1361,6 +1616,43 @@ const en: Messages = {
   },
   appShell: {
     connecting: "Connecting to {name} server...",
+  },
+  remoteControl: {
+    title: "Peak Code remote control",
+    connected: "Connected to the desktop window on this computer",
+    connecting: "Connecting to the desktop…",
+    disconnected: "Not connected",
+    disconnectedHint:
+      "This page drives a Peak Code desktop that is already running. If the code expired or the desktop closed, open the phone icon there and scan again.",
+    notice:
+      "This connection can see the workspaces and tasks that are open on this computer, and everything you send still runs there. The link is one-time: when it expires, reconnect from the desktop.",
+    sectionTitle: "Workspaces and tasks on this computer",
+    counts: (workspaces, tasks) => `${workspaces} workspaces · ${tasks} tasks`,
+    bucket: {
+      today: "Today",
+      yesterday: "Yesterday",
+      earlier: "Earlier",
+    },
+    empty: "No tasks on this computer yet.",
+    retry: "Try again",
+    refresh: "Refresh",
+    back: "Back",
+    noMessages: "No messages yet.",
+    composerPlaceholder: "Continue this conversation…",
+    send: "Send",
+    sending: "Sending…",
+    stop: "Stop",
+    approve: "Allow",
+    deny: "Deny",
+    approvalTitle: "Waiting for your decision",
+    status: {
+      running: "Running",
+      waiting: "Needs you",
+      completed: "Done",
+      failed: "Failed",
+      interrupted: "Stopped",
+      idle: "Idle",
+    },
   },
   appNavigation: {
     back: "Back",
@@ -1674,6 +1966,10 @@ const en: Messages = {
     placeholderDisconnected: "Ask for follow-up changes or attach images",
     moreAria: "More composer controls",
     extrasAria: "Composer extras",
+    addImage: "Add image",
+    pluginsLabel: "Plugins",
+    pluginsHint: "Sent with this message",
+    removePlugin: (name) => `Remove ${name}`,
     modeLabel: "Mode",
     buildLabel: "Build",
     planLabel: "Plan",
@@ -1750,6 +2046,33 @@ const en: Messages = {
     enabledHint: "Listed to the agent every turn, and readable with read_skill.",
     disabledHint:
       "Hidden from the agent and refused by read_skill. The files stay on disk — turn it back on any time.",
+  },
+  plugins: {
+    title: "Plugin marketplace",
+    subtitle: "Extend Peak Code with skills, commands, and MCP capabilities.",
+    searchPlaceholder: "Search plugins",
+    installedHeading: "Installed",
+    installedCount: "{count} installed",
+    refresh: "Refresh",
+    loading: "Loading plugins...",
+    emptyTitle: "No plugins available",
+    emptyDescription: "This provider does not expose any plugins for this workspace yet.",
+    emptySearchTitle: "No plugins match this search",
+    emptySearchDescription: "Try a different keyword, or clear the search to see everything.",
+    unavailableTitle: "Plugins unavailable for {provider}",
+    unavailableDescription: "This provider does not expose plugin discovery.",
+    detailCapabilities: "Capabilities",
+    detailSkills: "Skills it installs",
+    detailExamples: "Example prompts",
+    detailUse: "Use plugin",
+    useFailedTitle: "Couldn’t use this plugin",
+    useFailedDescription: "No chat is available to attach it to. Open a chat, then try again.",
+    category: {
+      productivity: "Productivity",
+      "developer-tools": "Developer tools",
+      utilities: "Utilities",
+      automation: "Automation",
+    },
   },
   automations: {
     subtitle: "A plan plus one instruction, running in the workspace you pick.",
@@ -1839,6 +2162,11 @@ const en: Messages = {
     taskTitlePlaceholder: "What needs to be done?",
     taskDescription: "Requirements",
     taskDescriptionPlaceholder: "Context, acceptance criteria, references…",
+    taskImages: "Images",
+    addImage: "Add images",
+    imageHint: "PNG, JPG, GIF… paste or drop, up to 8 images of 10MB each",
+    removeImage: "Remove image",
+    imageRejected: "Some files were not added — only images up to 10MB, 8 in total.",
     agent: "Agent",
     agentModel: "Model",
     defaultModel: "Default model",
@@ -1866,6 +2194,25 @@ const en: Messages = {
     loading: "Loading board...",
     updatedLabel: "Updated",
     boardFileLabel: "Board file",
+    filterAll: "All",
+    searchPlaceholder: "Search tasks",
+    clearSearch: "Clear search",
+    viewBoard: "Board view",
+    viewList: "List view",
+    clearFilters: "Clear filters",
+    noMatches: "No tasks match",
+    noMatchesDescription: "Clear the filters to see the whole board again.",
+    noMatchesColumn: "No matches",
+    taskId: "Task id",
+    unassigned: "Unassigned",
+    showSidebar: "Show board menu",
+    hideSidebar: "Hide board menu",
+    addTaskIn: (column) => `New task in ${column}`,
+    taskCount: (count) => (count === 1 ? "1 task" : `${count} tasks`),
+    showingCount: (count) => (count === 1 ? "1 shown" : `${count} shown`),
+    sections: {
+      projects: "Projects",
+    },
     noProjectsTitle: "No projects yet",
     noProjectsDescription: "Kanban boards live inside a project directory, so add a project first.",
     columns: {
@@ -1971,6 +2318,10 @@ const en: Messages = {
         label: "Advanced",
         description: "Keybindings, recovery, and version info.",
       },
+      channels: {
+        label: "Channels",
+        description: "Drive the agent from WeChat, Feishu/Lark, QQ, or a webhook.",
+      },
     },
     groups: {
       basics: "Basics",
@@ -1992,6 +2343,15 @@ const en: Messages = {
         title: "Default provider",
         description: "Choose the provider used for new chats.",
         resetLabel: "default provider",
+      },
+      defaultModel: {
+        title: "Default model",
+        description:
+          "The model a new chat starts on. A phone that paired by QR code has no composer history of its own, so it uses this one.",
+        resetLabel: "default model",
+        automatic: "First available model",
+        automaticDescription:
+          "No default is set: each new chat takes the first model the provider offers.",
       },
       newThreads: {
         title: "New threads",
@@ -2393,6 +2753,179 @@ const en: Messages = {
       unsavedHint: "You have unsaved changes.",
       cancelButton: "Cancel",
     },
+    channels: {
+      heading: "Channels",
+      description:
+        "Wire a chat app to this workspace: a message sent there opens a thread, and the agent's answer is sent back into the chat.",
+      names: {
+        wechat: "WeChat (personal)",
+        feishu: "Feishu / Lark",
+        qq: "QQ bot",
+        wecom: "WeCom app",
+        wechatMp: "Official account",
+        webhook: "Webhooks",
+      },
+      status: {
+        connected: "Connected",
+        connecting: "Connecting…",
+        off: "Off",
+        failed: "Failed",
+        notConfigured: "Not configured",
+      },
+      actions: {
+        save: "Save",
+        saving: "Saving…",
+        saved: "Saved",
+        test: "Test connection",
+        testing: "Testing…",
+        disconnect: "Disconnect",
+        forget: "Forget chat",
+        refresh: "Refresh",
+      },
+      wechat: {
+        title: "WeChat · personal account",
+        description:
+          "Scan the code with WeChat and then message the linked account: messages are long-polled from your machine, so no public address is needed.",
+        scan: "Scan to link WeChat",
+        rescan: "Scan again with another account",
+        scanHint: "Scan with WeChat, then send a message to the linked account.",
+        waiting: "Waiting for the phone…",
+        scanned: "Scanned — confirm on your phone",
+        expired: "The code expired — ask for a new one",
+        confirmed: "Linked",
+        disconnectConfirm: "Disconnect WeChat? The linked account stops receiving answers.",
+      },
+      feishu: {
+        title: "Feishu / Lark",
+        description:
+          "Create a custom app on the open platform, add the bot capability and the im:message scopes, then subscribe to message events over the long connection. No public address needed.",
+        domain: "Platform",
+        domainFeishu: "Feishu (China)",
+        domainLark: "Lark (international)",
+        appId: "App ID",
+        appSecret: "App Secret",
+        secretPlaceholder: "Leave empty to keep the stored secret",
+      },
+      qq: {
+        title: "QQ bot",
+        description:
+          "An official-platform bot app: enable message lists, then paste its AppID/AppSecret. Long connection, no public address.",
+        appId: "App ID",
+        appSecret: "App Secret",
+      },
+      wecom: {
+        title: "WeCom · self-built app",
+        description:
+          "Callback mode: Tencent has to reach this server, so a public HTTPS address is required.",
+        callbackHint: "Callback URL",
+        corpId: "Corp ID",
+        agentId: "Agent ID",
+        secret: "Secret",
+        callbackToken: "Callback Token",
+        encodingAesKey: "EncodingAESKey",
+      },
+      wechatMp: {
+        title: "WeChat official account",
+        description:
+          "Callback mode: answers are pushed with customer-service messages, which needs a verified account and a public HTTPS address.",
+        callbackHint: "Callback URL",
+        appId: "App ID",
+        appSecret: "App Secret",
+        callbackToken: "Token",
+        encodingAesKey: "EncodingAESKey",
+      },
+      webhooks: {
+        title: "Webhooks",
+        description:
+          "Group robots announce finished work (push only). The inbound bridge lets any tool that can send HTTP run a task.",
+        wecomUrl: "WeCom group robot URL",
+        dingtalkUrl: "DingTalk robot URL",
+        dingtalkSecret: "DingTalk sign secret",
+        inboundSecret: "Inbound bridge secret",
+        taskHint: "POST /api/im/task with { message, session, secret }",
+      },
+      behavior: {
+        title: "How IM runs work",
+        description: "Where IM threads open and how much freedom they get.",
+        project: "Workspace",
+        projectAuto: "Most recently used project",
+        idleHours: "Idle reset (hours)",
+        idleHoursHint:
+          "After this long without a message the chat starts a fresh thread. 0 keeps one context forever.",
+        runtimeMode: "Permission mode",
+        modeApproval: "Approval required",
+        modeFull: "Full access",
+        runtimeModeHint:
+          "Nobody is at the keyboard during an IM run, so approvals would wait forever. Full access is an explicit choice — file protections still apply.",
+      },
+      conversations: {
+        title: "Linked chats",
+        description:
+          "Each chat keeps its own thread; forgetting one starts over on the next message.",
+        empty: "No chat has talked to this workspace yet.",
+        forget: "Forget",
+      },
+      log: {
+        title: "Recent traffic",
+        empty: "Nothing has crossed the bridge yet.",
+        incoming: "In",
+        outgoing: "Out",
+        error: "Error",
+      },
+      mobile: {
+        title: "Mobile remote control",
+        description:
+          "Scan the code with a phone to control this machine from it, or hand it to a chat bot for longer sessions.",
+        phoneTitle: "Connect a phone",
+        phoneDescription:
+          "The phone opens a remote control for this computer: what is running here, and the conversation you can pick up. Everything still runs on this machine.",
+        waiting: "Waiting for the phone",
+        ready: "Ready",
+        stop: "Stop",
+        refresh: "New code",
+        copyLink: "Copy link",
+        copied: "Link copied",
+        linkHint: "Cannot scan? Open the link on the phone instead.",
+        botTitle: "Use a chat bot",
+        botDescription: "Connect a bot for access that outlasts a one-off link.",
+        openSettings: "Configure in Channels",
+        manageTitle: "Bot management",
+        manageDescription: "Chats currently wired to a thread in this workspace.",
+        manageEmpty: "No chat is connected yet.",
+        loadFailed: "Could not reach the IM bridge.",
+        sidebarTooltip: "Mobile & IM channels",
+        opensThread: (title) => `The phone opens “${title}”`,
+        opensProject: (project) => `The phone starts a new chat in ${project}`,
+        defaultModelSet: (model) => `New chats on the phone use ${model}`,
+        defaultModelUnset:
+          "No default model is set, so the phone takes the first model available — set one in Settings → General.",
+      },
+      remote: {
+        title: "Cloudflare remote access",
+        description:
+          "Publish this workspace on a temporary Cloudflare address so a phone can reach it from any network — no port forwarding, no public IP.",
+        start: "Start Cloudflare tunnel",
+        starting: "Opening tunnel…",
+        stop: "Stop tunnel",
+        connected: "Tunnel live",
+        connecting: "Opening…",
+        off: "Tunnel off",
+        failed: "Tunnel failed",
+        urlLabel: "Public address",
+        copy: "Copy address",
+        copied: "Address copied",
+        publicWarning:
+          "The address is public: whoever has it still has to pair (one-time link, expiring session), but treat it as exposed while it runs.",
+        needsToken:
+          "This server has no access token, so it refuses to publish itself. Restart Peak Code with --auth-token <token> (the desktop app always has one) and try again.",
+        autoStart: "Open the tunnel on startup",
+        autoStartHint: "Keeps the QR code working after a restart.",
+        binaryPath: "cloudflared path",
+        binaryPathHint: "Defaults to cloudflared from PATH (macOS: brew install cloudflared).",
+        lastUrl: "Last address",
+        openHint: "Scan the code below to open this workspace on the phone.",
+      },
+    },
     piPackages: {
       heading: "Pi Packages",
       description:
@@ -2476,6 +3009,7 @@ const en: Messages = {
       darkThemePack: "Dark theme pack",
       lightThemePack: "Light theme pack",
       defaultProvider: "Default provider",
+      defaultModel: "Default model",
       newThreadMode: "New thread mode",
       sidebarPosition: "Sidebar position",
       projectSortOrder: "Project sort order",
@@ -2783,6 +3317,43 @@ const zh: Messages = {
   },
   appShell: {
     connecting: "正在连接 {name} 服务器…",
+  },
+  remoteControl: {
+    title: "Peak Code 远程控制",
+    connected: "已连接到当前桌面窗口",
+    connecting: "正在连接桌面端…",
+    disconnected: "未连接",
+    disconnectedHint:
+      "这个页面控制的是已经打开的 Peak Code 桌面端。二维码失效或桌面端关闭后，请回到桌面端点击手机图标重新扫码。",
+    notice:
+      "本次连接可以查看当前设备上已打开的工作区和任务，你在这里发送的内容仍然在这台电脑上执行。链接是一次性的，失效后需要回到桌面端重新连接。",
+    sectionTitle: "当前设备上的工作区和任务",
+    counts: (workspaces, tasks) => `${workspaces} 个工作区 · ${tasks} 个任务`,
+    bucket: {
+      today: "今天",
+      yesterday: "昨天",
+      earlier: "更早",
+    },
+    empty: "这台电脑上还没有任务。",
+    retry: "重试连接",
+    refresh: "刷新",
+    back: "返回",
+    noMessages: "还没有消息。",
+    composerPlaceholder: "继续这个对话…",
+    send: "发送",
+    sending: "发送中…",
+    stop: "停止",
+    approve: "允许",
+    deny: "拒绝",
+    approvalTitle: "等待你的确认",
+    status: {
+      running: "运行中",
+      waiting: "待确认",
+      completed: "已完成",
+      failed: "失败",
+      interrupted: "已中断",
+      idle: "空闲",
+    },
   },
   appNavigation: {
     back: "后退",
@@ -3096,6 +3667,10 @@ const zh: Messages = {
     placeholderDisconnected: "请求后续修改或附加图片",
     moreAria: "更多输入控制",
     extrasAria: "输入扩展",
+    addImage: "添加图片",
+    pluginsLabel: "插件",
+    pluginsHint: "随本条消息一起发送",
+    removePlugin: (name) => `移除 ${name}`,
     modeLabel: "模式",
     buildLabel: "构建",
     planLabel: "计划",
@@ -3170,6 +3745,33 @@ const zh: Messages = {
     enableAria: (name) => `启用或停用技能 ${name}`,
     enabledHint: "每轮都会列给模型，可以用 read_skill 读正文。",
     disabledHint: "不再列给模型，read_skill 也会拒绝读取。文件仍保留在磁盘上，随时可以再打开。",
+  },
+  plugins: {
+    title: "插件市场",
+    subtitle: "用插件为 Peak Code 扩展技能、命令与 MCP 能力。",
+    searchPlaceholder: "搜索插件",
+    installedHeading: "已安装",
+    installedCount: "已安装 {count} 个",
+    refresh: "刷新",
+    loading: "加载插件…",
+    emptyTitle: "暂无可用插件",
+    emptyDescription: "当前模型还没有为这个工作区提供插件。",
+    emptySearchTitle: "没有匹配此搜索的插件",
+    emptySearchDescription: "尝试其他关键词，或清空搜索查看全部插件。",
+    unavailableTitle: "{provider} 暂不支持插件",
+    unavailableDescription: "该模型未开放插件发现能力。",
+    detailCapabilities: "能力",
+    detailSkills: "包含的技能",
+    detailExamples: "示例指令",
+    detailUse: "立即使用",
+    useFailedTitle: "无法使用该插件",
+    useFailedDescription: "当前没有可以附加的会话，请先打开一个会话再试一次。",
+    category: {
+      productivity: "生产力",
+      "developer-tools": "开发者工具",
+      utilities: "实用工具",
+      automation: "自动化",
+    },
   },
   automations: {
     subtitle: "一个计划 + 一句话 + 一个工作区，到点在那个工作区里跑一轮。",
@@ -3257,6 +3859,11 @@ const zh: Messages = {
     taskTitlePlaceholder: "要做什么？",
     taskDescription: "需求描述",
     taskDescriptionPlaceholder: "补充背景、验收标准、参考链接…",
+    taskImages: "图片",
+    addImage: "添加图片",
+    imageHint: "支持 PNG/JPG/GIF 等，可粘贴或拖入，最多 8 张、单张 ≤ 10MB",
+    removeImage: "移除图片",
+    imageRejected: "部分文件未添加：仅支持图片，单张 ≤ 10MB，最多 8 张。",
     agent: "智能体",
     agentModel: "模型",
     defaultModel: "默认模型",
@@ -3284,6 +3891,25 @@ const zh: Messages = {
     loading: "正在加载看板…",
     updatedLabel: "更新于",
     boardFileLabel: "看板文件",
+    filterAll: "全部",
+    searchPlaceholder: "搜索任务",
+    clearSearch: "清除搜索",
+    viewBoard: "看板视图",
+    viewList: "列表视图",
+    clearFilters: "清除筛选",
+    noMatches: "没有符合条件的任务",
+    noMatchesDescription: "清除筛选条件即可看到全部任务。",
+    noMatchesColumn: "无匹配",
+    taskId: "任务 ID",
+    unassigned: "未指派",
+    showSidebar: "显示看板菜单",
+    hideSidebar: "隐藏看板菜单",
+    addTaskIn: (column) => `在「${column}」新建任务`,
+    taskCount: (count) => `共 ${count} 个任务`,
+    showingCount: (count) => `显示 ${count} 条`,
+    sections: {
+      projects: "项目",
+    },
     noProjectsTitle: "还没有项目",
     noProjectsDescription: "看板挂在项目目录上，请先在应用里添加一个项目。",
     columns: {
@@ -3384,6 +4010,10 @@ const zh: Messages = {
         label: "高级",
         description: "快捷键、恢复与版本信息。",
       },
+      channels: {
+        label: "频道",
+        description: "在微信、飞书/Lark、QQ 或 webhook 里直接给 Agent 派活。",
+      },
     },
     groups: {
       basics: "基础设置",
@@ -3405,6 +4035,13 @@ const zh: Messages = {
         title: "默认提供方",
         description: "为新聊天选择使用的提供方。",
         resetLabel: "默认提供方",
+      },
+      defaultModel: {
+        title: "默认模型",
+        description: "新对话默认使用的模型。扫码配对的手机没有本地选择记录，会直接使用这里的设置。",
+        resetLabel: "默认模型",
+        automatic: "自动（首个可用模型）",
+        automaticDescription: "未设置默认模型：每个新对话使用该提供方的第一个模型。",
       },
       newThreads: {
         title: "新线程",
@@ -3786,6 +4423,174 @@ const zh: Messages = {
       unsavedHint: "有未保存的修改。",
       cancelButton: "取消",
     },
+    channels: {
+      heading: "频道",
+      description:
+        "把聊天工具接到这个工作区：在聊天里发的消息会开出一个线程，Agent 的回复也会发回聊天。",
+      names: {
+        wechat: "微信 · 个人号",
+        feishu: "飞书 / Lark",
+        qq: "QQ 机器人",
+        wecom: "企业微信应用",
+        wechatMp: "微信公众号",
+        webhook: "Webhook",
+      },
+      status: {
+        connected: "已连接",
+        connecting: "连接中…",
+        off: "未连接",
+        failed: "连接失败",
+        notConfigured: "未配置",
+      },
+      actions: {
+        save: "保存",
+        saving: "保存中…",
+        saved: "已保存",
+        test: "测试连接",
+        testing: "测试中…",
+        disconnect: "断开",
+        forget: "忘记会话",
+        refresh: "刷新",
+      },
+      wechat: {
+        title: "微信 · 个人号",
+        description:
+          "用手机微信扫码接入，之后给这个号发消息即可：消息由本机长轮询获取，不需要公网地址。",
+        scan: "扫码接入微信",
+        rescan: "重新扫码更换账号",
+        scanHint: "用微信扫一扫，登录后给这个号发一条消息试试。",
+        waiting: "等待手机扫码…",
+        scanned: "已扫码，请在手机上确认",
+        expired: "二维码已过期，请重新获取",
+        confirmed: "已接入",
+        disconnectConfirm: "断开微信接入？断开后微信里将不再收到回复。",
+      },
+      feishu: {
+        title: "飞书 / Lark",
+        description:
+          "在开放平台创建自建应用，加上机器人能力与 im:message 权限，事件订阅选「长连接」。不需要公网地址。",
+        domain: "平台",
+        domainFeishu: "飞书（中国）",
+        domainLark: "Lark（国际）",
+        appId: "App ID",
+        appSecret: "App Secret",
+        secretPlaceholder: "留空表示保持已保存的密钥",
+      },
+      qq: {
+        title: "QQ 机器人",
+        description:
+          "开放平台创建的机器人应用：开启消息列表后填入 AppID / AppSecret，长连接模式，不需要公网地址。",
+        appId: "App ID",
+        appSecret: "App Secret",
+      },
+      wecom: {
+        title: "企业微信 · 自建应用",
+        description: "回调模式：由腾讯回调本机，所以需要公网 HTTPS 地址。",
+        callbackHint: "回调地址",
+        corpId: "Corp ID",
+        agentId: "Agent ID",
+        secret: "Secret",
+        callbackToken: "回调 Token",
+        encodingAesKey: "EncodingAESKey",
+      },
+      wechatMp: {
+        title: "微信公众号",
+        description: "回调模式：结果通过客服消息主动推送，需要已认证的账号和公网 HTTPS 地址。",
+        callbackHint: "回调地址",
+        appId: "App ID",
+        appSecret: "App Secret",
+        callbackToken: "Token",
+        encodingAesKey: "EncodingAESKey",
+      },
+      webhooks: {
+        title: "Webhook",
+        description: "群机器人负责播报（只出不进）；入站桥接让任何能发 HTTP 的工具跑任务。",
+        wecomUrl: "企业微信群机器人地址",
+        dingtalkUrl: "钉钉机器人地址",
+        dingtalkSecret: "钉钉加签密钥",
+        inboundSecret: "入站桥接密钥",
+        taskHint: "POST /api/im/task，参数 { message, session, secret }",
+      },
+      behavior: {
+        title: "IM 任务的执行方式",
+        description: "IM 线程开在哪个工作区，以及给 Agent 多大权限。",
+        project: "工作区",
+        projectAuto: "最近使用的项目",
+        idleHours: "空闲重置（小时）",
+        idleHoursHint:
+          "超过这个时间没有新消息，会话会重新开始（节省上下文）。填 0 表示一直续用同一个上下文。",
+        runtimeMode: "权限档位",
+        modeApproval: "需要审批",
+        modeFull: "全自动",
+        runtimeModeHint:
+          "IM 任务执行时人不在电脑前，需要审批的命令会一直等下去。全自动是一个明确的选择——文件保护依然生效。",
+      },
+      conversations: {
+        title: "已接入的会话",
+        description: "每个会话有自己的线程；忘记后会从下一条消息重新开始。",
+        empty: "还没有任何会话跟这个工作区对话过。",
+        forget: "忘记",
+      },
+      log: {
+        title: "最近消息",
+        empty: "还没有消息经过桥接层。",
+        incoming: "收到",
+        outgoing: "发出",
+        error: "错误",
+      },
+      mobile: {
+        title: "移动端远程控制",
+        description: "扫码用手机遥控这台电脑，或接入聊天 Bot 以便更长期的移动端访问。",
+        phoneTitle: "手机扫码连接",
+        phoneDescription:
+          "扫码后手机上打开的是这台电脑的远程控制页：可以看到这里正在跑的工作区和任务，也能接着对话——执行仍然在这台电脑上。",
+        waiting: "等待手机连接",
+        ready: "已就绪",
+        stop: "停止",
+        refresh: "刷新二维码",
+        copyLink: "复制链接",
+        copied: "链接已复制",
+        linkHint: "无法扫码？可以在手机上打开链接。",
+        botTitle: "使用 Bot Channel",
+        botDescription: "连接聊天 Bot，适合更长时间的移动端访问。",
+        openSettings: "去频道配置",
+        manageTitle: "机器人管理",
+        manageDescription: "当前已经接到线程上的会话。",
+        manageEmpty: "还没有会话接入。",
+        loadFailed: "无法连接 IM 桥接层。",
+        sidebarTooltip: "移动端与 IM 频道",
+        opensThread: (title) => `扫码后直接打开「${title}」`,
+        opensProject: (project) => `扫码后在 ${project} 里新建一个对话`,
+        defaultModelSet: (model) => `手机上发消息使用 ${model}`,
+        defaultModelUnset:
+          "还没有设置默认模型，手机会使用第一个可用模型——可以在「设置 → 通用」里指定。",
+      },
+      remote: {
+        title: "Cloudflare 外网访问",
+        description:
+          "把这个工作区发布到一个临时的 Cloudflare 地址，手机在任何网络下都能打开——不用端口转发，也不需要公网 IP。",
+        start: "开启 Cloudflare 隧道",
+        starting: "正在开启隧道…",
+        stop: "关闭隧道",
+        connected: "隧道已连接",
+        connecting: "正在连接…",
+        off: "隧道未开启",
+        failed: "隧道启动失败",
+        urlLabel: "公网地址",
+        copy: "复制地址",
+        copied: "地址已复制",
+        publicWarning:
+          "这个地址是公开的：拿到地址的人仍需配对（一次性链接 + 会过期的会话），但隧道开着的时候就当它是暴露状态。",
+        needsToken:
+          "当前服务端没有访问令牌，因此拒绝对外开放。请用 --auth-token <token> 重启 Peak Code（桌面版自带令牌）后再试。",
+        autoStart: "启动时自动开启隧道",
+        autoStartHint: "重启后二维码依然可用。",
+        binaryPath: "cloudflared 路径",
+        binaryPathHint: "默认为 PATH 里的 cloudflared（macOS: brew install cloudflared）。",
+        lastUrl: "上次的地址",
+        openHint: "扫下方的二维码，在手机上打开这个工作区。",
+      },
+    },
     piPackages: {
       heading: "Pi 包",
       description:
@@ -3864,6 +4669,7 @@ const zh: Messages = {
       darkThemePack: "深色主题包",
       lightThemePack: "浅色主题包",
       defaultProvider: "默认提供方",
+      defaultModel: "默认模型",
       newThreadMode: "新线程模式",
       sidebarPosition: "侧边栏位置",
       projectSortOrder: "项目排序",

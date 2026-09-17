@@ -5,6 +5,7 @@ import {
   DEFAULT_GIT_TEXT_GENERATION_MODEL,
   DEFAULT_SERVER_SETTINGS,
   TrimmedNonEmptyString,
+  type ModelSelection,
   ProviderKind,
   type ProviderStartOptions,
   type ServerSettings,
@@ -114,6 +115,12 @@ export const AppSettingsSchema = Schema.Struct({
   textGenerationModel: Schema.optional(TrimmedNonEmptyString),
   uiFontFamily: Schema.String.check(Schema.isMaxLength(256)).pipe(withDefaults(() => "")),
   defaultProvider: ProviderKind.pipe(withDefaults(() => "pi" as const)),
+  // Server-backed: the model a new chat starts on when neither the thread nor the project
+  // has an opinion. A phone that only scanned a pairing code has no local composer state,
+  // so this is what decides the model its messages run on. An empty string is how the
+  // setting is cleared — `undefined` means "this patch does not touch the model".
+  defaultModelProvider: ProviderKind.pipe(withDefaults(() => "pi" as const)),
+  defaultModel: Schema.optional(Schema.String.check(Schema.isMaxLength(256))),
   language: LanguageSchema.pipe(withDefaults(() => DEFAULT_LANGUAGE_SETTING)),
   // Local-only UI preference: providers explicitly hidden from the composer picker.
   // The active/locked provider for a thread is always shown regardless, so users
@@ -215,6 +222,12 @@ function serverSettingsToAppSettings(settings: ServerSettings): Partial<AppSetti
     customPiModels: settings.providers.pi.customModels,
     textGenerationProvider: settings.textGenerationModelSelection.provider,
     textGenerationModel: settings.textGenerationModelSelection.model,
+    ...(settings.defaultModelSelection === undefined
+      ? {}
+      : {
+          defaultModelProvider: settings.defaultModelSelection.provider,
+          defaultModel: settings.defaultModelSelection.model,
+        }),
   };
 }
 
@@ -225,11 +238,27 @@ function resolveTextGenerationProvider(input: {
   return input.provider ?? "pi";
 }
 
+/**
+ * The model a new chat starts on, or null when the server has no default configured.
+ *
+ * `ModelSelection` refuses an empty model, so "never set" and "cleared" both reach us as a
+ * missing or empty slug and leave here as null — the callers then fall back to whatever
+ * the provider offers.
+ */
+export function resolveDefaultModelSelection(settings: AppSettings): ModelSelection | null {
+  const model = settings.defaultModel?.trim() ?? "";
+  if (model.length === 0) return null;
+  return { provider: settings.defaultModelProvider ?? "pi", model } as ModelSelection;
+}
+
 function hasOwn<Key extends keyof AppSettings>(patch: Partial<AppSettings>, key: Key): boolean {
   return Object.prototype.hasOwnProperty.call(patch, key);
 }
 
-function appSettingsPatchToServerSettingsPatch(patch: Partial<AppSettings>): ServerSettingsPatch {
+/** Exported for tests: the one place that decides what a local change writes to the server. */
+export function appSettingsPatchToServerSettingsPatch(
+  patch: Partial<AppSettings>,
+): ServerSettingsPatch {
   const providers: MutableServerSettingsProvidersPatch = {};
   const serverPatch: MutableServerSettingsPatch = {};
 
@@ -249,6 +278,14 @@ function appSettingsPatchToServerSettingsPatch(patch: Partial<AppSettings>): Ser
         model,
       }),
       model,
+    };
+  }
+  if (hasOwn(patch, "defaultModel") || hasOwn(patch, "defaultModelProvider")) {
+    serverPatch.defaultModelSelection = {
+      provider: patch.defaultModelProvider ?? "pi",
+      // An empty model is how the server is told to drop the default; omitting it keeps
+      // the stored slug while the provider changes. See `ServerSettingsPatch`.
+      ...(patch.defaultModel !== undefined ? { model: patch.defaultModel } : {}),
     };
   }
 

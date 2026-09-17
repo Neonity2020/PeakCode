@@ -1,14 +1,16 @@
-/**
- * ComposerDraftStoreDraft - Empty draft sentinels, draft key helpers and draft content normalization.
- *
- * @module ComposerDraftStoreDraft
- */
-// FILE: composerDraftStore.ts
-// Purpose: Stores composer drafts, model selections, queued turns, and sticky provider choices.
+// FILE: composerDraftStore.draft.ts
+// Purpose: Empty draft sentinels, draft key helpers and draft content normalization.
 // Layer: Web state store
+
 // Depends on: contracts schemas, app model resolution helpers, and zustand persistence.
 
-import { ModelSelection, ProjectId, ProviderKind, ThreadId } from "@peakcode/contracts";
+import {
+  ModelSelection,
+  ProjectId,
+  ProviderKind,
+  ThreadId,
+  type ProviderMentionReference,
+} from "@peakcode/contracts";
 
 import type { ThreadPrimarySurface } from "./types";
 import { type TerminalContextDraft, normalizeTerminalContextText } from "./lib/terminalContext";
@@ -49,10 +51,12 @@ export const EMPTY_IDS: string[] = [];
 export const EMPTY_PERSISTED_ATTACHMENTS: PersistedComposerImageAttachment[] = [];
 export const EMPTY_TERMINAL_CONTEXTS: TerminalContextDraft[] = [];
 export const EMPTY_QUEUED_TURNS: QueuedComposerTurn[] = [];
+export const EMPTY_PLUGINS: ProviderMentionReference[] = [];
 Object.freeze(EMPTY_IMAGES);
 Object.freeze(EMPTY_IDS);
 Object.freeze(EMPTY_PERSISTED_ATTACHMENTS);
 Object.freeze(EMPTY_QUEUED_TURNS);
+Object.freeze(EMPTY_PLUGINS);
 export const EMPTY_MODEL_SELECTION_BY_PROVIDER: Partial<Record<ProviderKind, ModelSelection>> =
   Object.freeze({});
 
@@ -62,6 +66,7 @@ export const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
   nonPersistedImageIds: EMPTY_IDS,
   persistedAttachments: EMPTY_PERSISTED_ATTACHMENTS,
   assistantSelections: [],
+  plugins: EMPTY_PLUGINS,
   terminalContexts: EMPTY_TERMINAL_CONTEXTS,
   queuedTurns: EMPTY_QUEUED_TURNS,
   modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
@@ -77,6 +82,7 @@ export function createEmptyThreadDraft(): ComposerThreadDraftState {
     nonPersistedImageIds: [],
     persistedAttachments: [],
     assistantSelections: [],
+    plugins: [],
     terminalContexts: [],
     queuedTurns: [],
     modelSelectionByProvider: {},
@@ -94,6 +100,37 @@ export function composerImageDedupKey(image: ComposerImageAttachment): string {
 
 export function terminalContextDedupKey(context: TerminalContextDraft): string {
   return `${context.terminalId}\u0000${context.lineStart}\u0000${context.lineEnd}`;
+}
+
+/**
+ * Two plugin mentions of one plugin are one selection even if they arrived by different
+ * routes (a `+` menu chip and an `@name` token), so the mention path is the identity.
+ */
+export function pluginMentionDedupKey(mention: Pick<ProviderMentionReference, "path">): string {
+  return mention.path.trim().toLowerCase();
+}
+
+export function normalizePluginMentions(
+  mentions: ReadonlyArray<ProviderMentionReference>,
+): ProviderMentionReference[] {
+  const normalizedMentions: ProviderMentionReference[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const mention of mentions) {
+    const name = mention.name.trim();
+    const path = mention.path.trim();
+    if (name.length === 0 || path.length === 0) {
+      continue;
+    }
+    const key = pluginMentionDedupKey({ path });
+    if (seenKeys.has(key)) {
+      continue;
+    }
+    seenKeys.add(key);
+    normalizedMentions.push({ name, path });
+  }
+
+  return normalizedMentions;
 }
 
 export function assistantSelectionDedupKey(
@@ -201,6 +238,7 @@ export function buildTransferredComposerDraft(input: {
     ...base,
     prompt: sourceDraft.prompt,
     assistantSelections: normalizeAssistantSelections(sourceDraft.assistantSelections),
+    plugins: normalizePluginMentions(sourceDraft.plugins),
     terminalContexts: normalizeTerminalContextsForThread(
       targetThreadId,
       sourceDraft.terminalContexts,
@@ -232,6 +270,7 @@ export function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
     draft.images.length === 0 &&
     draft.persistedAttachments.length === 0 &&
     draft.assistantSelections.length === 0 &&
+    draft.plugins.length === 0 &&
     draft.terminalContexts.length === 0 &&
     draft.queuedTurns.length === 0 &&
     Object.keys(draft.modelSelectionByProvider).length === 0 &&

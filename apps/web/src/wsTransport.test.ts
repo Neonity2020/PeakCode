@@ -6,7 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WS_CHANNELS } from "@peakcode/contracts";
 
-import { shouldKeepServerLifecycleStream, WsTransport } from "./wsTransport";
+import { applyPageToken, shouldKeepServerLifecycleStream, WsTransport } from "./wsTransport";
 
 type WsEventType = "open" | "message" | "close" | "error";
 type WsListener = (event?: { data?: unknown }) => void;
@@ -63,7 +63,13 @@ beforeEach(() => {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
-      location: { protocol: "http:", hostname: "localhost", port: "3020" },
+      location: {
+        protocol: "http:",
+        hostname: "localhost",
+        host: "localhost:3020",
+        port: "3020",
+        search: "",
+      },
       desktopBridge: undefined,
     },
   });
@@ -104,7 +110,13 @@ describe("WsTransport", () => {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: {
-        location: { protocol: "http:", hostname: "localhost", port: "3020" },
+        location: {
+          protocol: "http:",
+          hostname: "localhost",
+          host: "localhost:3020",
+          port: "3020",
+          search: "",
+        },
         desktopBridge: { getWsUrl },
       },
     });
@@ -123,5 +135,23 @@ describe("WsTransport", () => {
     expect(sockets[0]?.url).toBe("ws://localhost:3020/ws");
 
     transport.dispose();
+  });
+});
+
+describe("applyPageToken", () => {
+  it("forwards a token from the page URL onto the socket URL", () => {
+    expect(applyPageToken("ws://host:3773/ws", "?token=ABC")).toBe("ws://host:3773/ws?token=ABC");
+  });
+
+  it("leaves the socket URL alone when the page carries no token", () => {
+    expect(applyPageToken("ws://host:3773/ws", "")).toBe("ws://host:3773/ws");
+    expect(applyPageToken("ws://host:3773/ws", "?section=channels")).toBe("ws://host:3773/ws");
+    expect(applyPageToken("ws://host:3773/ws", "?token=")).toBe("ws://host:3773/ws");
+  });
+
+  it("never overwrites a token the socket URL already has", () => {
+    expect(applyPageToken("ws://host:3773/ws?token=DESKTOP", "?token=PAGE")).toBe(
+      "ws://host:3773/ws?token=DESKTOP",
+    );
   });
 });

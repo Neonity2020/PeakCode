@@ -102,6 +102,7 @@ function makeQueuedChatTurn(id: string, image?: ComposerImageAttachment): Queued
     terminalContexts: [makeTerminalContext({ id: `ctx-${id}` })],
     skills: [{ name: "check-code", path: "/skills/check-code" }],
     mentions: [{ name: "repo", path: "/mentions/repo" }],
+    plugins: [],
     selectedProvider: "pi",
     selectedModel: "pi-coder-xl",
     selectedPromptEffort: null,
@@ -171,6 +172,63 @@ describe("resolvePreferredComposerModelSelection", () => {
         projectModelSelection: modelSelection("pi", "pi-coder-m"),
       }),
     ).toEqual(modelSelection("pi", "pi-coder-s"));
+  });
+
+  it("starts a chat with no closer preference on the server's default model", () => {
+    // What a freshly paired phone looks like: no draft, no thread, no project default.
+    expect(
+      resolvePreferredComposerModelSelection({
+        draft: null,
+        threadModelSelection: null,
+        projectModelSelection: null,
+        serverDefaultModelSelection: modelSelection("pi", "pi/server-default"),
+      }),
+    ).toEqual(modelSelection("pi", "pi/server-default"));
+  });
+
+  it("lets the project's own default win over the server-wide one", () => {
+    expect(
+      resolvePreferredComposerModelSelection({
+        draft: null,
+        threadModelSelection: null,
+        projectModelSelection: modelSelection("pi", "pi/project"),
+        serverDefaultModelSelection: modelSelection("pi", "pi/server-default"),
+      }),
+    ).toEqual(modelSelection("pi", "pi/project"));
+  });
+});
+
+describe("deriveEffectiveComposerModelState with a server default", () => {
+  const options = [{ slug: "pi/alpha", name: "Alpha" }];
+
+  it("uses the server default when the thread and project are silent", () => {
+    expect(
+      deriveEffectiveComposerModelState({
+        draft: null,
+        selectedProvider: "pi",
+        threadModelSelection: null,
+        projectModelSelection: null,
+        serverDefaultModelSelection: modelSelection("pi", "pi/alpha"),
+        customModelsByProvider: { pi: [] },
+        availableModelOptionsByProvider: { pi: options },
+      }).selectedModel,
+    ).toBe("pi/alpha");
+  });
+
+  it("keeps a configured default the catalogue does not list", () => {
+    // Pi discovers its catalogue per run, so an unlisted slug is not proof that the model
+    // is gone. Switching silently would send the turn somewhere nobody asked for.
+    expect(
+      deriveEffectiveComposerModelState({
+        draft: null,
+        selectedProvider: "pi",
+        threadModelSelection: null,
+        projectModelSelection: null,
+        serverDefaultModelSelection: modelSelection("pi", "pi/unlisted"),
+        customModelsByProvider: { pi: [] },
+        availableModelOptionsByProvider: { pi: options },
+      }).selectedModel,
+    ).toBe("pi/unlisted");
   });
 });
 
@@ -287,6 +345,85 @@ describe("composerDraftStore clearComposerContent", () => {
     const draft = useComposerDraftStore.getState().draftsByThreadId[threadId];
     expect(draft).toBeUndefined();
     expect(revokeSpy).not.toHaveBeenCalledWith("blob:optimistic");
+  });
+});
+
+describe("composerDraftStore plugin selection", () => {
+  const threadId = ThreadId.makeUnsafe("thread-plugins");
+  const browserUse = { name: "browser-use", path: "plugin://browser-use@peakcode" };
+  const computerUse = { name: "computer-use", path: "plugin://computer-use@peakcode" };
+
+  beforeEach(() => {
+    resetComposerDraftStore();
+  });
+
+  it("keeps several plugins on one draft and dedupes by mention path", () => {
+    const store = useComposerDraftStore.getState();
+    expect(store.addPlugin(threadId, browserUse)).toBe(true);
+    expect(store.addPlugin(threadId, computerUse)).toBe(true);
+    expect(useComposerDraftStore.getState().addPlugin(threadId, browserUse)).toBe(false);
+
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.plugins).toEqual([
+      browserUse,
+      computerUse,
+    ]);
+  });
+
+  it("removes one plugin without touching the others", () => {
+    const store = useComposerDraftStore.getState();
+    store.addPlugin(threadId, browserUse);
+    store.addPlugin(threadId, computerUse);
+
+    useComposerDraftStore.getState().removePlugin(threadId, browserUse.path);
+
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]?.plugins).toEqual([
+      computerUse,
+    ]);
+  });
+
+  it("clears plugins with the rest of the composer content", () => {
+    const store = useComposerDraftStore.getState();
+    store.setPrompt(threadId, "keep me company");
+    store.addPlugin(threadId, browserUse);
+
+    useComposerDraftStore.getState().clearComposerContent(threadId);
+
+    expect(useComposerDraftStore.getState().draftsByThreadId[threadId]).toBeUndefined();
+  });
+
+  it("persists the selected plugins and hydrates them back", () => {
+    useComposerDraftStore.getState().addPlugin(threadId, browserUse);
+
+    const persistApi = useComposerDraftStore.persist as unknown as {
+      getOptions: () => {
+        partialize: (state: ReturnType<typeof useComposerDraftStore.getState>) => unknown;
+        merge: (
+          persistedState: unknown,
+          currentState: ReturnType<typeof useComposerDraftStore.getState>,
+        ) => ReturnType<typeof useComposerDraftStore.getState>;
+      };
+    };
+    const persistedState = persistApi.getOptions().partialize(useComposerDraftStore.getState()) as {
+      draftsByThreadId?: Record<string, { plugins?: unknown }>;
+    };
+    expect(persistedState.draftsByThreadId?.[threadId]?.plugins).toEqual([browserUse]);
+
+    const mergedState = persistApi.getOptions().merge(
+      {
+        draftsByThreadId: {
+          [threadId]: {
+            prompt: "",
+            attachments: [],
+            plugins: [browserUse, { name: "broken" }, "not-an-entry"],
+          },
+        },
+        draftThreadsByThreadId: {},
+        projectDraftThreadIdByProjectId: {},
+      },
+      useComposerDraftStore.getInitialState(),
+    );
+
+    expect(mergedState.draftsByThreadId[threadId]?.plugins).toEqual([browserUse]);
   });
 });
 

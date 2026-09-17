@@ -53,7 +53,7 @@ import {
   gitCreateWorktreeMutationOptions,
   gitBranchesQueryOptions,
 } from "~/lib/gitReactQuery";
-import { resolveProviderDiscoveryCwd } from "~/lib/providerDiscovery";
+import { buildPluginMentionReference, resolveProviderDiscoveryCwd } from "~/lib/providerDiscovery";
 import {
   providerComposerCapabilitiesQueryOptions,
   providerCommandsQueryOptions,
@@ -227,6 +227,7 @@ import {
   getCustomModelsByProvider,
   getProviderStartOptions,
   resolveAppModelSelection,
+  resolveDefaultModelSelection,
   useAppSettings,
 } from "../appSettings";
 import { resolveTerminalNewAction } from "../lib/terminalNewAction";
@@ -243,6 +244,7 @@ import {
   useComposerThreadDraft,
   useEffectiveComposerModelState,
 } from "../composerDraftStore";
+import { pluginMentionDedupKey } from "../composerDraftStore.draft";
 import {
   appendOriginalTerminalContextBlock,
   appendTerminalContextsToPrompt,
@@ -289,7 +291,7 @@ import {
   type ComposerLocalDirectoryMenuHandle,
 } from "./chat/ComposerLocalDirectoryMenu";
 import { ComposerPendingApprovalActions } from "./chat/ComposerPendingApprovalActions";
-import { ComposerExtrasMenu } from "./chat/ComposerExtrasMenu";
+import { ComposerExtrasMenu, type ComposerExtrasPluginOption } from "./chat/ComposerExtrasMenu";
 import { ComposerPendingApprovalPanel } from "./chat/ComposerPendingApprovalPanel";
 import { ComposerPendingUserInputPanel } from "./chat/ComposerPendingUserInputPanel";
 import { ComposerApprovalChip } from "./chat/ComposerApprovalChip";
@@ -387,6 +389,7 @@ import {
   eventTargetsComposer,
   formatOutgoingPrompt,
   mergeDynamicModelOptions,
+  mergePluginMentions,
   promptIncludesSkillMention,
   providerMentionReferencesEqual,
   resolvePromptPluginMentions,
@@ -484,6 +487,7 @@ export default function ChatView({
   const prompt = composerDraft.prompt;
   const composerImages = composerDraft.images;
   const composerAssistantSelections = composerDraft.assistantSelections;
+  const composerPlugins = composerDraft.plugins;
   const composerTerminalContexts = composerDraft.terminalContexts;
   const queuedComposerTurns = composerDraft.queuedTurns;
   const {
@@ -528,6 +532,8 @@ export default function ChatView({
   const clearComposerDraftAssistantSelections = useComposerDraftStore(
     (store) => store.clearAssistantSelections,
   );
+  const addComposerDraftPlugin = useComposerDraftStore((store) => store.addPlugin);
+  const removeComposerDraftPlugin = useComposerDraftStore((store) => store.removePlugin);
   const insertComposerDraftTerminalContext = useComposerDraftStore(
     (store) => store.insertTerminalContext,
   );
@@ -756,6 +762,18 @@ export default function ChatView({
   const clearComposerAssistantSelectionsFromDraft = useCallback(() => {
     clearComposerDraftAssistantSelections(threadId);
   }, [clearComposerDraftAssistantSelections, threadId]);
+  const addComposerPluginToDraft = useCallback(
+    (plugin: ProviderMentionReference) => {
+      addComposerDraftPlugin(threadId, plugin);
+    },
+    [addComposerDraftPlugin, threadId],
+  );
+  const removeComposerPluginFromDraft = useCallback(
+    (pluginPath: string) => {
+      removeComposerDraftPlugin(threadId, pluginPath);
+    },
+    [removeComposerDraftPlugin, threadId],
+  );
   const removeComposerTerminalContextFromDraft = useCallback(
     (contextId: string) => {
       const contextIndex = composerTerminalContexts.findIndex(
@@ -1102,6 +1120,7 @@ export default function ChatView({
     selectedProvider,
     threadModelSelection: activeThread?.modelSelection,
     projectModelSelection: activeProject?.defaultModelSelection,
+    serverDefaultModelSelection: resolveDefaultModelSelection(settings),
     customModelsByProvider,
     availableModelOptionsByProvider: modelOptionsByProvider,
   });
@@ -1855,10 +1874,7 @@ export default function ChatView({
       providerPluginsQuery.data?.marketplaces.flatMap((marketplace) =>
         marketplace.plugins.map((plugin) => ({
           plugin,
-          mention: {
-            name: plugin.name,
-            path: `plugin://${plugin.name}@${marketplace.name}`,
-          } satisfies ProviderMentionReference,
+          mention: buildPluginMentionReference(plugin.name, marketplace.name),
         })),
       ) ?? EMPTY_COMPOSER_PLUGIN_SUGGESTIONS,
     [providerPluginsQuery.data],
@@ -4362,6 +4378,9 @@ export default function ChatView({
         }
         setSelectedComposerSkills(queuedTurn.skills);
         setSelectedComposerMentions(queuedTurn.mentions);
+        for (const plugin of queuedTurn.plugins) {
+          addComposerPluginToDraft(plugin);
+        }
       } else {
         setSelectedComposerSkills([]);
         setSelectedComposerMentions([]);
@@ -4377,6 +4396,7 @@ export default function ChatView({
       activeThread,
       addComposerAssistantSelectionToDraft,
       addComposerImagesToDraft,
+      addComposerPluginToDraft,
       addComposerTerminalContextsToDraft,
       clearComposerDraftContent,
       scheduleComposerFocus,
@@ -4459,6 +4479,7 @@ export default function ChatView({
       queuedChatTurn?.terminalContexts ?? composerTerminalContexts;
     const selectedComposerSkillsForSend = queuedChatTurn?.skills ?? selectedComposerSkills;
     const selectedComposerMentionsForSend = queuedChatTurn?.mentions ?? selectedComposerMentions;
+    const composerPluginsForSend = queuedChatTurn?.plugins ?? composerPlugins;
     const selectedProviderForSend = queuedChatTurn?.selectedProvider ?? selectedProvider;
     const selectedModelForSend = queuedChatTurn?.selectedModel ?? selectedModel;
     const selectedPromptEffortForSend =
@@ -4620,6 +4641,7 @@ export default function ChatView({
         terminalContexts: sendableComposerTerminalContexts,
         skills: selectedComposerSkillsForSend,
         mentions: selectedComposerMentionsForSend,
+        plugins: composerPluginsForSend,
         selectedProvider: selectedProviderForSend,
         selectedModel: selectedModelForSend,
         selectedPromptEffort: selectedPromptEffortForSend,
@@ -4754,6 +4776,7 @@ export default function ChatView({
     const composerTerminalContextsSnapshot = [...sendableComposerTerminalContexts];
     const composerSkillsSnapshot = [...selectedComposerSkillsForSend];
     const composerMentionsSnapshot = [...selectedComposerMentionsForSend];
+    const composerPluginsSnapshot = [...composerPluginsForSend];
     const messageTextForSend = appendTerminalContextsToPrompt(
       appendAssistantSelectionsToPrompt(promptForSend, composerAssistantSelectionsSnapshot),
       composerTerminalContextsSnapshot,
@@ -4769,11 +4792,14 @@ export default function ChatView({
     const mentionedSkillsForSend = selectedComposerSkillsForSend.filter((skill) =>
       promptIncludesSkillMention(outgoingMessageText, skill.name, selectedProviderForSend),
     );
-    const mentionedPluginMentionsForSend = resolvePromptPluginMentions({
-      prompt: outgoingMessageText,
-      existingMentions: selectedComposerMentionsForSend,
-      providerPlugins,
-    });
+    const mentionedPluginMentionsForSend = mergePluginMentions(
+      resolvePromptPluginMentions({
+        prompt: outgoingMessageText,
+        existingMentions: selectedComposerMentionsForSend,
+        providerPlugins,
+      }),
+      composerPluginsForSend,
+    );
     const turnAttachmentsPromise = Promise.all([
       ...composerAssistantSelectionsSnapshot.map((selection) =>
         Promise.resolve({
@@ -5037,6 +5063,9 @@ export default function ChatView({
           addComposerAssistantSelectionToDraft(selection);
         }
         addComposerTerminalContextsToDraft(composerTerminalContextsSnapshot);
+        for (const plugin of composerPluginsSnapshot) {
+          addComposerPluginToDraft(plugin);
+        }
         setSelectedComposerSkills(composerSkillsSnapshot);
         setSelectedComposerMentions(composerMentionsSnapshot);
         setComposerTrigger(detectComposerTrigger(promptForSend, promptForSend.length));
@@ -6332,6 +6361,45 @@ export default function ChatView({
   const onComposerMenuItemHighlighted = useCallback((itemId: string | null) => {
     setComposerHighlightedItemId(itemId);
   }, []);
+  /** Plugin chips already on the draft, keyed the way the `+` menu checks them off. */
+  const selectedComposerPluginKeys = useMemo(
+    () => new Set(composerPlugins.map((plugin) => pluginMentionDedupKey(plugin))),
+    [composerPlugins],
+  );
+  const composerExtrasPluginOptions = useMemo<ComposerExtrasPluginOption[]>(
+    () =>
+      providerPlugins.map((suggestion) => ({
+        reference: suggestion.mention,
+        key: pluginMentionDedupKey(suggestion.mention),
+        label: suggestion.plugin.interface?.displayName ?? suggestion.plugin.name,
+        description:
+          suggestion.plugin.interface?.shortDescription ??
+          suggestion.plugin.interface?.longDescription ??
+          null,
+      })),
+    [providerPlugins],
+  );
+  /** Chips show what the library showed: the manifest's display name when it has one. */
+  const composerPluginLabels = useMemo(
+    () =>
+      new Map(
+        providerPlugins.map((suggestion) => [
+          pluginMentionDedupKey(suggestion.mention),
+          suggestion.plugin.interface?.displayName ?? suggestion.plugin.name,
+        ]),
+      ),
+    [providerPlugins],
+  );
+  const toggleComposerPlugin = useCallback(
+    (plugin: ComposerExtrasPluginOption) => {
+      if (selectedComposerPluginKeys.has(plugin.key)) {
+        removeComposerPluginFromDraft(plugin.reference.path);
+        return;
+      }
+      addComposerPluginToDraft(plugin.reference);
+    },
+    [addComposerPluginToDraft, removeComposerPluginFromDraft, selectedComposerPluginKeys],
+  );
   const nudgeComposerMenuHighlight = useCallback(
     (key: "ArrowDown" | "ArrowUp") => {
       if (composerMenuItems.length === 0) {
@@ -6846,12 +6914,17 @@ export default function ChatView({
 
             {!isComposerApprovalState &&
               pendingUserInputs.length === 0 &&
-              (composerAssistantSelections.length > 0 || composerImages.length > 0) && (
+              (composerPlugins.length > 0 ||
+                composerAssistantSelections.length > 0 ||
+                composerImages.length > 0) && (
                 <ComposerReferenceAttachments
+                  plugins={composerPlugins}
+                  pluginLabels={composerPluginLabels}
                   assistantSelections={composerAssistantSelections}
                   images={composerImages}
                   nonPersistedImageIdSet={nonPersistedComposerImageIdSet}
                   onExpandImage={setExpandedImage}
+                  onRemovePlugin={removeComposerPluginFromDraft}
                   onRemoveAssistantSelections={clearComposerAssistantSelectionsFromDraft}
                   onRemoveImage={removeComposerImage}
                 />
@@ -6923,8 +6996,11 @@ export default function ChatView({
                 <ComposerExtrasMenu
                   supportsFastMode={composerTraitSelection.caps.supportsFastMode}
                   fastModeEnabled={composerTraitSelection.fastModeEnabled}
+                  plugins={composerExtrasPluginOptions}
+                  selectedPluginKeys={selectedComposerPluginKeys}
                   onAddPhotos={addComposerImages}
                   onToggleFastMode={toggleFastMode}
+                  onTogglePlugin={toggleComposerPlugin}
                 />
 
                 <ComposerModeChip
@@ -6942,16 +7018,6 @@ export default function ChatView({
 
                 {!isVoiceRecording && !isVoiceTranscribing ? (
                   <>
-                    {/* Provider/model picker */}
-                    {composerModelPickerControl}
-
-                    {composerTraitsPickerControl ? (
-                      <>
-                        <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-                        {composerTraitsPickerControl}
-                      </>
-                    ) : null}
-
                     {interactionMode === "plan" ? (
                       <>
                         <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
@@ -7004,6 +7070,19 @@ export default function ChatView({
                   isVoiceRecording || isVoiceTranscribing ? "min-w-0 flex-1" : "shrink-0",
                 )}
               >
+                {!isVoiceRecording && !isVoiceTranscribing ? (
+                  <div className="flex items-center gap-1">
+                    {/* Provider/model picker */}
+                    {composerModelPickerControl}
+
+                    {composerTraitsPickerControl ? (
+                      <>
+                        <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
+                        {composerTraitsPickerControl}
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
                 {runtimeUsageContextWindow ? (
                   <ContextWindowMeter
                     usage={runtimeUsageContextWindow}

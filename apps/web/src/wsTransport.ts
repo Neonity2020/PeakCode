@@ -22,6 +22,8 @@ import { Cause, Data, Effect, Exit, Layer, ManagedRuntime, Scope, Stream } from 
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import * as Socket from "effect/unstable/socket/Socket";
 
+import { resolveServerWsUrl } from "./lib/serverEndpoint";
+
 type PushListener<C extends WsPushChannel> = (message: WsPushMessage<C>) => void;
 
 type RpcClientEffect = typeof makeRpcClient;
@@ -43,17 +45,30 @@ function resolveRpcUrl(rawUrl: string): string {
   return url.toString();
 }
 
+/**
+ * Carry a `token` from the page URL onto the socket URL.
+ *
+ * `http://host:port/?token=…` is the documented way to open a token-protected server in a
+ * plain browser (REMOTE.md), but the derived socket URL has no query string of its own —
+ * without this the page would load and then fail to authenticate. A token already present
+ * on the socket URL (desktop bridge) wins.
+ */
+export function applyPageToken(socketUrl: string, search: string | undefined): string {
+  // A page without a search string (or a stubbed location in tests) has nothing to add.
+  if (!search) return socketUrl;
+  const pageToken = new URLSearchParams(search).get("token");
+  if (pageToken === null || pageToken.length === 0) return socketUrl;
+  const url = new URL(socketUrl);
+  if (url.searchParams.has("token")) return socketUrl;
+  url.searchParams.set("token", pageToken);
+  return url.toString();
+}
+
 function makeSocketUrl(explicitUrl: string | null): string {
   if (explicitUrl) return resolveRpcUrl(explicitUrl);
-  const bridgeUrl = window.desktopBridge?.getWsUrl();
-  const envUrl = import.meta.env.VITE_WS_URL as string | undefined;
-  const rawUrl =
-    bridgeUrl && bridgeUrl.length > 0
-      ? bridgeUrl
-      : envUrl && envUrl.length > 0
-        ? envUrl
-        : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.hostname}:${window.location.port}`;
-  return resolveRpcUrl(rawUrl);
+  // With no injected address this falls back to the page's own origin — exactly what a
+  // phone that reached the app through a tunnel or over the LAN needs.
+  return resolveRpcUrl(applyPageToken(resolveServerWsUrl(), window.location.search));
 }
 
 function makeProtocolLayer(url: string) {

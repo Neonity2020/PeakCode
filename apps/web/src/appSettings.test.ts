@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   AppSettingsSchema,
+  appSettingsPatchToServerSettingsPatch,
   DEFAULT_CHAT_FONT_SIZE_PX,
   DEFAULT_SIDEBAR_PROJECT_SORT_ORDER,
   DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
@@ -21,6 +22,7 @@ import {
   normalizeStoredAppSettings,
   patchCustomModels,
   resolveAppModelSelection,
+  resolveDefaultModelSelection,
 } from "./appSettings";
 
 describe("normalizeCustomModelSlugs", () => {
@@ -316,6 +318,39 @@ describe("AppSettingsSchema", () => {
       sidebarThreadSortOrder: DEFAULT_SIDEBAR_THREAD_SORT_ORDER,
       timestampFormat: DEFAULT_TIMESTAMP_FORMAT,
       customPiModels: [],
+    });
+  });
+});
+
+describe("default model setting", () => {
+  it("maps a chosen model onto the server patch and an empty model onto a clear", () => {
+    expect(
+      appSettingsPatchToServerSettingsPatch({ defaultModel: "deepseek/deepseek-v4-pro" }),
+    ).toEqual({
+      defaultModelSelection: { provider: "pi", model: "deepseek/deepseek-v4-pro" },
+    });
+    expect(appSettingsPatchToServerSettingsPatch({ defaultModel: "" })).toEqual({
+      defaultModelSelection: { provider: "pi", model: "" },
+    });
+  });
+
+  it("leaves the stored model alone when only the provider is patched", () => {
+    // No `model` key at all: the server keeps the slug it has instead of clearing it.
+    expect(appSettingsPatchToServerSettingsPatch({ defaultModelProvider: "pi" })).toEqual({
+      defaultModelSelection: { provider: "pi" },
+    });
+  });
+
+  it("reads back a configured default, and treats unset or cleared as none", () => {
+    const withDefaultModel = (defaultModel?: string) =>
+      AppSettingsSchema.makeUnsafe({ ...(defaultModel === undefined ? {} : { defaultModel }) });
+
+    expect(resolveDefaultModelSelection(withDefaultModel())).toBeNull();
+    expect(resolveDefaultModelSelection(withDefaultModel(""))).toBeNull();
+    expect(resolveDefaultModelSelection(withDefaultModel("   "))).toBeNull();
+    expect(resolveDefaultModelSelection(withDefaultModel("deepseek/deepseek-v4-pro"))).toEqual({
+      provider: "pi",
+      model: "deepseek/deepseek-v4-pro",
     });
   });
 });
