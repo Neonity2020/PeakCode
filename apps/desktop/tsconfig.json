@@ -3,7 +3,10 @@
   "compilerOptions": {
     "composite": true,
     "types": ["node", "electron"],
-    "lib": ["ES2023", "DOM", "esnext.disposable"]
+    "lib": ["ES2023", "DOM", "esnext.disposable"],
+    // @peakcode/shared names its siblings with the `.ts` extension (Node loads it that way in
+    // the release scripts), so this program sees those specifiers too.
+    "allowImportingTsExtensions": true
   },
   "include": ["src", "tsdown.config.ts"]
 }

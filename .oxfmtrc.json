@@ -8,6 +8,7 @@
     "bun.lock",
     "*.tsbuildinfo",
     "**/routeTree.gen.ts",
+    "**/*.generated.ts",
     "apps/web/public/mockServiceWorker.js"
   ],
   "sortPackageJson": {}

@@ -34,6 +34,9 @@ __screenshots__/
 /browser-sidebar-comment-preload.js.map
 /preload.js.map
 /bootstrap.js.map
+# A server bundle built at the repo root instead of apps/server/dist.
+/index.mjs
+/index.mjs.map
 
 # Local dev instance data
 .peakcode-*/

@@ -20,6 +20,10 @@
       "types": "./src/shell.ts",
       "import": "./src/shell.ts"
     },
+    "./shellEnvironment": {
+      "types": "./src/shellEnvironment.ts",
+      "import": "./src/shellEnvironment.ts"
+    },
     "./codexConfig": {
       "types": "./src/codexConfig.ts",
       "import": "./src/codexConfig.ts"
@@ -95,6 +99,18 @@
     "./automationSchedule": {
       "types": "./src/automationSchedule.ts",
       "import": "./src/automationSchedule.ts"
+    },
+    "./browserUsePipe": {
+      "types": "./src/browserUsePipe.ts",
+      "import": "./src/browserUsePipe.ts"
+    },
+    "./computerUse": {
+      "types": "./src/computerUse.ts",
+      "import": "./src/computerUse.ts"
+    },
+    "./computerUseHelperBuild": {
+      "types": "./src/computerUseHelperBuild.ts",
+      "import": "./src/computerUseHelperBuild.ts"
     }
   },
   "scripts": {

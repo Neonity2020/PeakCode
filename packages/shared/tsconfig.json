@@ -1,4 +1,10 @@
 {
   "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // Sibling imports carry the `.ts` extension because this package is also loaded by Node
+    // directly (the release scripts run it with type stripping, and Node requires the exact
+    // file name). Same setting as apps/server, packages/agent-toolkit and scripts.
+    "allowImportingTsExtensions": true
+  },
   "include": ["src"]
 }
