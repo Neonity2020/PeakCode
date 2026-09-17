@@ -28,7 +28,8 @@ import { ensureNativeApi } from "./nativeApi";
 import { serverQueryKeys, serverSettingsQueryOptions } from "./lib/serverReactQuery";
 import { DEFAULT_LANGUAGE, normalizeLanguage } from "./i18n";
 
-const APP_SETTINGS_STORAGE_KEY = "peakcode:app-settings:v1";
+// Exported so browser tests can pin the persisted UI language deterministically.
+export const APP_SETTINGS_STORAGE_KEY = "peakcode:app-settings:v1";
 const SERVER_SETTINGS_MIGRATION_STORAGE_KEY = "peakcode:server-settings-migrated:v1";
 const MAX_CUSTOM_MODEL_COUNT = 32;
 export const MAX_CUSTOM_MODEL_LENGTH = 256;

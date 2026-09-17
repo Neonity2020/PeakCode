@@ -3,6 +3,8 @@ import { memo } from "react";
 import { BiTargetLock } from "react-icons/bi";
 import { GoTasklist, GoZap } from "react-icons/go";
 
+import { useMessages } from "~/i18n";
+import { composerInteractionModeLabel } from "~/lib/composerInteractionMode";
 import { cn } from "~/lib/utils";
 
 /**
@@ -16,6 +18,12 @@ import { cn } from "~/lib/utils";
  */
 const MODE_ORDER: readonly ProviderInteractionMode[] = ["default", "plan", "goal"];
 
+const MODE_ICONS: Record<ProviderInteractionMode, typeof GoZap> = {
+  default: GoZap,
+  plan: GoTasklist,
+  goal: BiTargetLock,
+};
+
 export const ComposerModeChip = memo(function ComposerModeChip({
   mode,
   disabled,
@@ -25,15 +33,18 @@ export const ComposerModeChip = memo(function ComposerModeChip({
   disabled?: boolean | undefined;
   onChange: (mode: ProviderInteractionMode) => void;
 }) {
+  const messages = useMessages();
   const next = MODE_ORDER[(MODE_ORDER.indexOf(mode) + 1) % MODE_ORDER.length]!;
-  const { label, hint, Icon } = modePresentation(mode);
+  const label = composerInteractionModeLabel(mode);
+  const hint = modeHint(messages, mode);
+  const Icon = MODE_ICONS[mode];
 
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={() => onChange(next)}
-      title={`${label} · ${hint}（点击切换到 ${modePresentation(next).label}）`}
+      title={`${label} · ${hint} · ${messages.composer.interactionMode.switchHint(composerInteractionModeLabel(next))}`}
       aria-label={`${label} · ${hint}`}
       className={cn(
         "inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1",
@@ -50,17 +61,14 @@ export const ComposerModeChip = memo(function ComposerModeChip({
   );
 });
 
-function modePresentation(mode: ProviderInteractionMode): {
-  label: string;
-  hint: string;
-  Icon: typeof GoZap;
-} {
+function modeHint(messages: ReturnType<typeof useMessages>, mode: ProviderInteractionMode): string {
+  const hints = messages.composer.interactionMode;
   switch (mode) {
     case "plan":
-      return { label: "Plan", hint: "只调研不出手，先给方案", Icon: GoTasklist };
+      return hints.planHint;
     case "goal":
-      return { label: "Goal", hint: "锁定目标，自主走到验收", Icon: BiTargetLock };
+      return hints.goalHint;
     default:
-      return { label: "Agent", hint: "直接动手：读改跑测一条龙", Icon: GoZap };
+      return hints.agentHint;
   }
 }

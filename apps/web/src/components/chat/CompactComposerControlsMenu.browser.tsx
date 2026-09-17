@@ -5,6 +5,7 @@ import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { I18nProvider } from "../../i18n";
 import { CompactComposerControlsMenu } from "./CompactComposerControlsMenu";
 import { TraitsMenuContent } from "./TraitsPicker";
 import { useComposerDraftStore } from "../../composerDraftStore";
@@ -52,25 +53,27 @@ async function mountMenu(props?: {
   const providerOptions = props?.modelSelection?.options;
   const onSetInteractionMode = vi.fn();
   const screen = await render(
-    <CompactComposerControlsMenu
-      activePlan={props?.activePlan ?? false}
-      interactionMode={props?.interactionMode ?? "default"}
-      planSidebarOpen={false}
-      runtimeMode="approval-required"
-      traitsMenuContent={
-        <TraitsMenuContent
-          provider={provider}
-          threadId={threadId}
-          model={model}
-          prompt={props?.prompt ?? ""}
-          modelOptions={providerOptions}
-          onPromptChange={onPromptChange}
-        />
-      }
-      onSetInteractionMode={onSetInteractionMode}
-      onTogglePlanSidebar={vi.fn()}
-      onToggleRuntimeMode={vi.fn()}
-    />,
+    <I18nProvider language="en">
+      <CompactComposerControlsMenu
+        activePlan={props?.activePlan ?? false}
+        interactionMode={props?.interactionMode ?? "default"}
+        planSidebarOpen={false}
+        runtimeMode="approval-required"
+        traitsMenuContent={
+          <TraitsMenuContent
+            provider={provider}
+            threadId={threadId}
+            model={model}
+            prompt={props?.prompt ?? ""}
+            modelOptions={providerOptions}
+            onPromptChange={onPromptChange}
+          />
+        }
+        onSetInteractionMode={onSetInteractionMode}
+        onTogglePlanSidebar={vi.fn()}
+        onToggleRuntimeMode={vi.fn()}
+      />
+    </I18nProvider>,
     { container: host },
   );
 

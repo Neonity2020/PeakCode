@@ -345,6 +345,14 @@ export type Messages = {
     planLabel: string;
     localLabel: string;
     codexLabel: string;
+    interactionMode: {
+      agentHint: string;
+      planHint: string;
+      goalHint: string;
+      switchHint: (label: string) => string;
+      showPlanSidebar: string;
+      hidePlanSidebar: string;
+    };
     removeImage: string;
     pendingApproval: string;
     pendingUserInput: string;
@@ -1671,6 +1679,14 @@ const en: Messages = {
     planLabel: "Plan",
     localLabel: "Local",
     codexLabel: "Codex",
+    interactionMode: {
+      agentHint: "Direct execution: read, edit, run, test",
+      planHint: "Research only — propose a plan before changing code",
+      goalHint: "Locked objective, runs autonomously to acceptance",
+      switchHint: (label) => `Click to switch to ${label}`,
+      showPlanSidebar: "Show plan sidebar",
+      hidePlanSidebar: "Hide plan sidebar",
+    },
     removeImage: "Remove image",
     pendingApproval: "Pending approval",
     pendingUserInput: "Awaiting your input",
@@ -3085,6 +3101,14 @@ const zh: Messages = {
     planLabel: "计划",
     localLabel: "本地",
     codexLabel: "Codex",
+    interactionMode: {
+      agentHint: "直接动手：读改跑测一条龙",
+      planHint: "只调研不出手，先给方案",
+      goalHint: "锁定目标，自主走到验收",
+      switchHint: (label) => `点击切换到 ${label}`,
+      showPlanSidebar: "显示计划侧边栏",
+      hidePlanSidebar: "隐藏计划侧边栏",
+    },
     removeImage: "移除图片",
     pendingApproval: "待审批",
     pendingUserInput: "等待你的输入",

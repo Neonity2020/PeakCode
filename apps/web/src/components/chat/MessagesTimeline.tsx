@@ -300,6 +300,10 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       expandedUserMessagesById,
       expandedWorkGroupsState,
       submittingEditedUserMessageId,
+      // Row content also depends on the live-layout flags: the inline tool list shows
+      // its tail while the turn runs and relaxes to the head once it settles.
+      activeTurnInProgress,
+      isWorking,
     }),
     [
       editingUserMessageId,
@@ -307,6 +311,8 @@ export const MessagesTimeline = memo(function MessagesTimeline({
       expandedUserMessagesById,
       expandedWorkGroupsState,
       submittingEditedUserMessageId,
+      activeTurnInProgress,
+      isWorking,
     ],
   );
   const fallbackListRef = useRef<LegendListRef | null>(null);

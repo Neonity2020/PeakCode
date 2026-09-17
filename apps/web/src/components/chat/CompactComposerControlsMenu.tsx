@@ -1,5 +1,6 @@
 import { ProviderInteractionMode, RuntimeMode } from "@peakcode/contracts";
 import { memo, type ReactNode } from "react";
+import { useMessages } from "~/i18n";
 import { EllipsisIcon, ListTodoIcon } from "~/lib/icons";
 import { Button } from "../ui/button";
 import {
@@ -22,6 +23,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
   onTogglePlanSidebar: () => void;
   onToggleRuntimeMode: () => void;
 }) {
+  const messages = useMessages();
   return (
     <Menu>
       <MenuTrigger
@@ -30,7 +32,7 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             size="sm"
             variant="chrome"
             className="shrink-0 px-2"
-            aria-label="More composer controls"
+            aria-label={messages.composer.moreAria}
           />
         }
       >
@@ -43,7 +45,9 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             <MenuDivider />
           </>
         ) : null}
-        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">Mode</div>
+        <div className="px-2 py-1.5 font-medium text-muted-foreground text-xs">
+          {messages.composer.modeLabel}
+        </div>
         <MenuRadioGroup
           value={props.interactionMode}
           onValueChange={(value) => {
@@ -60,7 +64,9 @@ export const CompactComposerControlsMenu = memo(function CompactComposerControls
             <MenuDivider />
             <MenuItem onClick={props.onTogglePlanSidebar}>
               <ListTodoIcon className="size-4 shrink-0" />
-              {props.planSidebarOpen ? "Hide plan sidebar" : "Show plan sidebar"}
+              {props.planSidebarOpen
+                ? messages.composer.interactionMode.hidePlanSidebar
+                : messages.composer.interactionMode.showPlanSidebar}
             </MenuItem>
           </>
         ) : null}

@@ -11,13 +11,11 @@ import {
   ThreadId,
   TurnId,
   type WsWelcomePayload,
-  WS_CHANNELS,
   WS_METHODS,
   OrchestrationSessionStatus,
 } from "@peakcode/contracts";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { HttpResponse, http, ws } from "msw";
-import { setupWorker } from "msw/browser";
+import { HttpResponse, http } from "msw";
 import { page } from "vitest/browser";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
@@ -38,6 +36,10 @@ import { useSplitViewStore } from "../splitViewStore";
 import { useStore } from "../store";
 import { useTemporaryThreadStore } from "../temporaryThreadStore";
 import { useTerminalStateStore } from "../terminalStateStore";
+import { seedBrowserTestLanguage } from "../test/browserTestAppSettings";
+import { MESSAGES } from "../i18n/messages";
+import { shellSnapshotFromReadModel } from "../test/shellSnapshotFixture";
+import { WsRpcTestServer } from "../test/wsRpcTestServer";
 import { estimateTimelineMessageHeight } from "./timelineHeight";
 
 const THREAD_ID = "thread-browser-test" as ThreadId;
@@ -49,14 +51,20 @@ const NOW_ISO = "2026-03-04T12:00:00.000Z";
 const BASE_TIME_MS = Date.parse(NOW_ISO);
 const ATTACHMENT_SVG = "<svg xmlns='http://www.w3.org/2000/svg' width='120' height='300'></svg>";
 let attachmentResponseDelayMs = 0;
+// Command results carry the monotonic event sequence the turn lands at; keep it above the
+// fixture snapshot sequence so the app never treats a fresh dispatch as stale.
+let dispatchCommandSequence = 1_000;
 
-interface WsRequestEnvelope {
-  id: string;
-  body: {
-    _tag: string;
-    [key: string]: unknown;
-  };
-}
+// Runtime model discovery drives the composer's model and effort pickers.
+const RUNTIME_MODELS = [
+  {
+    slug: "gpt-5",
+    name: "GPT-5",
+    supportsFastMode: true,
+    supportedReasoningEfforts: [{ value: "low" }, { value: "medium" }, { value: "high" }],
+  },
+  { slug: "pi-coder-xl", name: "Pi Coder XL" },
+];
 
 interface TestFixture {
   snapshot: OrchestrationReadModel;
@@ -65,8 +73,7 @@ interface TestFixture {
 }
 
 let fixture: TestFixture;
-const wsRequests: WsRequestEnvelope["body"][] = [];
-const wsLink = ws.link(/ws(s)?:\/\/.*/);
+const server = new WsRpcTestServer();
 
 interface ViewportSpec {
   name: string;
@@ -734,10 +741,15 @@ function createSnapshotWithInlineToolOverflow(options: {
   };
 }
 
-function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
-  const tag = body._tag;
+function resolveWsRpc(tag: string, payload: Record<string, unknown>): unknown {
+  if (VOID_RPC_METHODS.has(tag)) {
+    return null;
+  }
   if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
     return fixture.snapshot;
+  }
+  if (tag === ORCHESTRATION_WS_METHODS.getShellSnapshot) {
+    return shellSnapshotFromReadModel(fixture.snapshot);
   }
   if (tag === WS_METHODS.serverGetConfig) {
     return fixture.serverConfig;
@@ -773,10 +785,10 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   }
   if (tag === WS_METHODS.gitCreateWorktree) {
     const requestedBranch =
-      typeof body.newBranch === "string"
-        ? body.newBranch
-        : typeof body.branch === "string"
-          ? body.branch
+      typeof payload.newBranch === "string"
+        ? payload.newBranch
+        : typeof payload.branch === "string"
+          ? payload.branch
           : "main";
     return {
       worktree: {
@@ -793,9 +805,9 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
   }
   if (tag === WS_METHODS.terminalOpen) {
     return {
-      threadId: typeof body.threadId === "string" ? body.threadId : THREAD_ID,
-      terminalId: typeof body.terminalId === "string" ? body.terminalId : "default",
-      cwd: typeof body.cwd === "string" ? body.cwd : "/repo/project",
+      threadId: typeof payload.threadId === "string" ? payload.threadId : THREAD_ID,
+      terminalId: typeof payload.terminalId === "string" ? payload.terminalId : "default",
+      cwd: typeof payload.cwd === "string" ? payload.cwd : "/repo/project",
       status: "running",
       pid: 123,
       history: "",
@@ -804,53 +816,100 @@ function resolveWsRpc(body: WsRequestEnvelope["body"]): unknown {
       updatedAt: NOW_ISO,
     };
   }
+  if (tag === ORCHESTRATION_WS_METHODS.dispatchCommand) {
+    return { sequence: dispatchCommandSequence++ };
+  }
+  if (tag === WS_METHODS.gitReadWorkingTreeDiff) {
+    return { patch: "" };
+  }
+  if (tag === WS_METHODS.serverGetProviderUsageSnapshot) {
+    return null;
+  }
+  if (tag === WS_METHODS.providerListModels) {
+    return { models: RUNTIME_MODELS };
+  }
+  if (tag === WS_METHODS.providerGetComposerCapabilities) {
+    return {
+      provider: "pi",
+      supportsSkillMentions: true,
+      supportsSkillDiscovery: true,
+      supportsNativeSlashCommandDiscovery: true,
+      supportsPluginMentions: false,
+      supportsPluginDiscovery: false,
+      supportsRuntimeModelList: true,
+      supportsThreadCompaction: true,
+      supportsThreadImport: true,
+    };
+  }
+  if (tag === WS_METHODS.providerListSkills) {
+    return { skills: [] };
+  }
+  if (tag === WS_METHODS.agentRuntimeGet) {
+    return { approvalMode: "manual", context: null };
+  }
+  if (tag === WS_METHODS.agentGoalGet) {
+    return { goal: null };
+  }
   return {};
 }
 
-const worker = setupWorker(
-  wsLink.addEventListener("connection", ({ client }) => {
-    client.send(
-      JSON.stringify({
-        type: "push",
-        sequence: 1,
-        channel: WS_CHANNELS.serverWelcome,
-        data: fixture.welcome,
-      }),
-    );
-    client.addEventListener("message", (event) => {
-      const rawData = event.data;
-      if (typeof rawData !== "string") return;
-      let request: WsRequestEnvelope;
-      try {
-        request = JSON.parse(rawData) as WsRequestEnvelope;
-      } catch {
-        return;
+// Side-effect methods whose success schema is `Void`: the encoded result is null.
+const VOID_RPC_METHODS: ReadonlySet<string> = new Set([
+  WS_METHODS.shellOpenInEditor,
+  WS_METHODS.terminalWrite,
+  WS_METHODS.terminalResize,
+  WS_METHODS.terminalClear,
+  WS_METHODS.terminalClose,
+  WS_METHODS.gitRemoveWorktree,
+  WS_METHODS.gitCreateBranch,
+  WS_METHODS.gitCheckout,
+  WS_METHODS.gitStashAndCheckout,
+  WS_METHODS.gitStashDrop,
+  WS_METHODS.gitRemoveIndexLock,
+  WS_METHODS.gitInit,
+]);
+
+function registerServerHandlers(): void {
+  server.handleFallback((tag, payload) => resolveWsRpc(tag, payload));
+  server.worker.use(
+    http.get("*/attachments/:attachmentId", async () => {
+      if (attachmentResponseDelayMs > 0) {
+        await new Promise<void>((resolve) => {
+          globalThis.setTimeout(() => resolve(), attachmentResponseDelayMs);
+        });
       }
-      const method = request.body?._tag;
-      if (typeof method !== "string") return;
-      wsRequests.push(request.body);
-      client.send(
-        JSON.stringify({
-          id: request.id,
-          result: resolveWsRpc(request.body),
-        }),
-      );
-    });
-  }),
-  http.get("*/attachments/:attachmentId", async () => {
-    if (attachmentResponseDelayMs > 0) {
-      await new Promise<void>((resolve) => {
-        globalThis.setTimeout(() => resolve(), attachmentResponseDelayMs);
+      return HttpResponse.text(ATTACHMENT_SVG, {
+        headers: {
+          "Content-Type": "image/svg+xml",
+        },
       });
-    }
-    return HttpResponse.text(ATTACHMENT_SVG, {
-      headers: {
-        "Content-Type": "image/svg+xml",
-      },
+    }),
+  );
+  server.stream(WS_METHODS.subscribeServerLifecycle, (_payload, send) => {
+    send({ type: "welcome", payload: fixture.welcome });
+  });
+  server.stream(WS_METHODS.subscribeServerConfig, (_payload, send) => {
+    send({ type: "snapshot", config: fixture.serverConfig });
+  });
+  server.stream(WS_METHODS.subscribeServerProviderStatuses, () => undefined);
+  server.stream(WS_METHODS.subscribeServerSettings, () => undefined);
+  server.stream(WS_METHODS.subscribeTerminalEvents, () => undefined);
+  server.stream(WS_METHODS.subscribeOrchestrationDomainEvents, () => undefined);
+  server.stream(ORCHESTRATION_WS_METHODS.subscribeShell, (_payload, send) => {
+    send({ kind: "snapshot", snapshot: shellSnapshotFromReadModel(fixture.snapshot) });
+  });
+  server.stream(ORCHESTRATION_WS_METHODS.subscribeThread, (payload, send) => {
+    const threadId = payload.threadId as ThreadId;
+    const thread = fixture.snapshot.threads.find((entry) => entry.id === threadId);
+    if (!thread) return;
+    send({
+      kind: "snapshot",
+      snapshot: { snapshotSequence: fixture.snapshot.snapshotSequence, thread },
     });
-  }),
-  http.get("*/api/project-favicon", () => new HttpResponse(null, { status: 204 })),
-);
+  });
+}
+
+const worker = server.worker;
 
 async function nextFrame(): Promise<void> {
   await new Promise<void>((resolve) => {
@@ -935,10 +994,46 @@ async function waitForSendButton(): Promise<HTMLButtonElement> {
   );
 }
 
+async function clickModeChipAndWaitFor(expectedLabel: "Agent" | "Plan" | "Goal"): Promise<void> {
+  const chip = await waitForElement(() => findModeChip(), "Unable to find the composer mode chip.");
+  chip.click();
+  await vi.waitFor(() => {
+    expect(findModeChip()?.getAttribute("aria-label")).toMatch(new RegExp(`^${expectedLabel} · `));
+  });
+}
+
+function findModeChip(): HTMLButtonElement | null {
+  return (
+    Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
+      /^(Agent|Plan|Goal) · /.test(button.getAttribute("aria-label") ?? ""),
+    ) ?? null
+  );
+}
+
+/**
+ * Clicks send until the turn actually dispatches. The button can be re-rendered between the
+ * lookup and the click, which would drop the first click on a detached node.
+ */
+async function clickUntilTurnStarts(sendButton: HTMLButtonElement): Promise<void> {
+  await vi.waitFor(
+    () => {
+      if (server.count(ORCHESTRATION_WS_METHODS.dispatchCommand) === 0) {
+        sendButton.click();
+      }
+      expect(server.count(ORCHESTRATION_WS_METHODS.dispatchCommand)).toBeGreaterThan(0);
+    },
+    { timeout: 8_000, interval: 50 },
+  );
+}
+
+function findTerminalOpenAt(cwd: string) {
+  return server.requestsFor(WS_METHODS.terminalOpen).find((request) => request.payload.cwd === cwd);
+}
+
 async function waitForServerConfigToApply(): Promise<void> {
   await vi.waitFor(
     () => {
-      expect(wsRequests.some((request) => request._tag === WS_METHODS.serverGetConfig)).toBe(true);
+      expect(server.count(WS_METHODS.serverGetConfig)).toBeGreaterThan(0);
     },
     { timeout: 8_000, interval: 16 },
   );
@@ -1209,6 +1304,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
         targetText: "bootstrap",
       }),
     );
+    registerServerHandlers();
     await worker.start({
       onUnhandledRequest: "bypass",
       quiet: true,
@@ -1225,9 +1321,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
   beforeEach(async () => {
     await setViewport(DEFAULT_VIEWPORT);
     attachmentResponseDelayMs = 0;
+    dispatchCommandSequence = 1_000;
     localStorage.clear();
+    seedBrowserTestLanguage("en");
     document.body.innerHTML = "";
-    wsRequests.length = 0;
+    server.clearRequests();
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},
@@ -1631,11 +1729,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          const openRequest = wsRequests.find(
-            (request) => request._tag === WS_METHODS.shellOpenInEditor,
-          );
-          expect(openRequest).toMatchObject({
-            _tag: WS_METHODS.shellOpenInEditor,
+          const openRequest = server
+            .requestsFor(WS_METHODS.shellOpenInEditor)
+            .find((request) => request.payload.editor === "vscode");
+          expect(openRequest?.payload).toMatchObject({
             cwd: "/repo/project",
             editor: "vscode",
           });
@@ -1706,11 +1803,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          const openRequest = wsRequests.find(
-            (request) => request._tag === WS_METHODS.terminalOpen,
-          );
-          expect(openRequest).toMatchObject({
-            _tag: WS_METHODS.terminalOpen,
+          const openRequest = findTerminalOpenAt("/repo/project");
+          expect(openRequest?.payload).toMatchObject({
             threadId: THREAD_ID,
             cwd: "/repo/project",
             env: {
@@ -1723,11 +1817,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          const writeRequest = wsRequests.find(
-            (request) => request._tag === WS_METHODS.terminalWrite,
-          );
-          expect(writeRequest).toMatchObject({
-            _tag: WS_METHODS.terminalWrite,
+          const writeRequest = server
+            .requestsFor(WS_METHODS.terminalWrite)
+            .find((request) => request.payload.data === "bun run lint\r");
+          expect(writeRequest?.payload).toMatchObject({
             threadId: THREAD_ID,
             data: "bun run lint\r",
           });
@@ -1783,11 +1876,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          const openRequest = wsRequests.find(
-            (request) => request._tag === WS_METHODS.terminalOpen,
-          );
-          expect(openRequest).toMatchObject({
-            _tag: WS_METHODS.terminalOpen,
+          const openRequest = findTerminalOpenAt("/repo/worktrees/feature-draft");
+          expect(openRequest?.payload).toMatchObject({
             threadId: THREAD_ID,
             cwd: "/repo/worktrees/feature-draft",
             env: {
@@ -1843,10 +1933,11 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           expect(readInteractionMode()).toBe("plan");
-          const planButton = Array.from(
-            document.querySelectorAll<HTMLButtonElement>("button"),
-          ).find((button) => button.textContent?.trim() === "Plan");
-          expect(planButton?.title).toContain("return to normal build mode");
+          const planChip = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+            (button) => button.getAttribute("aria-label")?.startsWith("Plan · "),
+          );
+          expect(planChip).toBeTruthy();
+          expect(planChip?.title).toContain(MESSAGES.en.composer.interactionMode.planHint);
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -1887,8 +1978,8 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(() => {
         const text = document.body.textContent ?? "";
-        expect(text).toContain("Codex");
-        expect(text).toContain("Claude");
+        expect(text).toContain("GPT-5");
+        expect(text).toContain("Pi Coder XL");
       });
     } finally {
       await mounted.cleanup();
@@ -2058,15 +2149,18 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       const sendButton = await waitForSendButton();
       expect(sendButton.disabled).toBe(false);
-      sendButton.click();
-
+      await clickUntilTurnStarts(sendButton);
       await vi.waitFor(
         () => {
           expect(document.body.textContent).toContain(
             "Expired terminal context omitted from message",
           );
           expect(document.body.textContent).not.toContain(expiredLabel);
-          expect(document.body.textContent).toContain("yoowaddup");
+          // The transcript is virtualized, so assert on what was actually sent.
+          const turnStart = server
+            .requestsFor(ORCHESTRATION_WS_METHODS.dispatchCommand)
+            .find((request) => request.payload.type === "thread.turn.start");
+          expect(turnStart?.payload.message).toMatchObject({ text: "yoowaddup" });
         },
         { timeout: 8_000, interval: 16 },
       );
@@ -2494,36 +2588,32 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          const createWorktreeRequest = wsRequests.find(
-            (request) =>
-              request._tag === WS_METHODS.gitCreateWorktree &&
-              request.cwd === "/repo/project" &&
-              request.branch === "main" &&
-              typeof request.newBranch === "string",
-          );
+          const createWorktreeRequest = server
+            .requestsFor(WS_METHODS.gitCreateWorktree)
+            .find(
+              (request) =>
+                request.payload.cwd === "/repo/project" &&
+                request.payload.branch === "main" &&
+                typeof request.payload.newBranch === "string",
+            );
           expect(createWorktreeRequest).toBeTruthy();
-          expect(createWorktreeRequest?.newBranch).toMatch(/^peakcode\/[0-9a-f]{8}$/);
+          expect(createWorktreeRequest?.payload.newBranch).toMatch(/^peakcode\/[0-9a-f]{8}$/);
 
-          const detachedRequest = wsRequests.find(
-            (request) => request._tag === WS_METHODS.gitCreateDetachedWorktree,
-          );
-          expect(detachedRequest).toBeUndefined();
+          const detachedRequest = server.requestsFor(WS_METHODS.gitCreateDetachedWorktree);
+          expect(detachedRequest).toHaveLength(0);
 
-          const createThreadRequest = wsRequests.find(
-            (request) =>
-              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-              typeof request.command === "object" &&
-              request.command !== null &&
-              "type" in request.command &&
-              "threadId" in request.command &&
-              request.command.type === "thread.create" &&
-              request.command.threadId === newThreadId,
-          );
+          const createThreadRequest = server
+            .requestsFor(ORCHESTRATION_WS_METHODS.dispatchCommand)
+            .find(
+              (request) =>
+                request.payload.type === "thread.create" &&
+                request.payload.threadId === newThreadId,
+            );
           expect(createThreadRequest).toBeTruthy();
-          expect(createThreadRequest?.command).toMatchObject({
+          expect(createThreadRequest?.payload).toMatchObject({
             envMode: "worktree",
-            branch: createWorktreeRequest?.newBranch,
-            worktreePath: `/repo/.codex/worktrees/project/${String(createWorktreeRequest?.newBranch).replaceAll("/", "-")}`,
+            branch: createWorktreeRequest?.payload.newBranch,
+            worktreePath: `/repo/.codex/worktrees/project/${String(createWorktreeRequest?.payload.newBranch).replaceAll("/", "-")}`,
           });
         },
         { timeout: 8_000, interval: 16 },
@@ -2793,16 +2883,13 @@ describe("ChatView timeline estimator parity (full app)", () => {
       await vi.waitFor(
         () => {
           expect(
-            wsRequests.some(
-              (request) =>
-                request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-                typeof request.command === "object" &&
-                request.command !== null &&
-                "type" in request.command &&
-                "threadId" in request.command &&
-                request.command.type === "thread.create" &&
-                request.command.threadId === newThreadId,
-            ),
+            server
+              .requestsFor(ORCHESTRATION_WS_METHODS.dispatchCommand)
+              .some(
+                (request) =>
+                  request.payload.type === "thread.create" &&
+                  request.payload.threadId === newThreadId,
+              ),
           ).toBe(true);
         },
         { timeout: 8_000, interval: 16 },
@@ -2916,19 +3003,16 @@ describe("ChatView timeline estimator parity (full app)", () => {
 
       await vi.waitFor(
         () => {
-          const createRequest = wsRequests.find(
-            (request) =>
-              request._tag === ORCHESTRATION_WS_METHODS.dispatchCommand &&
-              typeof request.command === "object" &&
-              request.command !== null &&
-              "type" in request.command &&
-              "threadId" in request.command &&
-              request.command.type === "thread.create" &&
-              request.command.threadId === draftThreadId,
-          );
+          const createRequest = server
+            .requestsFor(ORCHESTRATION_WS_METHODS.dispatchCommand)
+            .find(
+              (request) =>
+                request.payload.type === "thread.create" &&
+                request.payload.threadId === draftThreadId,
+            );
 
           expect(createRequest).toBeTruthy();
-          expect(createRequest?.command).toMatchObject({
+          expect(createRequest?.payload).toMatchObject({
             branch: "feature/terminal-title",
             worktreePath: "/repo/project/.worktrees/terminal-title",
             runtimeMode: "approval-required",
@@ -2948,7 +3032,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
     }
   });
 
-  it("selects the Goal mode from the composer extras menu without clearing the draft", async () => {
+  it("cycles the composer mode chip to Goal without clearing the draft", async () => {
     const mounted = await mountChatView({
       viewport: DEFAULT_VIEWPORT,
       snapshot: createSnapshotForTargetUser({
@@ -2961,8 +3045,10 @@ describe("ChatView timeline estimator parity (full app)", () => {
       const draftText = "keep me while switching modes";
       useComposerDraftStore.getState().setPrompt(THREAD_ID, draftText);
 
-      await page.getByLabelText("Composer extras").click();
-      await page.getByRole("menuitemradio", { name: "Goal" }).click();
+      // The chip is a single dial: Agent → Plan → Goal.
+      expect(findModeChip()?.getAttribute("aria-label")).toMatch(/^Agent · /);
+      await clickModeChipAndWaitFor("Plan");
+      await clickModeChipAndWaitFor("Goal");
 
       await vi.waitFor(() => {
         const draft = useComposerDraftStore.getState().draftsByThreadId[THREAD_ID];
@@ -3114,7 +3200,7 @@ describe("ChatView timeline estimator parity (full app)", () => {
       expect(taskListCard!.getBoundingClientRect().width).toBeLessThan(window.innerWidth);
 
       const openPlanButton = await waitForElement(
-        () => document.querySelector<HTMLButtonElement>('button[title="Collapse plan"]'),
+        () => document.querySelector<HTMLButtonElement>('button[title="Open tasks sidebar"]'),
         "Unable to find inline active plan sidebar button.",
       );
       openPlanButton.click();
