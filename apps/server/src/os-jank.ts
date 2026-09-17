@@ -4,58 +4,51 @@
 
 import * as OS from "node:os";
 import { Effect, Path } from "effect";
+import { readPathFromLaunchctl, type ShellEnvironmentReader } from "@peakcode/shared/shell";
 import {
-  listLoginShellCandidates,
-  mergePathEntries,
-  readPathFromLaunchctl,
-  readPathFromLoginShell,
-} from "@peakcode/shared/shell";
+  hydrateShellEnvironment,
+  type ShellEnvironmentCacheStore,
+  type ShellEnvironmentStampInput,
+} from "@peakcode/shared/shellEnvironment";
 
 function logPathHydrationWarning(message: string, error?: unknown): void {
   console.warn(`[server] ${message}`, error instanceof Error ? error.message : (error ?? ""));
 }
 
-export function fixPath(
-  options: {
-    env?: NodeJS.ProcessEnv;
-    platform?: NodeJS.Platform;
-    readPath?: typeof readPathFromLoginShell;
-    readLaunchctlPath?: typeof readPathFromLaunchctl;
-    userShell?: string;
-    logWarning?: (message: string, error?: unknown) => void;
-  } = {},
-): void {
-  const platform = options.platform ?? process.platform;
-  if (platform !== "darwin" && platform !== "linux") return;
+export interface FixPathOptions {
+  readonly env?: NodeJS.ProcessEnv;
+  readonly platform?: NodeJS.Platform;
+  readonly readEnvironment?: ShellEnvironmentReader;
+  readonly readLaunchctlPath?: typeof readPathFromLaunchctl;
+  readonly userShell?: string;
+  readonly logWarning?: (message: string, error?: unknown) => void;
+  /**
+   * Omit to probe the login shell on every start. The server passes the shared file cache:
+   * the desktop already probed the same shell for this launch, and a repeat launch can
+   * reuse a capture whose startup files have not changed.
+   */
+  readonly cache?: ShellEnvironmentCacheStore | undefined;
+  readonly now?: () => number;
+  readonly readStamps?: (input: ShellEnvironmentStampInput) => Record<string, string>;
+}
 
-  const env = options.env ?? process.env;
-  const logWarning = options.logWarning ?? logPathHydrationWarning;
-  const readPath = options.readPath ?? readPathFromLoginShell;
-
+/**
+ * Give the agent's child processes the PATH a login shell would have.
+ *
+ * Only `PATH` is applied: the server inherits the rest of its environment from whichever
+ * process launched it.
+ */
+export function fixPath(options: FixPathOptions = {}): void {
   try {
-    let shellPath: string | undefined;
-    for (const shell of listLoginShellCandidates(platform, env.SHELL, options.userShell)) {
-      try {
-        shellPath = readPath(shell);
-      } catch (error) {
-        logWarning(`Failed to read PATH from login shell ${shell}.`, error);
-      }
-
-      if (shellPath) {
-        break;
-      }
-    }
-
-    const launchctlPath =
-      platform === "darwin" && !shellPath
-        ? (options.readLaunchctlPath ?? readPathFromLaunchctl)()
-        : undefined;
-    const mergedPath = mergePathEntries(shellPath ?? launchctlPath, env.PATH, platform);
-    if (mergedPath) {
-      env.PATH = mergedPath;
-    }
+    hydrateShellEnvironment(options.env ?? process.env, {
+      ...options,
+      names: ["PATH"],
+    });
   } catch (error) {
-    logWarning("Failed to hydrate PATH from the user environment.", error);
+    (options.logWarning ?? logPathHydrationWarning)(
+      "Failed to hydrate PATH from the user environment.",
+      error,
+    );
   }
 }
 

@@ -2,82 +2,47 @@
 // Purpose: Hydrates Electron's inherited env with values from the user's login shell.
 // Exports: syncShellEnvironment for desktop startup.
 
+import { readPathFromLaunchctl, type ShellEnvironmentReader } from "@peakcode/shared/shell";
 import {
-  listLoginShellCandidates,
-  mergePathEntries,
-  readPathFromLaunchctl,
-  readEnvironmentFromLoginShell,
-  type ShellEnvironmentReader,
-} from "@peakcode/shared/shell";
-
-const LOGIN_SHELL_ENV_NAMES = [
-  "PATH",
-  "SSH_AUTH_SOCK",
-  "HOMEBREW_PREFIX",
-  "HOMEBREW_CELLAR",
-  "HOMEBREW_REPOSITORY",
-  "XDG_CONFIG_HOME",
-  "XDG_DATA_HOME",
-] as const;
+  hydrateShellEnvironment,
+  type ShellEnvironmentCacheStore,
+  type ShellEnvironmentStampInput,
+} from "@peakcode/shared/shellEnvironment";
 
 function logShellEnvironmentWarning(message: string, error?: unknown): void {
   console.warn(`[desktop] ${message}`, error instanceof Error ? error.message : (error ?? ""));
 }
 
+export interface SyncShellEnvironmentOptions {
+  readonly platform?: NodeJS.Platform;
+  readonly readEnvironment?: ShellEnvironmentReader;
+  readonly readLaunchctlPath?: typeof readPathFromLaunchctl;
+  readonly userShell?: string;
+  readonly logWarning?: (message: string, error?: unknown) => void;
+  /**
+   * Omit to probe the login shell on every start. The desktop passes the shared file cache:
+   * this process probes first and writes it, so the server spawned below reuses the capture
+   * instead of starting the same login shell again.
+   */
+  readonly cache?: ShellEnvironmentCacheStore | undefined;
+  readonly now?: () => number;
+  readonly readStamps?: (input: ShellEnvironmentStampInput) => Record<string, string>;
+}
+
+/**
+ * A GUI-launched process inherits launchd's minimal environment, so the user's real PATH,
+ * agent socket and toolchain prefixes all have to come from their login shell.
+ */
 export function syncShellEnvironment(
   env: NodeJS.ProcessEnv = process.env,
-  options: {
-    platform?: NodeJS.Platform;
-    readEnvironment?: ShellEnvironmentReader;
-    readLaunchctlPath?: typeof readPathFromLaunchctl;
-    userShell?: string;
-    logWarning?: (message: string, error?: unknown) => void;
-  } = {},
+  options: SyncShellEnvironmentOptions = {},
 ): void {
-  const platform = options.platform ?? process.platform;
-  if (platform !== "darwin" && platform !== "linux") return;
-
-  const logWarning = options.logWarning ?? logShellEnvironmentWarning;
-  const readEnvironment = options.readEnvironment ?? readEnvironmentFromLoginShell;
-  const shellEnvironment: Partial<Record<string, string>> = {};
-
   try {
-    for (const shell of listLoginShellCandidates(platform, env.SHELL, options.userShell)) {
-      try {
-        Object.assign(shellEnvironment, readEnvironment(shell, LOGIN_SHELL_ENV_NAMES));
-        if (shellEnvironment.PATH) {
-          break;
-        }
-      } catch (error) {
-        logWarning(`Failed to read login shell environment from ${shell}.`, error);
-      }
-    }
-
-    const launchctlPath =
-      platform === "darwin" && !shellEnvironment.PATH
-        ? (options.readLaunchctlPath ?? readPathFromLaunchctl)()
-        : undefined;
-    const mergedPath = mergePathEntries(shellEnvironment.PATH ?? launchctlPath, env.PATH, platform);
-    if (mergedPath) {
-      env.PATH = mergedPath;
-    }
-
-    if (!env.SSH_AUTH_SOCK && shellEnvironment.SSH_AUTH_SOCK) {
-      env.SSH_AUTH_SOCK = shellEnvironment.SSH_AUTH_SOCK;
-    }
-
-    for (const name of [
-      "HOMEBREW_PREFIX",
-      "HOMEBREW_CELLAR",
-      "HOMEBREW_REPOSITORY",
-      "XDG_CONFIG_HOME",
-      "XDG_DATA_HOME",
-    ] as const) {
-      if (!env[name] && shellEnvironment[name]) {
-        env[name] = shellEnvironment[name];
-      }
-    }
+    hydrateShellEnvironment(env, options);
   } catch (error) {
-    logWarning("Failed to synchronize the desktop shell environment.", error);
+    (options.logWarning ?? logShellEnvironmentWarning)(
+      "Failed to synchronize the desktop shell environment.",
+      error,
+    );
   }
 }

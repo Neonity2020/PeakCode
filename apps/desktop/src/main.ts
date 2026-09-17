@@ -42,6 +42,7 @@ import { openInitialBackendWindow } from "./initialBackendWindowOpen";
 import { shouldAllowMediaPermissionRequest } from "./mediaPermissions";
 import { ServerListeningDetector } from "./serverListeningDetector";
 import { syncShellEnvironment } from "./syncShellEnvironment";
+import { createFileShellEnvironmentCache } from "@peakcode/shared/shellEnvironment";
 import {
   getAutoUpdateDisabledReason,
   shouldBroadcastDownloadProgress,
@@ -73,11 +74,9 @@ import {
 import { isArm64HostRunningIntelBuild, resolveDesktopRuntimeInfo } from "./runtimeArch";
 import { DesktopBrowserManager } from "./browserManager";
 import { BROWSER_IPC_CHANNELS, registerBrowserIpcHandlers, sendBrowserState } from "./browserIpc";
-import {
-  BrowserUsePipeServer,
-  PEAKCODE_BROWSER_USE_PIPE_ENV,
-  PEAKCODE_BROWSER_USE_PIPE_PATH,
-} from "./browserUsePipeServer";
+import { BrowserUsePipeServer, PEAKCODE_BROWSER_USE_PIPE_PATH } from "./browserUsePipeServer";
+import { ensureComputerUseHelper } from "./computerUseHelper";
+import { PEAKCODE_BROWSER_USE_PIPE_ENV } from "@peakcode/shared/browserUsePipe";
 import {
   DESKTOP_WS_URL_CHANNEL,
   normalizeDesktopWsUrl,
@@ -90,7 +89,9 @@ import {
   seedDesktopUserDataProfileFromLegacy,
 } from "./desktopUserDataProfile";
 
-syncShellEnvironment();
+// Probe once and publish the capture: the backend spawned below reads the same cache entry
+// instead of starting the user's login shell a second time on every launch.
+syncShellEnvironment(process.env, { cache: createFileShellEnvironmentCache() });
 
 const PICK_FOLDER_CHANNEL = "desktop:pick-folder";
 const SAVE_FILE_CHANNEL = "desktop:save-file";
@@ -112,7 +113,7 @@ const STATE_DIR = Path.join(BASE_DIR, "userdata");
 const DESKTOP_SCHEME = "t3";
 const ROOT_DIR = Path.resolve(__dirname, "../../..");
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const APP_DISPLAY_NAME = isDevelopment ? "Peak Code (Dev)" : "Peak Code (Alpha)";
+const APP_DISPLAY_NAME = isDevelopment ? "Peak Code (Dev)" : "Peak Code";
 // Must stay in sync with `appId` in scripts/build-desktop-artifact.ts so Windows
 // shortcuts, taskbar grouping and notifications all resolve to the same app.
 const APP_USER_MODEL_ID = isDevelopment ? "com.peakcode.app.dev" : "com.peakcode.app";
@@ -1064,9 +1065,9 @@ function showDesktopNotification(input: {
  * Resolve the Electron userData directory path.
  *
  * Electron derives the default userData path from `productName` in
- * package.json, which currently produces directories with spaces and
- * parentheses (e.g. `~/.config/Peak Code (Alpha)` on Linux). This is
- * unfriendly for shell usage and violates Linux naming conventions.
+ * package.json, which produces a directory containing a space
+ * (e.g. `~/.config/Peak Code` on Linux). This is unfriendly for shell usage
+ * and violates Linux naming conventions.
  *
  * We override it to a clean lowercase Peak Code name. Legacy T3 Code/early
  * Peak Code Chromium profiles are intentionally left in place so both apps can
@@ -1921,8 +1922,49 @@ function registerIpcHandlers(): void {
   void ensureBrowserUsePipeServer().catch((error) => {
     console.warn("[PeakCode browser] Failed to start browser-use native pipe", error);
   });
+  ensureComputerUseHelperOrLog();
 
   registerBrowserIpcHandlers(ipcMain, browserManager);
+}
+
+/**
+ * Install and start the native computer-use helper, and say what state it ended up in.
+ *
+ * Runs at desktop start because the helper is a separate app that has to exist before the
+ * server probes for it. Nothing here is fatal: a missing compiler or an ungranted permission
+ * is a state the user is told about, not a reason to fail app startup.
+ *
+ * The one thing worth logging prominently is a rebuild. The helper's Accessibility grant is
+ * pinned to its signed identity, and the identity is deliberately stable across rebuilds — but
+ * if anything ever does invalidate it, "the helper was just replaced" is the first thing a
+ * support question needs to know.
+ */
+function ensureComputerUseHelperOrLog(): void {
+  try {
+    const result = ensureComputerUseHelper();
+    if (result.status === "unsupported") {
+      return;
+    }
+    if (result.status === "failed") {
+      console.warn(`[PeakCode computer] Helper unavailable: ${result.detail ?? "unknown reason"}`);
+      return;
+    }
+    if (result.rebuilt) {
+      console.info(
+        `[PeakCode computer] Installed the computer-use helper at ${result.helperPath} ` +
+          `(${result.source ?? "unknown"} source, signed ${result.signingIdentity ?? "unknown"}). ` +
+          'If macOS asks for Accessibility or Screen Recording for "Peak Code Computer Use", grant it once — ' +
+          "the grant survives later rebuilds.",
+      );
+    }
+    if (result.detail) {
+      // A helper that installed but could not be re-signed still runs; this is the warning that
+      // a future update may cost the user the grant, so it should not be silent.
+      console.warn(`[PeakCode computer] ${result.detail}`);
+    }
+  } catch (error) {
+    console.warn("[PeakCode computer] Failed to prepare the computer-use helper", error);
+  }
 }
 
 function getIconOption(): { icon: string } | Record<string, never> {

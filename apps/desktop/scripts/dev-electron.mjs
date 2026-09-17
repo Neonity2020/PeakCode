@@ -19,7 +19,6 @@ const watchedDirectories = [
 const forcedShutdownTimeoutMs = 1_500;
 const restartDebounceMs = 120;
 const childTreeGracePeriodMs = 1_200;
-const staleComputerUseGracePeriodMs = 300;
 
 await waitOn({
   resources: [`tcp:${port}`, ...requiredFiles.map((filePath) => `file:${filePath}`)],
@@ -51,83 +50,29 @@ function cleanupStaleDevApps() {
   spawnSync("pkill", ["-f", "--", `--peakcode-dev-root=${desktopDir}`], { stdio: "ignore" });
 }
 
-function listStaleComputerUsePids() {
-  if (process.platform === "win32") {
-    return [];
-  }
+// The native computer-use helper is deliberately not reaped here the way a stale dev app is.
+// It is one app per user at a fixed path, shared by every worktree, and its Accessibility grant
+// is filed against that bundle — killing another worktree's "stale" helper would take the grant
+// away from the instance that is using it until the user grants it again.
 
-  const result = spawnSync("pgrep", ["-fal", "Peak Code \\(Dev\\).*(computerUseMcp\\.mjs mcp)"], {
-    encoding: "utf8",
-  });
-  const output = typeof result.stdout === "string" ? result.stdout.trim() : "";
-  if (!output) {
-    return [];
-  }
-
-  return output
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .flatMap((line) => {
-      const firstSpace = line.indexOf(" ");
-      if (firstSpace <= 0) {
-        return [];
-      }
-
-      const pid = Number(line.slice(0, firstSpace));
-      const command = line.slice(firstSpace + 1);
-      if (!Number.isInteger(pid) || pid <= 0) {
-        return [];
-      }
-
-      // Leave the current worktree's helper alone and only reap stale runtimes
-      // from other worktrees or abandoned dev sessions.
-      if (command.includes(desktopDir)) {
-        return [];
-      }
-
-      return [pid];
-    });
-}
-
-function cleanupStaleComputerUseApps() {
-  const stalePids = listStaleComputerUsePids();
-  if (stalePids.length === 0) {
-    return;
-  }
-
-  console.error(
-    `[desktop-dev] Cleaning up ${stalePids.length} stale Peak Code (Dev) Computer Use helper process${stalePids.length === 1 ? "" : "es"} from other worktrees.`,
-  );
-
-  for (const pid of stalePids) {
-    spawnSync("kill", ["-TERM", String(pid)], { stdio: "ignore" });
-  }
-
-  spawnSync("sleep", [String(staleComputerUseGracePeriodMs / 1000)], { stdio: "ignore" });
-
-  for (const pid of stalePids) {
-    spawnSync("kill", ["-KILL", String(pid)], { stdio: "ignore" });
-  }
-}
-
-function warnIfAlphaAppRunning() {
+function warnIfInstalledAppRunning() {
   if (process.platform === "win32") {
     return;
   }
 
-  const result = spawnSync(
-    "pgrep",
-    ["-fal", "/Applications/Peak Code \\(Alpha\\)\\.app/Contents/MacOS/Peak Code \\(Alpha\\)"],
-    { encoding: "utf8" },
-  );
+  // The optional group also matches the pre-rename "Peak Code (Alpha)" bundle, so an
+  // install that predates the rename still trips the warning instead of quietly
+  // competing with the dev build for the microphone.
+  const installedAppCommandPattern =
+    "/Applications/Peak Code( \\(Alpha\\))?\\.app/Contents/MacOS/Peak Code";
+  const result = spawnSync("pgrep", ["-fal", installedAppCommandPattern], { encoding: "utf8" });
   const output = typeof result.stdout === "string" ? result.stdout.trim() : "";
   if (!output) {
     return;
   }
 
   console.error(
-    "[desktop-dev] Peak Code (Alpha) is still running. Close it before testing voice in Peak Code (Dev), or you may be looking at the wrong app/runtime.",
+    "[desktop-dev] An installed Peak Code app is still running. Close it before testing voice in Peak Code (Dev), or you may be looking at the wrong app/runtime.",
   );
   console.error(output);
 }
@@ -285,8 +230,7 @@ async function shutdown(exitCode) {
 
 startWatchers();
 cleanupStaleDevApps();
-cleanupStaleComputerUseApps();
-warnIfAlphaAppRunning();
+warnIfInstalledAppRunning();
 startApp();
 
 process.once("SIGINT", () => {
