@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Layer, Option, Stream } from "effect";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -20,7 +20,16 @@ import { ProjectionSnapshotQuery } from "../../orchestration/Services/Projection
 import { WorkspaceLayerLive } from "../../workspace/runtimeLayer.ts";
 import { BOARD_RUN_INSTRUCTIONS } from "../boardDocument.ts";
 import { KanbanService } from "../Services/KanbanService.ts";
+import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { KanbanServiceLive } from "./KanbanService.ts";
+
+/** What the discovery stub reports. */
+const TEST_MODEL_SLUG = "anthropic/claude-sonnet-4-6";
+/** The project default two tests configure; it has to be offered to be used. */
+const TEST_PROJECT_MODEL_SLUG = "deepseek/deepseek-v4-pro";
+/** A model named in the create dialog. */
+const TEST_DIALOG_MODEL_SLUG = "pi/fast";
 
 const PROJECT_ID = ProjectId.makeUnsafe("project-kanban-test");
 
@@ -144,6 +153,20 @@ const makeTestLayer = (
       ),
     ),
     Layer.provideMerge(NodeServices.layer),
+    // No default model is configured here, so the discovery stub below decides.
+    Layer.provide(ServerSettingsService.layerTest()),
+    // Board runs resolve a model too; the stub keeps the dispatch on a real slug. The
+    // extra entries are the project/dialog defaults the tests configure: a headless run
+    // only keeps a configured model while the provider still offers it.
+    Layer.provide(
+      ProviderDiscoveryService.layerTest({
+        models: [
+          { slug: TEST_MODEL_SLUG, name: "Test" },
+          { slug: TEST_PROJECT_MODEL_SLUG, name: "Project default" },
+          { slug: TEST_DIALOG_MODEL_SLUG, name: "Dialog pick" },
+        ],
+      }),
+    ),
   );
 
 interface Harness {
@@ -301,6 +324,57 @@ describe("KanbanService", () => {
         inProgressCount: 1,
         doneCount: 0,
       });
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it("stores requirement images beside the board and keeps base64 out of board.json", async () => {
+    const harness = await makeHarness();
+    try {
+      // 1x1 transparent PNG.
+      const dataUrl =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+      const created = await harness.run(
+        Effect.gen(function* () {
+          const kanban = yield* KanbanService;
+          return yield* kanban.createTask({
+            projectId: PROJECT_ID,
+            title: "带图任务",
+            description: "按图实现",
+            attachments: [{ name: "shot.png", mimeType: "image/png", sizeBytes: 70, dataUrl }],
+            status: "todo",
+            priority: "medium",
+            pipeline: "",
+            assignee: "",
+          });
+        }),
+      );
+
+      const attachment = created.tasks[0]?.attachments[0];
+      expect(attachment).toMatchObject({ name: "shot.png", mimeType: "image/png" });
+      expect(attachment?.relativePath).toMatch(/^\.kanban\/attachments\/[0-9a-f-]+\.png$/);
+      expect(attachment?.sizeBytes).toBeGreaterThan(0);
+
+      const storedFiles = await readdir(join(harness.workspaceRoot, ".kanban", "attachments"));
+      expect(storedFiles).toHaveLength(1);
+
+      const raw = await readFile(harness.boardFilePath, "utf8");
+      expect(raw).toContain(attachment!.relativePath);
+      // The bytes stay on disk; the board document only carries the descriptor.
+      expect(raw).not.toContain("data:image/png;base64");
+
+      const detail = await harness.run(
+        Effect.gen(function* () {
+          const kanban = yield* KanbanService;
+          return yield* kanban.getTaskDetail({
+            projectId: PROJECT_ID,
+            taskId: KanbanTaskId.makeUnsafe(created.tasks[0]!.taskId),
+          });
+        }),
+      );
+      expect(detail.workspaceRoot).toBe(harness.workspaceRoot);
+      expect(detail.task.attachments).toHaveLength(1);
     } finally {
       await harness.dispose();
     }
@@ -906,7 +980,7 @@ describe("kanban agent and model selection", () => {
 
   it("falls back to the project's default model when the task names none", async () => {
     const harness = await makeHarness({
-      defaultModelSelection: { provider: "pi", model: "deepseek/deepseek-v4-pro" },
+      defaultModelSelection: { provider: "pi", model: TEST_PROJECT_MODEL_SLUG },
     });
     try {
       await harness.run(
@@ -927,7 +1001,7 @@ describe("kanban agent and model selection", () => {
       const create = harness.engine.dispatches[0]!;
       expect(create.type === "thread.create" && create.modelSelection).toEqual({
         provider: "pi",
-        model: "deepseek/deepseek-v4-pro",
+        model: TEST_PROJECT_MODEL_SLUG,
       });
     } finally {
       await harness.dispose();
@@ -1304,7 +1378,8 @@ describe("kanban requirement drafts", () => {
           cwd: harness.workspaceRoot,
           title: "支持一键生成需求",
           notes: "先把需求生成出来，再创建任务",
-          modelSelection: { provider: "pi", model: "pi/default" },
+          // Resolved from the provider rather than a constant slug.
+          modelSelection: { provider: "pi", model: TEST_MODEL_SLUG },
         }),
       ]);
       // The task does not exist yet, so nothing may land on disk.
@@ -1316,7 +1391,7 @@ describe("kanban requirement drafts", () => {
 
   it("uses the model picked in the dialog, then the project default", async () => {
     const harness = await makeHarness({
-      defaultModelSelection: { provider: "pi", model: "pi/project" },
+      defaultModelSelection: { provider: "pi", model: TEST_PROJECT_MODEL_SLUG },
     });
     try {
       await harness.run(
@@ -1327,7 +1402,7 @@ describe("kanban requirement drafts", () => {
             title: "选中的模型",
             notes: "   ",
             agentProvider: "pi",
-            agentModel: "pi/fast",
+            agentModel: TEST_DIALOG_MODEL_SLUG,
           });
           yield* kanban.generateRequirementDraft({
             projectId: PROJECT_ID,
@@ -1338,11 +1413,11 @@ describe("kanban requirement drafts", () => {
 
       expect(harness.requirement.calls[0]?.modelSelection).toEqual({
         provider: "pi",
-        model: "pi/fast",
+        model: TEST_DIALOG_MODEL_SLUG,
       });
       expect(harness.requirement.calls[1]?.modelSelection).toEqual({
         provider: "pi",
-        model: "pi/project",
+        model: TEST_PROJECT_MODEL_SLUG,
       });
       // Blank notes would only steer the agent toward nothing.
       expect(harness.requirement.calls[0]?.notes).toBeUndefined();

@@ -1,62 +1,63 @@
 // FILE: KanbanView.tsx
-// Purpose: Full-page kanban board for a project's .kanban/board.json. Mirrors
-//          the standalone 看板 plugin: four columns, task cards with priority /
-//          pipeline / assignee, drag-and-drop, and a project picker that scans
-//          every project for work in flight.
+// Purpose: Full-page kanban board for a project's .kanban/board.json: the board's
+//          own left menu (projects, status / priority / agent-run filters), a
+//          searchable toolbar, and the work itself either as status columns with
+//          drag-and-drop or as a scannable list.
 // Layer: Component
 // Exports: KanbanView
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
-  type KanbanAgentRunStatus,
-  type KanbanProjectSummary,
+  type KanbanBoard,
   type KanbanTask,
   type KanbanTaskId,
-  type KanbanTaskPriority,
   type KanbanTaskStatus,
   type ProjectId,
 } from "@peakcode/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useMessages } from "../i18n/I18nContext";
-import { persistKanbanProjectId, readKanbanProjectId } from "../kanbanUiState";
+import { readKanbanUiState, persistKanbanUiState, type KanbanUiState } from "../kanbanUiState";
 import { dropIndexFromMiddles, resolveDropIndex } from "../lib/kanbanDrag";
+import {
+  KANBAN_FILTERS_EMPTY,
+  filterKanbanTasks,
+  isKanbanFilterActive,
+  type KanbanFilterState,
+} from "../lib/kanbanFilters";
+import {
+  KANBAN_STATUS_ORDER,
+  kanbanColumnAccent,
+  kanbanProjectCode,
+  kanbanStatusLabel,
+  shortWorkspacePath,
+} from "../lib/kanbanPresentation";
 import {
   useKanbanBoardQuery,
   useKanbanMoveTaskMutation,
   useKanbanProjectsQuery,
 } from "../lib/kanbanReactQuery";
 import {
-  CheckIcon,
-  ChevronDownIcon,
-  CircleAlertIcon,
+  ChevronRightIcon,
+  FilterIcon,
   FolderIcon,
+  KanbanIcon,
+  ListIcon,
   LoaderIcon,
+  PanelLeftIcon,
   PlusIcon,
+  SearchIcon,
+  XIcon,
 } from "../lib/icons";
 import { cn } from "../lib/utils";
 import { useLatestProjectStore } from "../latestProjectStore";
-import { formatRelativeTime } from "./Sidebar";
+import { KanbanSidebar } from "./KanbanSidebar";
+import { KanbanStatusGlyph } from "./KanbanPresentation";
+import { KanbanTaskCard, KanbanTaskRow } from "./KanbanTaskCard";
 import { SidebarInset } from "./ui/sidebar";
 
-const COLUMN_DOT_FALLBACK: Record<KanbanTaskStatus, string> = {
-  todo: "#9CA3AF",
-  in_progress: "#3B82F6",
-  done: "#22C55E",
-  blocked: "#EF4444",
-  archived: "#6B7280",
-};
-
-const PRIORITY_CLASS: Record<KanbanTaskPriority, string> = {
-  high: "bg-destructive/12 text-destructive",
-  medium: "bg-warning/15 text-warning",
-  low: "bg-muted text-muted-foreground",
-};
-
-const RUN_STATUS_CLASS: Record<KanbanAgentRunStatus, string> = {
-  running: "text-info",
-  done: "text-success",
-  failed: "text-destructive",
-  interrupted: "text-muted-foreground",
+type DropTarget = {
+  readonly status: KanbanTaskStatus;
+  readonly index: number;
 };
 
 /** Fresh per-status buckets; a shared value would leak tasks across columns. */
@@ -68,27 +69,6 @@ const statusGroup = <T,>(makeValue: () => T): Record<KanbanTaskStatus, T> => ({
   archived: makeValue(),
 });
 
-const AVATAR_COLORS = ["#F59E0B", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#0EA5E9", "#F97316"];
-
-const avatarColorFor = (name: string): string => {
-  let sum = 0;
-  for (let index = 0; index < name.length; index += 1) {
-    sum += name.charCodeAt(index);
-  }
-  return AVATAR_COLORS[sum % AVATAR_COLORS.length]!;
-};
-
-/** `~`-shortened path for display; the full path lives in the tooltip. */
-const shortPath = (value: string): string => {
-  const match = /^\/Users\/[^/]+\/(.*)$/.exec(value);
-  return match ? `~/${match[1]}` : value;
-};
-
-type DropTarget = {
-  readonly status: KanbanTaskStatus;
-  readonly index: number;
-};
-
 /** Pointer slot inside a column, measured against the rendered card midpoints. */
 function dropIndexFor(container: HTMLElement, clientY: number): number {
   const cardMiddles = Array.from(
@@ -98,6 +78,12 @@ function dropIndexFor(container: HTMLElement, clientY: number): number {
   return dropIndexFromMiddles(cardMiddles, clientY);
 }
 
+/** Column order the board uses: its own file order, or the standard statuses. */
+function boardColumnKeys(board: KanbanBoard): ReadonlyArray<KanbanTaskStatus> {
+  if (board.columns.length > 0) return board.columns.map((column) => column.key);
+  return KANBAN_STATUS_ORDER;
+}
+
 export function KanbanView() {
   const messages = useMessages();
   const navigate = useNavigate();
@@ -105,12 +91,17 @@ export function KanbanView() {
   const projects = useMemo(() => projectsQuery.data?.projects ?? [], [projectsQuery.data]);
   const latestProjectId = useLatestProjectStore((state) => state.latestProjectId);
 
-  const [selectedProjectId, setSelectedProjectId] = useState<ProjectId | null>(
-    () => (readKanbanProjectId() as ProjectId | null) ?? null,
-  );
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [uiState, setUiState] = useState<KanbanUiState>(() => readKanbanUiState());
+  const selectedProjectId = (uiState.selectedProjectId as ProjectId | null) ?? null;
+  const [filters, setFilters] = useState<KanbanFilterState>(KANBAN_FILTERS_EMPTY);
+  const [search, setSearch] = useState("");
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const draggingTaskIdRef = useRef<KanbanTaskId | null>(null);
+
+  const updateUiState = useCallback((patch: Partial<KanbanUiState>) => {
+    setUiState((previous) => ({ ...previous, ...patch }));
+    persistKanbanUiState(patch);
+  }, []);
 
   // Keep the selection valid as projects come and go, preferring the project
   // the user was last working in.
@@ -120,10 +111,10 @@ export function KanbanView() {
     if (known) return;
     const preferred =
       projects.find((project) => project.projectId === latestProjectId) ??
-      projects.find((project) => project.projectId === readKanbanProjectId()) ??
+      projects.find((project) => project.projectId === uiState.selectedProjectId) ??
       projects[0]!;
-    setSelectedProjectId(preferred.projectId);
-  }, [latestProjectId, projects, selectedProjectId]);
+    updateUiState({ selectedProjectId: preferred.projectId });
+  }, [latestProjectId, projects, selectedProjectId, uiState.selectedProjectId, updateUiState]);
 
   const boardQuery = useKanbanBoardQuery(selectedProjectId);
   const board = boardQuery.data ?? null;
@@ -134,47 +125,49 @@ export function KanbanView() {
     [projects, selectedProjectId],
   );
 
-  const selectProject = useCallback((projectId: ProjectId) => {
-    setSelectedProjectId(projectId);
-    persistKanbanProjectId(projectId);
-    setPickerOpen(false);
-  }, []);
+  const projectCode = useMemo(
+    () => kanbanProjectCode(board?.projectTitle ?? selectedSummary?.title ?? ""),
+    [board?.projectTitle, selectedSummary?.title],
+  );
+
+  /** Column colour per status, so cards and column headers agree with the board. */
+  const accentByStatus = useMemo(() => {
+    const accents = new Map<KanbanTaskStatus, string>();
+    for (const column of board?.columns ?? []) {
+      accents.set(column.key, kanbanColumnAccent(column.key, column.dot));
+    }
+    for (const status of KANBAN_STATUS_ORDER) {
+      if (!accents.has(status)) accents.set(status, kanbanColumnAccent(status));
+    }
+    return accents;
+  }, [board]);
+
+  const selectProject = useCallback(
+    (projectId: ProjectId) => {
+      updateUiState({ selectedProjectId: projectId });
+    },
+    [updateUiState],
+  );
+
+  const filtersActive = isKanbanFilterActive(filters) || search.trim().length > 0;
+
+  const visibleTasks = useMemo(
+    () => filterKanbanTasks(board?.tasks ?? [], filters, search, projectCode),
+    [board, filters, search, projectCode],
+  );
 
   const tasksByStatus = useMemo(() => {
     const groups = statusGroup<KanbanTask[]>(() => []);
-    for (const task of board?.tasks ?? []) {
+    for (const task of visibleTasks) {
       groups[task.status].push(task);
     }
     return groups;
-  }, [board]);
+  }, [visibleTasks]);
 
-  const statusCounts = useMemo(() => {
-    const counts = statusGroup<number>(() => 0);
-    for (const task of board?.tasks ?? []) {
-      counts[task.status] += 1;
-    }
-    return counts;
-  }, [board]);
-
-  const columnLabel = useCallback(
-    (status: KanbanTaskStatus): string =>
-      status === "in_progress"
-        ? messages.kanban.columns.inProgress
-        : messages.kanban.columns[status],
-    [messages],
-  );
-
-  const runStatusLabel = useCallback(
-    (status: KanbanAgentRunStatus): string =>
-      status === "running"
-        ? messages.kanban.agentRunRunning
-        : status === "done"
-          ? messages.kanban.agentRunDone
-          : status === "failed"
-            ? messages.kanban.agentRunFailed
-            : messages.kanban.agentRunInterrupted,
-    [messages],
-  );
+  const clearFilters = useCallback(() => {
+    setFilters(KANBAN_FILTERS_EMPTY);
+    setSearch("");
+  }, []);
 
   /**
    * Creation is a full page: the dialog was small and easy to dismiss with a
@@ -204,13 +197,6 @@ export function KanbanView() {
     [navigate, selectedProjectId],
   );
 
-  useEffect(() => {
-    if (!pickerOpen) return;
-    const onPointerDown = () => setPickerOpen(false);
-    window.addEventListener("click", onPointerDown);
-    return () => window.removeEventListener("click", onPointerDown);
-  }, [pickerOpen]);
-
   const handleDragOver = (status: KanbanTaskStatus) => (event: DragEvent<HTMLDivElement>) => {
     if (!draggingTaskIdRef.current) return;
     event.preventDefault();
@@ -223,130 +209,188 @@ export function KanbanView() {
     );
   };
 
+  const handleDragEnd = useCallback(() => {
+    draggingTaskIdRef.current = null;
+    setDropTarget(null);
+  }, []);
+
+  /**
+   * A drop lands between two *visible* cards. Filters can hide cards, so the
+   * slot is translated back into an order over the whole column: the card the
+   * drop pushes down keeps its neighbour's place in the unfiltered list.
+   */
+  const resolveServerOrder = useCallback(
+    (taskId: KanbanTaskId, status: KanbanTaskStatus, rawIndex: number): number => {
+      const columnTasks = (board?.tasks ?? []).filter((entry) => entry.status === status);
+      const visibleColumn = tasksByStatus[status];
+      const fullOthers = columnTasks.filter((entry) => entry.taskId !== taskId);
+      const visibleOthers = visibleColumn.filter((entry) => entry.taskId !== taskId);
+      const originalIndex = visibleColumn.findIndex((entry) => entry.taskId === taskId);
+      const rawOthers = resolveDropIndex({
+        rawIndex,
+        originalIndex: originalIndex >= 0 ? originalIndex : null,
+      });
+      const anchor = visibleOthers[rawOthers];
+      if (!anchor) return fullOthers.length;
+      const anchorIndex = fullOthers.findIndex((entry) => entry.taskId === anchor.taskId);
+      return anchorIndex >= 0 ? anchorIndex : fullOthers.length;
+    },
+    [board, tasksByStatus],
+  );
+
   const handleDrop = (status: KanbanTaskStatus) => (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    setDropTarget(null);
     const taskId = draggingTaskIdRef.current;
+    setDropTarget(null);
     draggingTaskIdRef.current = null;
     if (!taskId || !selectedProjectId) return;
 
-    const columnTasks = tasksByStatus[status];
     const rawIndex = dropIndexFor(event.currentTarget, event.clientY);
-    const task = board?.tasks.find((entry) => entry.taskId === taskId) ?? null;
-    const originalIndex =
-      task && task.status === status
-        ? columnTasks.findIndex((entry) => entry.taskId === taskId)
-        : -1;
-    const index = resolveDropIndex({
-      rawIndex,
-      originalIndex: originalIndex >= 0 ? originalIndex : null,
-    });
-
-    moveTask.mutate({ projectId: selectedProjectId, taskId, status, order: index });
+    const order = resolveServerOrder(taskId, status, rawIndex);
+    moveTask.mutate({ projectId: selectedProjectId, taskId, status, order });
   };
 
-  const renderCard = (task: KanbanTask) => {
-    const avatarName = task.assignee || task.pipeline || "?";
-    const isDragging = draggingTaskIdRef.current === task.taskId;
-    const runStatus = task.agentRunStatus;
-    return (
-      <article
-        key={task.taskId}
-        data-kanban-card
-        draggable
-        onDragStart={(event) => {
-          draggingTaskIdRef.current = task.taskId;
-          event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData("text/plain", task.taskId);
-        }}
-        onDragEnd={() => {
-          draggingTaskIdRef.current = null;
-          setDropTarget(null);
-        }}
-        onClick={() => openTaskDetail(task)}
-        role="button"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          openTaskDetail(task);
-        }}
-        className={cn(
-          "cursor-pointer rounded-xl border border-border/50 bg-card/70 px-3 py-2.5 transition-colors",
-          "hover:border-border hover:bg-accent/40",
-          isDragging && "opacity-50",
-        )}
+  const handleDragStart = useCallback((task: KanbanTask, event: DragEvent<HTMLElement>) => {
+    draggingTaskIdRef.current = task.taskId;
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", task.taskId);
+  }, []);
+
+  const renderColumnHeader = (status: KanbanTaskStatus, count: number) => (
+    <header className="flex shrink-0 items-center gap-2 px-3 py-2.5">
+      <KanbanStatusGlyph status={status} color={accentByStatus.get(status)} />
+      {/* The board file names its columns in the plugin's language; the header
+          follows the UI language so one screen never mixes both. */}
+      <span className="truncate text-[12px] font-medium text-foreground">
+        {kanbanStatusLabel(messages, status)}
+      </span>
+      <span className="rounded-full bg-accent/50 px-1.5 text-[10px] tabular-nums text-muted-foreground">
+        {count}
+      </span>
+      <button
+        type="button"
+        aria-label={`${messages.kanban.addTask} · ${kanbanStatusLabel(messages, status)}`}
+        className="ml-auto inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent/60 hover:text-foreground"
+        onClick={() => openCreatePage(status)}
       >
-        <div className="flex items-start gap-2">
-          <span
-            className={cn(
-              "mt-px shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-4 font-medium",
-              PRIORITY_CLASS[task.priority],
-            )}
-          >
-            {messages.kanban.priorities[task.priority]}
-          </span>
-          <span className="min-w-0 flex-1 text-[13px] leading-snug break-words text-foreground">
-            {task.title}
-          </span>
-          {runStatus ? (
-            <span
-              className={cn("mt-px shrink-0", RUN_STATUS_CLASS[runStatus])}
-              title={`${messages.kanban.agentRun} · ${runStatusLabel(runStatus)}`}
-              data-kanban-agent-run={runStatus}
-            >
-              {runStatus === "running" ? (
-                <LoaderIcon className="size-3.5 animate-spin" />
-              ) : runStatus === "done" ? (
-                <CheckIcon className="size-3.5" />
-              ) : (
-                <CircleAlertIcon className="size-3.5" />
-              )}
-            </span>
-          ) : null}
-        </div>
-        {task.description ? (
-          <p
-            className="mt-1.5 line-clamp-2 text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted-foreground/85"
-            title={task.description}
-          >
-            {task.description}
-          </p>
-        ) : null}
-        <div className="mt-2 h-px bg-border/40" />
-        <div className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground/80">
-          <span
-            className="inline-flex size-4 shrink-0 items-center justify-center rounded-full text-[9px] font-medium text-white/95"
-            style={{ backgroundColor: avatarColorFor(avatarName) }}
-            title={avatarName}
-          >
-            {avatarName.slice(0, 1).toUpperCase()}
-          </span>
-          {task.pipeline ? <span className="truncate">{task.pipeline}</span> : null}
-          {task.comments.length > 0 ? (
-            <span
-              className="shrink-0 text-muted-foreground/70"
-              title={messages.kanban.detail.commentCount(task.comments.length)}
-              data-kanban-comment-count={task.comments.length}
-            >
-              {task.comments.length}
-            </span>
-          ) : null}
-          {task.updatedAt ? (
-            <span className="ml-auto shrink-0" title={task.updatedAt}>
-              {messages.kanban.updatedLabel} {formatRelativeTime(task.updatedAt)}
-            </span>
-          ) : null}
-        </div>
-      </article>
-    );
-  };
+        <PlusIcon className="size-3.5" />
+      </button>
+    </header>
+  );
 
-  const renderBoard = () => {
+  const renderBoard = (current: KanbanBoard) => (
+    <div className="flex h-full min-h-0 gap-3 overflow-x-auto pb-2">
+      {boardColumnKeys(current).map((status) => {
+        const columnTasks = tasksByStatus[status];
+        const indicatorIndex = dropTarget?.status === status ? dropTarget.index : null;
+        return (
+          <section
+            key={status}
+            data-kanban-column-section={status}
+            className="flex h-full min-h-0 w-[286px] shrink-0 flex-col rounded-2xl border border-border/50 bg-[var(--color-background-panel)]"
+          >
+            {renderColumnHeader(status, columnTasks.length)}
+            <div className="mx-3 h-px shrink-0 bg-border/40" />
+            <div
+              data-kanban-column={status}
+              className={cn(
+                "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pt-2 pb-2",
+                indicatorIndex !== null && "rounded-b-2xl bg-accent/20",
+              )}
+              onDragOver={handleDragOver(status)}
+              onDragLeave={(event) => {
+                if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                setDropTarget((previous) => (previous?.status === status ? null : previous));
+              }}
+              onDrop={handleDrop(status)}
+            >
+              {columnTasks.length === 0 && indicatorIndex === null ? (
+                <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border/50 py-8 text-[12px] text-muted-foreground/60">
+                  {filtersActive ? messages.kanban.noMatchesColumn : messages.kanban.noTasks}
+                </div>
+              ) : null}
+              {columnTasks.map((task, index) => (
+                <div key={task.taskId} className="flex flex-col gap-2">
+                  {indicatorIndex === index ? (
+                    <span className="h-0.5 rounded-full bg-primary/70" aria-hidden />
+                  ) : null}
+                  <KanbanTaskCard
+                    task={task}
+                    projectCode={projectCode}
+                    statusAccent={accentByStatus.get(status) ?? ""}
+                    isDragging={draggingTaskIdRef.current === task.taskId}
+                    onOpen={openTaskDetail}
+                    onDragStart={handleDragStart}
+                    onDragEnd={handleDragEnd}
+                  />
+                </div>
+              ))}
+              {indicatorIndex !== null && indicatorIndex >= columnTasks.length ? (
+                <span className="h-0.5 rounded-full bg-primary/70" aria-hidden />
+              ) : null}
+              <button
+                type="button"
+                onClick={() => openCreatePage(status)}
+                aria-label={messages.kanban.addTaskIn(kanbanStatusLabel(messages, status))}
+                data-kanban-column-new-task={status}
+                className="mt-auto inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-xl px-2 text-[12px] text-muted-foreground/60 transition-colors hover:bg-accent/40 hover:text-foreground"
+              >
+                <PlusIcon className="size-3.5 shrink-0" />
+                {messages.kanban.addTask}
+              </button>
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+
+  const renderList = (current: KanbanBoard) => (
+    <div className="mx-auto flex h-full w-full max-w-5xl flex-col gap-5 overflow-y-auto pb-2">
+      {boardColumnKeys(current).map((status) => {
+        const columnTasks = tasksByStatus[status];
+        if (columnTasks.length === 0) return null;
+        return (
+          <section key={status} data-kanban-list-group={status} className="flex flex-col gap-1">
+            <header className="flex items-center gap-2 px-3 pb-1">
+              <KanbanStatusGlyph status={status} color={accentByStatus.get(status)} />
+              <span className="text-[12px] font-medium text-foreground">
+                {kanbanStatusLabel(messages, status)}
+              </span>
+              <span className="rounded-full bg-accent/50 px-1.5 text-[10px] tabular-nums text-muted-foreground">
+                {columnTasks.length}
+              </span>
+              <button
+                type="button"
+                aria-label={`${messages.kanban.addTask} · ${kanbanStatusLabel(messages, status)}`}
+                className="ml-auto inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent/60 hover:text-foreground"
+                onClick={() => openCreatePage(status)}
+              >
+                <PlusIcon className="size-3.5" />
+              </button>
+            </header>
+            <div className="flex flex-col rounded-xl border border-border/50 bg-[var(--color-background-panel)] p-1">
+              {columnTasks.map((task) => (
+                <KanbanTaskRow
+                  key={task.taskId}
+                  task={task}
+                  projectCode={projectCode}
+                  statusAccent={accentByStatus.get(status) ?? ""}
+                  onOpen={openTaskDetail}
+                />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+
+  const renderContent = () => {
     if (projectsQuery.isPending || (projects.length > 0 && !board)) {
       return (
         <div className="mx-auto flex w-full max-w-2xl flex-col items-center text-center">
-          <LoaderIcon className="size-7 text-muted-foreground/70 animate-spin" />
+          <LoaderIcon className="size-7 animate-spin text-muted-foreground/70" />
           <p className="mt-4 text-[13px] text-muted-foreground/85">{messages.kanban.loading}</p>
         </div>
       );
@@ -368,201 +412,171 @@ export function KanbanView() {
       );
     }
 
+    if (boardQuery.isError && !board) {
+      return (
+        <div className="mx-auto flex w-full max-w-2xl flex-col items-center text-center">
+          <p className="text-[13px] text-destructive">{boardQuery.error.message}</p>
+        </div>
+      );
+    }
+
     if (!board) return null;
 
-    return (
-      <div className="flex h-full min-h-0 gap-3 overflow-x-auto pb-2">
-        {board.columns.map((column) => {
-          const status = column.key;
-          const columnTasks = tasksByStatus[status];
-          const dot = column.dot || COLUMN_DOT_FALLBACK[status];
-          const indicatorIndex = dropTarget?.status === status ? dropTarget.index : null;
-          return (
-            <section
-              key={status}
-              className="flex h-full min-h-0 w-[286px] shrink-0 flex-col rounded-2xl border border-border/50 bg-[var(--color-background-panel)]"
-            >
-              <header className="flex shrink-0 items-center gap-2 px-3 py-2.5">
-                <span
-                  className="size-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: dot }}
-                  aria-hidden
-                />
-                <span className="text-[12px] font-medium text-foreground">
-                  {columnLabel(status)}
-                </span>
-                <span className="rounded-full bg-accent/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  {columnTasks.length}
-                </span>
-                <button
-                  type="button"
-                  aria-label={`${messages.kanban.addTask} · ${columnLabel(status)}`}
-                  className="ml-auto inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent/60 hover:text-foreground"
-                  onClick={() => openCreatePage(status)}
-                >
-                  <PlusIcon className="size-3.5" />
-                </button>
-              </header>
-              <div
-                data-kanban-column={status}
-                className={cn(
-                  "flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-2 pb-2",
-                  indicatorIndex !== null && "rounded-b-2xl bg-accent/20",
-                )}
-                onDragOver={handleDragOver(status)}
-                onDragLeave={(event) => {
-                  if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
-                  setDropTarget((previous) => (previous?.status === status ? null : previous));
-                }}
-                onDrop={handleDrop(status)}
-              >
-                {columnTasks.length === 0 && indicatorIndex === null ? (
-                  <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-border/50 py-8 text-[12px] text-muted-foreground/60">
-                    {messages.kanban.noTasks}
-                  </div>
-                ) : null}
-                {columnTasks.map((task, index) => (
-                  <div key={task.taskId} className="flex flex-col gap-2">
-                    {indicatorIndex === index ? (
-                      <span className="h-0.5 rounded-full bg-primary/70" aria-hidden />
-                    ) : null}
-                    {renderCard(task)}
-                  </div>
-                ))}
-                {indicatorIndex !== null && indicatorIndex >= columnTasks.length ? (
-                  <span className="h-0.5 rounded-full bg-primary/70" aria-hidden />
-                ) : null}
-              </div>
-            </section>
-          );
-        })}
-      </div>
-    );
+    if (filtersActive && visibleTasks.length === 0) {
+      return (
+        <div className="mx-auto flex w-full max-w-2xl flex-col items-center text-center">
+          <div className="mb-5 flex size-14 items-center justify-center rounded-full border border-border/60 bg-background/60">
+            <FilterIcon className="size-6 text-muted-foreground/70" />
+          </div>
+          <h2 className="text-[17px] font-semibold text-foreground">{messages.kanban.noMatches}</h2>
+          <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground/85">
+            {messages.kanban.noMatchesDescription}
+          </p>
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="mt-4 inline-flex h-8 items-center rounded-md border border-border/60 bg-background/60 px-3 text-[12px] text-foreground/80 transition-colors hover:bg-accent/40"
+          >
+            {messages.kanban.clearFilters}
+          </button>
+        </div>
+      );
+    }
+
+    return uiState.viewMode === "list" ? renderList(board) : renderBoard(board);
   };
 
-  const renderPickerMenu = () => (
-    <div className="absolute top-full z-40 mt-1 w-[320px] overflow-hidden rounded-xl border border-border/60 bg-popover shadow-lg">
-      <div className="border-b border-border/50 px-3 py-2 text-[11px] font-medium tracking-wider text-muted-foreground/70 uppercase">
-        {messages.kanban.project}
+  const renderToolbar = () => (
+    <header className="flex shrink-0 items-center gap-3 border-b border-border/60 px-5 py-3">
+      {uiState.sidebarVisible ? null : (
+        <button
+          type="button"
+          onClick={() => updateUiState({ sidebarVisible: true })}
+          aria-label={messages.kanban.showSidebar}
+          title={messages.kanban.showSidebar}
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent/50 hover:text-foreground"
+        >
+          <PanelLeftIcon className="size-4" />
+        </button>
+      )}
+      <div className="flex min-w-0 items-center gap-1.5 text-[12px] text-muted-foreground/70">
+        <KanbanIcon className="size-3.5 shrink-0" />
+        <span className="shrink-0">{messages.sidebar.kanbanLabel}</span>
+        <ChevronRightIcon className="size-3 shrink-0 text-muted-foreground/40" />
+        <span className="truncate text-foreground" title={selectedSummary?.workspaceRoot}>
+          {selectedSummary?.title ?? messages.kanban.selectProject}
+        </span>
       </div>
-      <div className="max-h-[320px] overflow-y-auto py-1">
-        {projects.map((project: KanbanProjectSummary) => {
-          const active = project.projectId === selectedProjectId;
-          return (
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        <div className="relative">
+          <SearchIcon className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground/60" />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            aria-label={messages.kanban.searchPlaceholder}
+            placeholder={messages.kanban.searchPlaceholder}
+            data-kanban-search
+            className="h-8 w-[180px] rounded-md border border-border/60 bg-background/60 pr-6 pl-7 text-[12px] text-foreground outline-hidden placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-ring"
+          />
+          {search.length > 0 ? (
             <button
-              key={project.projectId}
               type="button"
-              onClick={() => selectProject(project.projectId)}
+              onClick={() => setSearch("")}
+              aria-label={messages.kanban.clearSearch}
+              className="absolute top-1/2 right-1.5 inline-flex size-4 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground/60 transition-colors hover:text-foreground"
+            >
+              <XIcon className="size-3" />
+            </button>
+          ) : null}
+        </div>
+        <div className="inline-flex rounded-md border border-border/60 bg-background/60 p-0.5">
+          {(["board", "list"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => updateUiState({ viewMode: mode })}
+              aria-pressed={uiState.viewMode === mode}
+              aria-label={mode === "board" ? messages.kanban.viewBoard : messages.kanban.viewList}
+              title={mode === "board" ? messages.kanban.viewBoard : messages.kanban.viewList}
+              data-kanban-view={mode}
               className={cn(
-                "flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/50",
-                active && "bg-accent/40",
+                "inline-flex size-7 items-center justify-center rounded-sm transition-colors",
+                uiState.viewMode === mode
+                  ? "bg-accent/70 text-foreground"
+                  : "text-muted-foreground/70 hover:text-foreground",
               )}
             >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12.5px] text-foreground">
-                  {project.title}
-                </span>
-                <span className="mt-0.5 block truncate text-[11px] text-muted-foreground/70">
-                  {shortPath(project.workspaceRoot)}
-                </span>
-              </span>
-              <span className="flex shrink-0 items-center gap-1.5 pt-0.5 text-[10.5px] text-muted-foreground/80">
-                {project.inProgressCount > 0 ? (
-                  <span className="rounded-full bg-info/15 px-1.5 py-0.5 text-info">
-                    {messages.kanban.columns.inProgress} {project.inProgressCount}
-                  </span>
-                ) : null}
-                {project.blockedCount > 0 ? (
-                  <span className="rounded-full bg-destructive/12 px-1.5 py-0.5 text-destructive">
-                    {messages.kanban.columns.blocked} {project.blockedCount}
-                  </span>
-                ) : null}
-                {project.inProgressCount === 0 && project.blockedCount === 0 ? (
-                  <span>
-                    {project.taskCount}/{project.doneCount}
-                  </span>
-                ) : null}
-              </span>
-              {active ? <CheckIcon className="mt-0.5 size-3.5 shrink-0 text-foreground" /> : null}
+              {mode === "board" ? (
+                <KanbanIcon className="size-4" />
+              ) : (
+                <ListIcon className="size-4" />
+              )}
             </button>
-          );
-        })}
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => openCreatePage("todo")}
+          disabled={!selectedProjectId}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground/90 px-3 text-[12px] font-medium text-background transition-colors hover:bg-foreground disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <PlusIcon className="size-3.5" />
+          {messages.kanban.addTask}
+        </button>
       </div>
-    </div>
+    </header>
   );
+
+  const renderStatusStrip = () =>
+    board ? (
+      <div className="flex shrink-0 items-center gap-3 border-b border-border/40 px-5 py-2 text-[11.5px] text-muted-foreground/80">
+        <span>{messages.kanban.taskCount(board.tasks.length)}</span>
+        {filtersActive ? (
+          <>
+            <span className="text-muted-foreground/40" aria-hidden>
+              ·
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <FilterIcon className="size-3" />
+              {messages.kanban.showingCount(visibleTasks.length)}
+            </span>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground/80 transition-colors hover:bg-accent/50 hover:text-foreground"
+            >
+              <XIcon className="size-3" />
+              {messages.kanban.clearFilters}
+            </button>
+          </>
+        ) : null}
+        <span
+          className="ml-auto truncate text-[11px] text-muted-foreground/55"
+          title={board.boardFilePath}
+        >
+          {messages.kanban.boardFileLabel} {shortWorkspacePath(board.boardFilePath)}
+        </span>
+      </div>
+    ) : null;
 
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden isolate">
-      <div className="flex h-full min-h-0 flex-col bg-background">
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-border/60 px-6 py-4">
-          <div className="min-w-0">
-            <h1 className="truncate text-[20px] font-semibold text-foreground">
-              {messages.sidebar.kanbanLabel}
-            </h1>
-            <p className="mt-0.5 truncate text-[13px] text-muted-foreground/80">
-              {messages.kanban.subtitle}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <div className="relative">
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setPickerOpen((previous) => !previous);
-                }}
-                className="inline-flex h-8 max-w-[260px] items-center gap-2 rounded-md border border-border/60 bg-background/60 px-3 text-[12px] text-foreground/80 transition-colors hover:bg-accent/40"
-              >
-                <FolderIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
-                <span className="truncate">
-                  {selectedSummary?.title ?? messages.kanban.selectProject}
-                </span>
-                <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground/70" />
-              </button>
-              {pickerOpen ? renderPickerMenu() : null}
-            </div>
-            <button
-              type="button"
-              onClick={() => openCreatePage("todo")}
-              disabled={!selectedProjectId}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground/90 px-3 text-[12px] font-medium text-background transition-colors hover:bg-foreground disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <PlusIcon className="size-3.5" />
-              {messages.kanban.addTask}
-            </button>
-          </div>
-        </header>
-
-        {board ? (
-          <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-border/40 px-6 py-2 text-[11.5px] text-muted-foreground/85">
-            {board.columns.map((column) => (
-              <span key={column.key} className="inline-flex items-center gap-1.5">
-                <span
-                  className="size-1.5 rounded-full"
-                  style={{ backgroundColor: column.dot || COLUMN_DOT_FALLBACK[column.key] }}
-                  aria-hidden
-                />
-                {columnLabel(column.key)}
-                <span className="font-medium text-foreground/80">{statusCounts[column.key]}</span>
-              </span>
-            ))}
-            <span
-              className="ml-auto truncate text-[11px] text-muted-foreground/60"
-              title={board.boardFilePath}
-            >
-              {messages.kanban.boardFileLabel} {shortPath(board.boardFilePath)}
-            </span>
-          </div>
+      <div className="flex h-full min-h-0 bg-background">
+        {uiState.sidebarVisible ? (
+          <KanbanSidebar
+            projects={projects}
+            selectedProjectId={selectedProjectId}
+            onSelectProject={selectProject}
+            board={board}
+            filters={filters}
+            onFiltersChange={setFilters}
+            onHide={() => updateUiState({ sidebarVisible: false })}
+          />
         ) : null}
-
-        <div className="flex min-h-0 flex-1 flex-col px-6 py-4">
-          {boardQuery.isError && !board ? (
-            <div className="mx-auto flex w-full max-w-2xl flex-col items-center text-center">
-              <p className="text-[13px] text-destructive">{boardQuery.error.message}</p>
-            </div>
-          ) : (
-            renderBoard()
-          )}
+        <div className="flex min-w-0 flex-1 flex-col">
+          {renderToolbar()}
+          {renderStatusStrip()}
+          <div className="flex min-h-0 flex-1 flex-col px-5 py-4">{renderContent()}</div>
         </div>
       </div>
     </SidebarInset>

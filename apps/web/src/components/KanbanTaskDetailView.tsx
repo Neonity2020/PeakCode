@@ -35,6 +35,7 @@ import { useAppSettings } from "../appSettings";
 import { useMessages } from "../i18n/I18nContext";
 import { providerModelsQueryOptions } from "../lib/providerDiscoveryReactQuery";
 import { generationFailureReasonText } from "../lib/kanbanGenerationFailure";
+import { buildLocalImageUrl } from "../lib/localImageUrls";
 import {
   useKanbanAddTaskCommentMutation,
   useKanbanDeleteTaskMutation,
@@ -44,32 +45,25 @@ import {
   useKanbanUpdateTaskMutation,
 } from "../lib/kanbanReactQuery";
 import { persistKanbanProjectId } from "../kanbanUiState";
+import { ArrowLeftIcon, LoaderIcon, SparklesIcon, SquarePenIcon, Trash2 } from "../lib/icons";
 import {
-  ArrowLeftIcon,
-  CheckIcon,
-  CircleAlertIcon,
-  LoaderIcon,
-  SparklesIcon,
-  SquarePenIcon,
-  Trash2,
-} from "../lib/icons";
+  KANBAN_PRIORITY_CLASS,
+  KANBAN_RUN_STATUS_CLASS,
+  kanbanProjectCode,
+  kanbanRunStatusLabel,
+  kanbanStatusLabel,
+  kanbanTaskCode,
+} from "../lib/kanbanPresentation";
 import { cn } from "../lib/utils";
 import ChatMarkdown from "./ChatMarkdown";
+import {
+  KanbanPriorityMeter,
+  KanbanRunStatusMarker,
+  KanbanStatusGlyph,
+} from "./KanbanPresentation";
+import { KanbanTaskAttachments } from "./KanbanTaskAttachments";
 import { formatRelativeTime } from "./Sidebar";
 import { SidebarInset } from "./ui/sidebar";
-
-const RUN_STATUS_CLASS: Record<KanbanAgentRunStatus, string> = {
-  running: "text-info",
-  done: "text-success",
-  failed: "text-destructive",
-  interrupted: "text-muted-foreground",
-};
-
-const PRIORITY_CLASS: Record<KanbanTaskPriority, string> = {
-  high: "bg-destructive/12 text-destructive",
-  medium: "bg-warning/15 text-warning",
-  low: "bg-muted text-muted-foreground",
-};
 
 const PROVIDER_LABELS: Record<string, string> = { pi: "Pi" };
 
@@ -257,14 +251,6 @@ export function KanbanTaskDetailView(props: { projectId: ProjectId | null; taskI
 
   const requirementTitle = detail?.task.title.trim() ?? "";
 
-  const statusLabel = useCallback(
-    (status: KanbanTaskStatus): string =>
-      status === "in_progress"
-        ? messages.kanban.columns.inProgress
-        : messages.kanban.columns[status],
-    [messages],
-  );
-
   const commentStatusLabel = useCallback(
     (comment: KanbanComment): string => {
       switch (comment.statusCode) {
@@ -357,31 +343,25 @@ export function KanbanTaskDetailView(props: { projectId: ProjectId | null; taskI
         <span className="truncate text-[12px] text-muted-foreground/70">
           {detail?.projectTitle ?? ""}
         </span>
+        {detail ? (
+          <span
+            className="shrink-0 rounded bg-muted/60 px-1.5 py-px font-mono text-[10px] leading-4 text-muted-foreground/70"
+            title={messages.kanban.taskId}
+            data-kanban-task-code
+          >
+            {kanbanTaskCode(detail.task.taskId, kanbanProjectCode(detail.projectTitle))}
+          </span>
+        ) : null}
         <div className="ml-auto flex items-center gap-2">
           {detail ? (
             <span
               className={cn(
                 "inline-flex items-center gap-1.5 text-[12px]",
-                runStatus ? RUN_STATUS_CLASS[runStatus] : "text-muted-foreground/70",
+                runStatus ? KANBAN_RUN_STATUS_CLASS[runStatus] : "text-muted-foreground/70",
               )}
             >
-              {runStatus === "running" ? (
-                <LoaderIcon className="size-3.5 animate-spin" />
-              ) : runStatus === "done" ? (
-                <CheckIcon className="size-3.5" />
-              ) : runStatus ? (
-                <CircleAlertIcon className="size-3.5" />
-              ) : null}
-              {messages.kanban.agentRun} ·{" "}
-              {runStatus
-                ? runStatus === "running"
-                  ? messages.kanban.agentRunRunning
-                  : runStatus === "done"
-                    ? messages.kanban.agentRunDone
-                    : runStatus === "failed"
-                      ? messages.kanban.agentRunFailed
-                      : messages.kanban.agentRunInterrupted
-                : messages.kanban.agentRunUnknown}
+              {runStatus ? <KanbanRunStatusMarker status={runStatus} /> : null}
+              {messages.kanban.agentRun} · {kanbanRunStatusLabel(messages, runStatus)}
             </span>
           ) : null}
           {detail?.task.agentThreadId ? (
@@ -430,19 +410,23 @@ export function KanbanTaskDetailView(props: { projectId: ProjectId | null; taskI
               <span className="text-[11px] font-medium tracking-wider text-muted-foreground/70 uppercase">
                 {messages.kanban.status}
               </span>
-              <select
-                value={draft.status}
-                onChange={(event) =>
-                  setDraft({ ...draft, status: event.target.value as KanbanTaskStatus })
-                }
-                className="h-8 rounded-md border border-border/60 bg-background/60 px-2 text-[12.5px] text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                {KANBAN_TASK_STATUSES.map((status) => (
-                  <option key={status} value={status}>
-                    {statusLabel(status)}
-                  </option>
-                ))}
-              </select>
+              <span className="inline-flex items-center gap-1.5">
+                <KanbanStatusGlyph status={draft.status} />
+                <select
+                  value={draft.status}
+                  aria-label={messages.kanban.status}
+                  onChange={(event) =>
+                    setDraft({ ...draft, status: event.target.value as KanbanTaskStatus })
+                  }
+                  className="h-8 rounded-md border border-border/60 bg-background/60 px-2 text-[12.5px] text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  {KANBAN_TASK_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {kanbanStatusLabel(messages, status)}
+                    </option>
+                  ))}
+                </select>
+              </span>
             </label>
             <div className="inline-flex rounded-md bg-[var(--color-background-elevated-secondary)] p-0.5">
               {(["high", "medium", "low"] as const).map((priority) => (
@@ -451,12 +435,13 @@ export function KanbanTaskDetailView(props: { projectId: ProjectId | null; taskI
                   type="button"
                   onClick={() => setDraft({ ...draft, priority })}
                   className={cn(
-                    "rounded-sm px-2.5 py-1 text-[11.5px] font-medium transition-colors",
+                    "inline-flex items-center gap-1.5 rounded-sm px-2.5 py-1 text-[11.5px] font-medium transition-colors",
                     draft.priority === priority
-                      ? cn("shadow-xs", PRIORITY_CLASS[priority])
+                      ? cn("shadow-xs", KANBAN_PRIORITY_CLASS[priority])
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
+                  <KanbanPriorityMeter priority={priority} />
                   {messages.kanban.priorities[priority]}
                 </button>
               ))}
@@ -597,7 +582,7 @@ export function KanbanTaskDetailView(props: { projectId: ProjectId | null; taskI
                 {detail.task.description.trim().length > 0 ? (
                   <ChatMarkdown
                     text={detail.task.description}
-                    cwd={undefined}
+                    cwd={detail.workspaceRoot}
                     className="text-[13px] leading-relaxed"
                   />
                 ) : (
@@ -606,6 +591,18 @@ export function KanbanTaskDetailView(props: { projectId: ProjectId | null; taskI
                   </p>
                 )}
               </div>
+              {detail.task.attachments.length > 0 ? (
+                <KanbanTaskAttachments
+                  items={detail.task.attachments.map((attachment) => ({
+                    key: attachment.attachmentId,
+                    src: buildLocalImageUrl({
+                      src: attachment.relativePath,
+                      cwd: detail.workspaceRoot,
+                    }),
+                    name: attachment.name,
+                  }))}
+                />
+              ) : null}
               <p className="text-[11.5px] text-muted-foreground/55">
                 {messages.kanban.detail.requirementAppendHint}
               </p>

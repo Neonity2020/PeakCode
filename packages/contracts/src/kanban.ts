@@ -80,6 +80,40 @@ export const KANBAN_COMMENT_ACTIONS = ["comment", "steer", "interrupt"] as const
 export const KanbanCommentAction = Schema.Literals(KANBAN_COMMENT_ACTIONS);
 export type KanbanCommentAction = typeof KanbanCommentAction.Type;
 
+/** Images a task's requirement can carry: same limits as chat attachments. */
+export const KANBAN_TASK_MAX_ATTACHMENTS = 8;
+export const KANBAN_TASK_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const KANBAN_TASK_ATTACHMENT_DATA_URL_MAX_CHARS = 14_000_000;
+
+/**
+ * An image stored with the project's board at
+ * `<workspaceRoot>/.kanban/attachments/<attachmentId><extension>`. The relative
+ * path is what the client hands to the local-image route to render the preview.
+ */
+export const KanbanTaskAttachment = Schema.Struct({
+  attachmentId: TrimmedNonEmptyString.check(
+    Schema.isMaxLength(128),
+    Schema.isPattern(/^[a-z0-9_-]+$/i),
+  ),
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+  mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100), Schema.isPattern(/^image\//i)),
+  sizeBytes: NonNegativeInt.check(Schema.isLessThanOrEqualTo(KANBAN_TASK_MAX_ATTACHMENT_BYTES)),
+  /** Path relative to the project workspace root, e.g. `.kanban/attachments/x.png`. */
+  relativePath: TrimmedNonEmptyString,
+});
+export type KanbanTaskAttachment = typeof KanbanTaskAttachment.Type;
+
+/** An image the client sends inline when creating a task; the server stores the bytes. */
+export const KanbanUploadTaskAttachment = Schema.Struct({
+  name: TrimmedNonEmptyString.check(Schema.isMaxLength(255)),
+  mimeType: TrimmedNonEmptyString.check(Schema.isMaxLength(100), Schema.isPattern(/^image\//i)),
+  sizeBytes: NonNegativeInt.check(Schema.isLessThanOrEqualTo(KANBAN_TASK_MAX_ATTACHMENT_BYTES)),
+  dataUrl: TrimmedNonEmptyString.check(
+    Schema.isMaxLength(KANBAN_TASK_ATTACHMENT_DATA_URL_MAX_CHARS),
+  ),
+});
+export type KanbanUploadTaskAttachment = typeof KanbanUploadTaskAttachment.Type;
+
 export const KanbanColumn = Schema.Struct({
   key: KanbanTaskStatus,
   name: TrimmedNonEmptyString,
@@ -102,6 +136,8 @@ export const KanbanTask = Schema.Struct({
   /** Thread the task was dispatched to, so its outcome can be written back. */
   agentThreadId: Schema.NullOr(ThreadId),
   agentRunStatus: Schema.NullOr(KanbanAgentRunStatus),
+  /** Images attached to the requirement, shown with it and handed to the agent. */
+  attachments: Schema.Array(KanbanTaskAttachment),
   /** Run notices and notes kept with the task, oldest first. */
   comments: Schema.Array(KanbanComment),
   createdAt: Schema.NullOr(IsoDateTime),
@@ -153,6 +189,10 @@ export const KanbanCreateTaskInput = Schema.Struct({
   projectId: ProjectId,
   title: TrimmedNonEmptyString,
   description: Schema.optional(Schema.String),
+  /** Images to store with the task's requirement; the server writes the bytes. */
+  attachments: Schema.optional(
+    Schema.Array(KanbanUploadTaskAttachment).check(Schema.isMaxLength(KANBAN_TASK_MAX_ATTACHMENTS)),
+  ),
   status: KanbanTaskStatus,
   priority: KanbanTaskPriority,
   pipeline: Schema.String,
@@ -201,6 +241,8 @@ export const KanbanTaskDetail = Schema.Struct({
   projectId: ProjectId,
   projectTitle: TrimmedNonEmptyString,
   boardFilePath: TrimmedNonEmptyString,
+  /** Root the attachment `relativePath`s resolve against, for image previews. */
+  workspaceRoot: TrimmedNonEmptyString,
   task: KanbanTask,
   /**
    * The task's comment stream: comments kept on the board merged with the

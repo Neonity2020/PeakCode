@@ -23,6 +23,7 @@ import type {
   KanbanCommentKind,
   KanbanCommentStatusCode,
   KanbanTask,
+  KanbanTaskAttachment,
   KanbanTaskPriority,
   KanbanTaskStatus,
   ModelSelection,
@@ -44,6 +45,8 @@ export interface KanbanStoredTask {
   /** Thread the task was dispatched to; empty when it never ran. */
   agentThreadId: string;
   agentRunStatus: KanbanAgentRunStatus | null;
+  /** Images stored under `.kanban/attachments/` and attached to the requirement. */
+  attachments: Array<KanbanTaskAttachment>;
   comments: Array<KanbanComment>;
   createdAt: string;
   updatedAt: string;
@@ -218,6 +221,47 @@ function normalizeColumns(value: unknown): ReadonlyArray<KanbanColumn> {
   return withNewDefaults;
 }
 
+/**
+ * Image descriptors kept with a task. Entries that lost their id, mime type or
+ * a safe relative path are dropped: an unresolvable path would render as a
+ * broken image and would be handed to the agent as a dead reference.
+ */
+function normalizeAttachments(value: unknown): Array<KanbanTaskAttachment> {
+  if (!Array.isArray(value)) return [];
+  const attachments: Array<KanbanTaskAttachment> = [];
+  for (const entry of value) {
+    if (!isPlainRecord(entry)) continue;
+    const attachmentId = asNonEmptyString(entry["attachmentId"]);
+    const name = asNonEmptyString(entry["name"]);
+    const mimeType = asNonEmptyString(entry["mimeType"]);
+    const relativePath = asNonEmptyString(entry["relativePath"]);
+    const sizeBytes = entry["sizeBytes"];
+    if (!attachmentId || !name || !mimeType || !relativePath) continue;
+    if (!mimeType.toLowerCase().startsWith("image/")) continue;
+    if (!isSafeAttachmentRelativePath(relativePath)) continue;
+    attachments.push({
+      attachmentId,
+      name,
+      mimeType,
+      sizeBytes:
+        typeof sizeBytes === "number" && Number.isFinite(sizeBytes) && sizeBytes >= 0
+          ? Math.floor(sizeBytes)
+          : 0,
+      relativePath,
+    });
+  }
+  return attachments;
+}
+
+/** Rejects absolute paths and `..` escapes; attachments stay inside the project. */
+function isSafeAttachmentRelativePath(relativePath: string): boolean {
+  const normalized = relativePath.trim().replace(/\\/g, "/");
+  if (normalized.length === 0 || normalized.startsWith("/") || normalized.includes("\0")) {
+    return false;
+  }
+  return !normalized.split("/").includes("..");
+}
+
 /** Comments are kept verbatim: their order and text are the task's history. */
 function normalizeComments(value: unknown): Array<KanbanComment> {
   if (!Array.isArray(value)) return [];
@@ -291,6 +335,7 @@ function normalizeTask(value: unknown, fallbackTimestamp: string): KanbanStoredT
     assignee: typeof value["assignee"] === "string" ? value["assignee"] : "",
     agentProvider: normalizeAgentProvider(value["agentProvider"]),
     agentModel: typeof value["agentModel"] === "string" ? value["agentModel"].trim() : "",
+    attachments: normalizeAttachments(value["attachments"]),
     comments: normalizeComments(value["comments"]),
     agentThreadId: asNonEmptyString(value["agentThreadId"]) ?? "",
     agentRunStatus: normalizeAgentRunStatus(value["agentRunStatus"]),
@@ -387,6 +432,7 @@ export function createStoredTask(input: {
   readonly priority: KanbanTaskPriority;
   readonly pipeline: string;
   readonly assignee: string;
+  readonly attachmentDescriptors?: ReadonlyArray<KanbanTaskAttachment>;
   readonly agentProvider?: string;
   readonly agentModel?: string;
   readonly now: string;
@@ -403,6 +449,7 @@ export function createStoredTask(input: {
     agentModel: (input.agentModel ?? "").trim(),
     agentThreadId: "",
     agentRunStatus: null,
+    attachments: [...(input.attachmentDescriptors ?? [])],
     comments: [],
     createdAt: input.now,
     updatedAt: input.now,
@@ -454,6 +501,7 @@ export const BOARD_RUN_INSTRUCTIONS = [
 export function buildTaskPrompt(task: {
   readonly title: string;
   readonly description: string;
+  readonly attachments?: ReadonlyArray<KanbanTaskAttachment>;
 }): string {
   const title = task.title.trim();
   const description = task.description.trim();
@@ -463,9 +511,27 @@ export function buildTaskPrompt(task: {
       : title.length === 0
         ? description
         : `${title}\n\n${description}`;
+  // The agent runs with the project workspace as its working directory, so the
+  // workspace-relative attachment paths can be read straight from the prompt.
+  const attachmentLines = (task.attachments ?? []).map(
+    (attachment) =>
+      `- ${attachment.relativePath}${attachment.name ? `（${attachment.name}）` : ""}`,
+  );
+  const attachmentBlock =
+    attachmentLines.length === 0
+      ? ""
+      : `需求附带图片（相对项目根目录，可用 read 工具查看）：\n${attachmentLines.join("\n")}`;
+  const withAttachments =
+    attachmentBlock.length === 0
+      ? brief
+      : brief.length === 0
+        ? attachmentBlock
+        : `${brief}\n\n${attachmentBlock}`;
   // A card with no text at all still gets the standing instructions: they are what makes the
   // run comment on the board, and a title-less task is exactly when that matters most.
-  return brief.length === 0 ? BOARD_RUN_INSTRUCTIONS : `${brief}\n\n${BOARD_RUN_INSTRUCTIONS}`;
+  return withAttachments.length === 0
+    ? BOARD_RUN_INSTRUCTIONS
+    : `${withAttachments}\n\n${BOARD_RUN_INSTRUCTIONS}`;
 }
 
 /** Terminal task status for a finished agent run. */
@@ -529,6 +595,7 @@ function toKanbanTask(task: KanbanStoredTask): KanbanTask {
     agentModel: task.agentModel,
     agentThreadId: task.agentThreadId ? ThreadId.makeUnsafe(task.agentThreadId) : null,
     agentRunStatus: task.agentRunStatus,
+    attachments: [...(task.attachments ?? [])],
     comments: [...task.comments],
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,

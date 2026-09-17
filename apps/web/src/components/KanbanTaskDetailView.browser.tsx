@@ -75,6 +75,7 @@ function detailFixture(): KanbanTaskDetail {
     projectId: PROJECT_ID,
     projectTitle: "PeakCode",
     boardFilePath: "/tmp/peakcode/.kanban/board.json",
+    workspaceRoot: "/tmp/peakcode",
     task: {
       taskId: TASK_ID,
       title: "Mode switcher",
@@ -87,6 +88,7 @@ function detailFixture(): KanbanTaskDetail {
       agentModel: "",
       agentThreadId: null,
       agentRunStatus: null,
+      attachments: [],
       comments: [],
       createdAt: null,
       updatedAt: null,

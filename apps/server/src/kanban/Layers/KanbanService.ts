@@ -3,7 +3,12 @@ import { randomUUID } from "node:crypto";
 import { Effect, Exit, FileSystem, Layer, Option, Path } from "effect";
 import * as Semaphore from "effect/Semaphore";
 
-import { CommandId, MessageId, ThreadId } from "@peakcode/contracts";
+import {
+  CommandId,
+  KANBAN_TASK_MAX_ATTACHMENT_BYTES,
+  MessageId,
+  ThreadId,
+} from "@peakcode/contracts";
 import type {
   KanbanAgentRunStatus,
   KanbanBoard,
@@ -12,15 +17,19 @@ import type {
   KanbanListProjectsInput,
   KanbanListProjectsResult,
   KanbanProjectSummary,
+  KanbanTaskAttachment,
   KanbanTaskDetail,
   KanbanTaskStatus,
+  KanbanUploadTaskAttachment,
   ModelSelection,
   OrchestrationProjectShell,
   ProjectId,
 } from "@peakcode/contracts";
 
 import { writeFileStringAtomically } from "../../atomicWrite.ts";
+import { inferImageExtension, parseBase64DataUrl } from "../../imageMime.ts";
 import { TextGeneration } from "../../git/Services/TextGeneration.ts";
+import { makeHeadlessModelResolver } from "../../provider/resolveHeadlessModelSelection.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { WorkspaceEntries } from "../../workspace/Services/WorkspaceEntries.ts";
@@ -46,8 +55,8 @@ import {
 
 const BOARD_DIRECTORY_NAME = ".kanban";
 const BOARD_FILE_NAME = "board.json";
-
-const FALLBACK_MODEL_SELECTION: ModelSelection = { provider: "pi", model: "pi/default" };
+/** Images a task's requirement carries; kept beside the board so they travel with the project. */
+const ATTACHMENTS_DIRECTORY_NAME = "attachments";
 
 const newCommandId = () => CommandId.makeUnsafe(`cmd_${randomUUID()}`);
 const newThreadId = () => ThreadId.makeUnsafe(`thread_${randomUUID()}`);
@@ -82,12 +91,73 @@ const makeKanbanService = Effect.gen(function* () {
   const workspaceEntries = yield* WorkspaceEntries;
   const orchestrationEngine = yield* OrchestrationEngineService;
   const textGeneration = yield* TextGeneration;
+  const headlessModel = yield* makeHeadlessModelResolver;
   // Board writes are read-modify-write cycles; serialize them per process so
   // concurrent drags cannot drop each other's changes.
   const writeSemaphore = yield* Semaphore.make(1);
 
   const boardFilePathOf = (workspaceRoot: string) =>
     path.join(workspaceRoot, BOARD_DIRECTORY_NAME, BOARD_FILE_NAME);
+
+  /**
+   * Writes task requirement images beside the board and returns their
+   * descriptors. Bytes live on disk (never in board.json) so the board stays a
+   * small text document and both the UI and the agent can read the same file.
+   */
+  const storeTaskAttachments = (
+    workspaceRoot: string,
+    uploads: ReadonlyArray<KanbanUploadTaskAttachment>,
+  ): Effect.Effect<Array<KanbanTaskAttachment>, Error> =>
+    Effect.gen(function* () {
+      if (uploads.length === 0) return [];
+
+      const attachmentsRoot = path.join(
+        workspaceRoot,
+        BOARD_DIRECTORY_NAME,
+        ATTACHMENTS_DIRECTORY_NAME,
+      );
+      yield* fs
+        .makeDirectory(attachmentsRoot, { recursive: true })
+        .pipe(
+          Effect.mapError(
+            (cause) => new Error(`Failed to create ${attachmentsRoot}: ${describeCause(cause)}`),
+          ),
+        );
+
+      const stored: Array<KanbanTaskAttachment> = [];
+      for (const upload of uploads) {
+        const parsed = parseBase64DataUrl(upload.dataUrl);
+        if (!parsed) {
+          return yield* Effect.fail(new Error(`Attachment '${upload.name}' is not a valid image.`));
+        }
+        const bytes = Buffer.from(parsed.base64, "base64");
+        if (bytes.byteLength > KANBAN_TASK_MAX_ATTACHMENT_BYTES) {
+          return yield* Effect.fail(new Error(`Attachment '${upload.name}' is too large.`));
+        }
+
+        const attachmentId = randomUUID();
+        const fileName = `${attachmentId}${inferImageExtension({
+          mimeType: upload.mimeType,
+          fileName: upload.name,
+        })}`;
+        yield* fs
+          .writeFile(path.join(attachmentsRoot, fileName), bytes)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new Error(`Failed to write attachment '${upload.name}': ${describeCause(cause)}`),
+            ),
+          );
+        stored.push({
+          attachmentId,
+          name: upload.name,
+          mimeType: upload.mimeType,
+          sizeBytes: bytes.byteLength,
+          relativePath: `${BOARD_DIRECTORY_NAME}/${ATTACHMENTS_DIRECTORY_NAME}/${fileName}`,
+        });
+      }
+      return stored;
+    });
 
   const requireProject = (projectId: ProjectId) =>
     Effect.gen(function* () {
@@ -244,6 +314,7 @@ const makeKanbanService = Effect.gen(function* () {
             projectId: context.projectId,
             projectTitle: context.projectTitle,
             boardFilePath: context.boardFilePath,
+            workspaceRoot: context.workspaceRoot,
             task: toKanbanBoard(document, context).tasks.find((entry) => entry.taskId === task.id)!,
             comments: commentsForTask(task, messages),
           }) satisfies KanbanTaskDetail,
@@ -378,8 +449,16 @@ const makeKanbanService = Effect.gen(function* () {
   const dispatchTaskRun = (project: OrchestrationProjectShell, pending: PendingTaskRun) =>
     Effect.gen(function* () {
       const now = nowIso();
+      // The task's own model wins; otherwise the workspace default, otherwise whatever the
+      // provider offers — never a constant slug that the install may not have.
       const modelSelection =
-        pending.modelSelection ?? project.defaultModelSelection ?? FALLBACK_MODEL_SELECTION;
+        pending.modelSelection ??
+        (yield* headlessModel.resolve(project.defaultModelSelection)) ??
+        (yield* Effect.fail(
+          new Error(
+            "这个工作区还没有可用的模型：先在 Peak Code 里给工作区选一个模型，再让 Agent 执行任务。",
+          ),
+        ));
 
       yield* orchestrationEngine.dispatch({
         type: "thread.create",
@@ -505,10 +584,16 @@ const makeKanbanService = Effect.gen(function* () {
 
     createTask: (input) =>
       mutateBoardAndDispatch(input.projectId, (document, now) =>
-        Effect.sync(() => {
+        Effect.gen(function* () {
+          const project = yield* requireProject(input.projectId);
+          const attachmentDescriptors = yield* storeTaskAttachments(
+            project.workspaceRoot,
+            input.attachments ?? [],
+          );
           const task = createStoredTask({
             title: input.title,
             description: input.description ?? "",
+            attachmentDescriptors,
             status: input.status,
             priority: input.priority,
             pipeline: input.pipeline,
@@ -774,7 +859,11 @@ const makeKanbanService = Effect.gen(function* () {
           Effect.succeed(found),
         );
         const modelSelection =
-          taskModelSelection(task) ?? project.defaultModelSelection ?? FALLBACK_MODEL_SELECTION;
+          taskModelSelection(task) ??
+          (yield* headlessModel.resolve(project.defaultModelSelection)) ??
+          (yield* Effect.fail(
+            new Error("这个工作区还没有可用的模型：先在 Peak Code 里给工作区选一个模型。"),
+          ));
 
         const generated = yield* textGeneration
           .generateTaskRequirement({
@@ -821,8 +910,10 @@ const makeKanbanService = Effect.gen(function* () {
             agentProvider: input.agentProvider ?? "",
             agentModel: input.agentModel ?? "",
           }) ??
-          project.defaultModelSelection ??
-          FALLBACK_MODEL_SELECTION;
+          (yield* headlessModel.resolve(project.defaultModelSelection)) ??
+          (yield* Effect.fail(
+            new Error("这个工作区还没有可用的模型：先在 Peak Code 里给工作区选一个模型。"),
+          ));
 
         const generated = yield* textGeneration
           .generateTaskRequirement({

@@ -42,6 +42,7 @@ const makeTask = (overrides: Partial<KanbanStoredTask> = {}): KanbanStoredTask =
   assignee: "",
   agentProvider: "pi",
   agentModel: "",
+  attachments: [],
   comments: [],
   agentThreadId: "",
   agentRunStatus: null,
@@ -327,6 +328,80 @@ describe("agent runs", () => {
       `只有描述\n\n${BOARD_RUN_INSTRUCTIONS}`,
     );
     expect(buildTaskPrompt({ title: "", description: "" })).toBe(BOARD_RUN_INSTRUCTIONS);
+  });
+
+  it("lists attachment paths for the agent without putting bytes in the prompt", () => {
+    const prompt = buildTaskPrompt({
+      title: "改首页",
+      description: "按设计稿改",
+      attachments: [
+        {
+          attachmentId: "a1",
+          name: "设计稿.png",
+          mimeType: "image/png",
+          sizeBytes: 1234,
+          relativePath: ".kanban/attachments/a1.png",
+        },
+      ],
+    });
+
+    expect(prompt).toContain("需求附带图片");
+    expect(prompt).toContain(".kanban/attachments/a1.png（设计稿.png）");
+    expect(prompt).toContain(BOARD_RUN_INSTRUCTIONS);
+  });
+
+  it("keeps only resolvable image attachments and rejects path escapes", () => {
+    const board = normalizeBoardDocument(
+      {
+        tasks: [
+          {
+            id: "t_img",
+            title: "图片任务",
+            attachments: [
+              {
+                attachmentId: "ok",
+                name: "shot.png",
+                mimeType: "image/png",
+                sizeBytes: 10,
+                relativePath: ".kanban/attachments/ok.png",
+              },
+              {
+                attachmentId: "escape",
+                name: "sneaky.png",
+                mimeType: "image/png",
+                sizeBytes: 10,
+                relativePath: "../outside.png",
+              },
+              {
+                attachmentId: "absolute",
+                name: "abs.png",
+                mimeType: "image/png",
+                sizeBytes: 10,
+                relativePath: "/tmp/abs.png",
+              },
+              {
+                attachmentId: "notimage",
+                name: "f.pdf",
+                mimeType: "application/pdf",
+                relativePath: "x.pdf",
+              },
+            ],
+          },
+        ],
+      },
+      { projectId: "p_1", projectTitle: "Board" },
+    );
+
+    expect(board.tasks[0]?.attachments).toEqual([
+      {
+        attachmentId: "ok",
+        name: "shot.png",
+        mimeType: "image/png",
+        sizeBytes: 10,
+        relativePath: ".kanban/attachments/ok.png",
+      },
+    ]);
+    expect(toKanbanBoard(board, CONTEXT).tasks[0]?.attachments).toHaveLength(1);
   });
 
   it("tells a dispatched run to leave a comment per finished step", () => {

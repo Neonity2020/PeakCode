@@ -7,13 +7,23 @@
 // Layer: Component
 // Exports: KanbanTaskCreateView
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type FormEvent,
+} from "react";
 import {
   KANBAN_AGENT_PROVIDERS,
   KANBAN_TASK_STATUSES,
   type KanbanAgentProvider,
   type KanbanTaskPriority,
   type KanbanTaskStatus,
+  type KanbanUploadTaskAttachment,
   type ProjectId,
 } from "@peakcode/contracts";
 import { useBlocker, useNavigate } from "@tanstack/react-router";
@@ -23,19 +33,32 @@ import { useAppSettings } from "../appSettings";
 import { useMessages } from "../i18n/I18nContext";
 import { providerModelsQueryOptions } from "../lib/providerDiscoveryReactQuery";
 import {
+  KANBAN_TASK_MAX_ATTACHMENTS,
+  imageFilesFromClipboard,
+  readKanbanAttachmentDataUrl,
+  revokeKanbanAttachmentPreviews,
+  selectKanbanAttachmentFiles,
+  toKanbanDraftAttachment,
+  type KanbanDraftAttachment,
+} from "../lib/kanbanTaskAttachments";
+import {
   emptyKanbanTaskDraft,
   isKanbanTaskDraftDirty,
   type KanbanTaskDraft,
 } from "../lib/kanbanTaskDraft";
+import { kanbanStatusLabel } from "../lib/kanbanPresentation";
 import {
   useKanbanBoardQuery,
   useKanbanCreateTaskMutation,
   useKanbanGenerateRequirementDraftMutation,
   useKanbanProjectsQuery,
 } from "../lib/kanbanReactQuery";
-import { ArrowLeftIcon, LoaderIcon, SparklesIcon } from "../lib/icons";
+import { ArrowLeftIcon, LoaderIcon, PaperclipIcon, SparklesIcon } from "../lib/icons";
 import { cn } from "../lib/utils";
+import { KanbanStatusGlyph } from "./KanbanPresentation";
+import { KanbanTaskAttachments } from "./KanbanTaskAttachments";
 import { SidebarInset } from "./ui/sidebar";
+import { toastManager } from "./ui/toast";
 
 const PROVIDER_LABELS: Record<string, string> = { pi: "Pi" };
 
@@ -57,6 +80,16 @@ export function KanbanTaskCreateView(props: {
   const generateRequirementDraft = useKanbanGenerateRequirementDraftMutation();
 
   const [draft, setDraft] = useState<KanbanTaskDraft>(() => emptyKanbanTaskDraft(initialStatus));
+  const [attachments, setAttachments] = useState<ReadonlyArray<KanbanDraftAttachment>>([]);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  // Mirrors the state so paste/drop handlers and the unmount cleanup always see
+  // the latest list, without re-creating callbacks on every keystroke.
+  const attachmentsRef = useRef<ReadonlyArray<KanbanDraftAttachment>>([]);
+  const setAttachmentList = useCallback((next: ReadonlyArray<KanbanDraftAttachment>) => {
+    attachmentsRef.current = next;
+    setAttachments(next);
+  }, []);
+  useEffect(() => () => revokeKanbanAttachmentPreviews(attachmentsRef.current), []);
 
   const agentModelsQuery = useQuery(
     providerModelsQueryOptions({
@@ -113,14 +146,14 @@ export function KanbanTaskCreateView(props: {
   );
 
   const columnLabel = useCallback(
-    (status: KanbanTaskStatus): string =>
-      status === "in_progress"
-        ? messages.kanban.columns.inProgress
-        : messages.kanban.columns[status],
+    (status: KanbanTaskStatus): string => kanbanStatusLabel(messages, status),
     [messages],
   );
 
-  const dirty = useMemo(() => isKanbanTaskDraftDirty(draft, initialStatus), [draft, initialStatus]);
+  const dirty = useMemo(
+    () => isKanbanTaskDraftDirty(draft, initialStatus) || attachments.length > 0,
+    [draft, initialStatus, attachments.length],
+  );
 
   /** Set right before a deliberate navigation so the leave guard stays quiet. */
   const allowLeaveRef = useRef(false);
@@ -143,15 +176,85 @@ export function KanbanTaskCreateView(props: {
     },
   });
 
-  const submitDraft = useCallback(() => {
+  const addAttachmentFiles = useCallback(
+    (files: ReadonlyArray<File>) => {
+      const { accepted, rejected } = selectKanbanAttachmentFiles(
+        files,
+        attachmentsRef.current.length,
+      );
+      if (rejected.length > 0) {
+        toastManager.add({ type: "error", title: messages.kanban.imageRejected });
+      }
+      if (accepted.length === 0) return;
+      setAttachmentList([
+        ...attachmentsRef.current,
+        ...accepted.map((file) => toKanbanDraftAttachment(file)),
+      ]);
+    },
+    [messages, setAttachmentList],
+  );
+
+  const removeAttachment = useCallback(
+    (id: string) => {
+      revokeKanbanAttachmentPreviews(
+        attachmentsRef.current.filter((attachment) => attachment.id === id),
+      );
+      setAttachmentList(attachmentsRef.current.filter((attachment) => attachment.id !== id));
+    },
+    [setAttachmentList],
+  );
+
+  const onDescriptionPaste = useCallback(
+    (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      const files = imageFilesFromClipboard(event.clipboardData?.items ?? null);
+      if (files.length === 0) return;
+      event.preventDefault();
+      addAttachmentFiles(files);
+    },
+    [addAttachmentFiles],
+  );
+
+  const onDescriptionDrop = useCallback(
+    (event: DragEvent<HTMLTextAreaElement>) => {
+      const files = Array.from(event.dataTransfer?.files ?? []);
+      if (files.length === 0) return;
+      event.preventDefault();
+      addAttachmentFiles(files);
+    },
+    [addAttachmentFiles],
+  );
+
+  const submitDraft = useCallback(async () => {
     if (!projectId) return;
     const title = draft.title.trim();
     if (title.length === 0) return;
+
+    let uploads: Array<KanbanUploadTaskAttachment> = [];
+    if (attachments.length > 0) {
+      try {
+        uploads = await Promise.all(
+          attachments.map(async (attachment) => ({
+            name: attachment.name,
+            mimeType: attachment.mimeType,
+            sizeBytes: attachment.sizeBytes,
+            dataUrl: await readKanbanAttachmentDataUrl(attachment.file),
+          })),
+        );
+      } catch (error) {
+        toastManager.add({
+          type: "error",
+          title: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+    }
+
     createTask.mutate(
       {
         projectId,
         title,
         description: draft.description.trim(),
+        ...(uploads.length > 0 ? { attachments: uploads } : {}),
         status: draft.status,
         priority: draft.priority,
         pipeline: draft.pipeline.trim(),
@@ -166,7 +269,7 @@ export function KanbanTaskCreateView(props: {
         },
       },
     );
-  }, [createTask, draft, navigate, projectId]);
+  }, [attachments, createTask, draft, navigate, projectId]);
 
   /**
    * Drafts the requirement for the task being written: the title and whatever the
@@ -209,7 +312,7 @@ export function KanbanTaskCreateView(props: {
       }
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
-        submitDraft();
+        void submitDraft();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -251,7 +354,7 @@ export function KanbanTaskCreateView(props: {
         className="mx-auto flex w-full max-w-2xl flex-col gap-4"
         onSubmit={(event: FormEvent) => {
           event.preventDefault();
-          submitDraft();
+          void submitDraft();
         }}
       >
         <label className="flex flex-col gap-1.5">
@@ -277,12 +380,48 @@ export function KanbanTaskCreateView(props: {
             aria-label={messages.kanban.taskDescription}
             placeholder={messages.kanban.taskDescriptionPlaceholder}
             onChange={(event) => setDraft((prev) => ({ ...prev, description: event.target.value }))}
+            onPaste={onDescriptionPaste}
+            onDrop={onDescriptionDrop}
+            onDragOver={(event) => event.preventDefault()}
             className="resize-y rounded-md border border-border/60 bg-background/60 px-3 py-2.5 text-[13.5px] leading-relaxed text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
           />
+          {attachments.length > 0 ? (
+            <KanbanTaskAttachments
+              items={attachments.map((attachment) => ({
+                key: attachment.id,
+                src: attachment.previewUrl,
+                name: attachment.name,
+              }))}
+              onRemove={removeAttachment}
+              removeLabel={messages.kanban.removeImage}
+            />
+          ) : null}
           <div className="flex items-center gap-2">
             <span className="flex-1 text-[11.5px] leading-relaxed text-muted-foreground/55">
               {messages.kanban.detail.generateRequirementHint}
             </span>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []);
+                addAttachmentFiles(files);
+                event.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={attachments.length >= KANBAN_TASK_MAX_ATTACHMENTS}
+              title={messages.kanban.imageHint}
+              className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-background/60 px-3 text-[12px] text-foreground/80 transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <PaperclipIcon className="size-3.5" />
+              {messages.kanban.addImage}
+            </button>
             <button
               type="button"
               onClick={() => void onGenerateRequirement()}
@@ -300,6 +439,9 @@ export function KanbanTaskCreateView(props: {
                 : messages.kanban.detail.generateRequirement}
             </button>
           </div>
+          <span className="text-[11px] leading-relaxed text-muted-foreground/45">
+            {messages.kanban.imageHint}
+          </span>
         </div>
 
         <div className="flex gap-4">
@@ -325,24 +467,35 @@ export function KanbanTaskCreateView(props: {
               ))}
             </div>
           </div>
-          <label className="flex flex-1 flex-col gap-1.5">
+          <div className="flex flex-1 flex-col gap-1.5">
             <span className="text-[11px] font-medium tracking-wider text-muted-foreground/70 uppercase">
               {messages.kanban.status}
             </span>
-            <select
-              value={draft.status}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, status: event.target.value as KanbanTaskStatus }))
-              }
-              className="h-10 rounded-md border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
+            <div
+              role="radiogroup"
+              aria-label={messages.kanban.status}
+              className="flex flex-wrap gap-1"
             >
               {columnKeys.map((key) => (
-                <option key={key} value={key}>
+                <button
+                  key={key}
+                  type="button"
+                  role="radio"
+                  aria-checked={draft.status === key}
+                  onClick={() => setDraft((prev) => ({ ...prev, status: key }))}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[12px] transition-colors",
+                    draft.status === key
+                      ? "border-border bg-[var(--composer-surface)] text-foreground shadow-xs"
+                      : "border-transparent bg-[var(--color-background-elevated-secondary)] text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <KanbanStatusGlyph status={key} />
                   {columnLabel(key)}
-                </option>
+                </button>
               ))}
-            </select>
-          </label>
+            </div>
+          </div>
         </div>
 
         <label className="flex flex-col gap-1.5">

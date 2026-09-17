@@ -221,6 +221,30 @@ it("asks before cancelling with unsaved input", async () => {
   await expect.poll(() => navigate.mock.calls[0]?.[0]).toEqual({ to: "/kanban" });
 });
 
+it("stores the images attached to the requirement with the task", async () => {
+  const screen = await mountCreatePage();
+
+  await page.getByRole("textbox", { name: "Task title" }).fill("Redesign the board");
+
+  const input = screen.container.querySelector<HTMLInputElement>('input[type="file"]');
+  expect(input).not.toBeNull();
+  const transfer = new DataTransfer();
+  transfer.items.add(new File([new Uint8Array([1, 2, 3])], "shot.png", { type: "image/png" }));
+  input!.files = transfer.files;
+  input!.dispatchEvent(new Event("change", { bubbles: true }));
+
+  // The picked image previews before anything is stored.
+  await expect.element(page.getByAltText("shot.png")).toBeVisible();
+  expect(screen.container.querySelector('[data-kanban-attachments="1"]')).not.toBeNull();
+
+  await page.getByRole("button", { name: "Create" }).click();
+  await expect
+    .poll(() => api.createTask.mock.calls[0]?.[0]?.attachments)
+    .toMatchObject([{ name: "shot.png", mimeType: "image/png", sizeBytes: 3 }]);
+  const sent = api.createTask.mock.calls[0]?.[0] as KanbanCreateTaskInput;
+  expect(sent.attachments?.[0]?.dataUrl).toMatch(/^data:image\/png;base64,/);
+});
+
 it("guards a route change while the draft is dirty", async () => {
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   await mountCreatePage();
