@@ -103,6 +103,8 @@ import {
   ProviderListSkillsResult,
   ListLocalUserSkillsResult,
   ListLocalUserSkillsInput,
+  SetSkillEnabledInput,
+  SetSkillEnabledResult,
   ProviderReadPluginInput,
   ProviderReadPluginResult,
 } from "./providerDiscovery";
@@ -134,6 +136,12 @@ import {
   ServerRefreshProvidersResult,
   ServerTestModelProviderInput,
   ServerTestModelProviderResult,
+  ServerInstallPiPackageInput,
+  ServerInstallPiPackageResult,
+  ServerListPiPackagesInput,
+  ServerListPiPackagesResult,
+  ServerRemovePiPackageInput,
+  ServerRemovePiPackageResult,
   ServerSaveModelProvidersInput,
   ServerSaveModelProvidersResult,
   ServerUpdateSettingsInput,
@@ -515,6 +523,24 @@ export const WsServerTestModelProviderRpc = Rpc.make(WS_METHODS.serverTestModelP
   error: WsRpcError,
 });
 
+export const WsServerListPiPackagesRpc = Rpc.make(WS_METHODS.serverListPiPackages, {
+  payload: ServerListPiPackagesInput,
+  success: ServerListPiPackagesResult,
+  error: WsRpcError,
+});
+
+export const WsServerInstallPiPackageRpc = Rpc.make(WS_METHODS.serverInstallPiPackage, {
+  payload: ServerInstallPiPackageInput,
+  success: ServerInstallPiPackageResult,
+  error: WsRpcError,
+});
+
+export const WsServerRemovePiPackageRpc = Rpc.make(WS_METHODS.serverRemovePiPackage, {
+  payload: ServerRemovePiPackageInput,
+  success: ServerRemovePiPackageResult,
+  error: WsRpcError,
+});
+
 export const WsServerGetProviderUsageSnapshotRpc = Rpc.make(
   WS_METHODS.serverGetProviderUsageSnapshot,
   {
@@ -603,6 +629,12 @@ export const WsProviderListSkillsRpc = Rpc.make(WS_METHODS.providerListSkills, {
 export const WsSkillsListLocalRpc = Rpc.make(WS_METHODS.skillsListLocal, {
   payload: ListLocalUserSkillsInput,
   success: ListLocalUserSkillsResult,
+  error: WsRpcError,
+});
+
+export const WsSkillsSetEnabledRpc = Rpc.make(WS_METHODS.skillsSetEnabled, {
+  payload: SetSkillEnabledInput,
+  success: SetSkillEnabledResult,
   error: WsRpcError,
 });
 
@@ -817,6 +849,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerListModelProvidersRpc,
   WsServerSaveModelProvidersRpc,
   WsServerTestModelProviderRpc,
+  WsServerListPiPackagesRpc,
+  WsServerInstallPiPackageRpc,
+  WsServerRemovePiPackageRpc,
   WsServerListWorktreesRpc,
   WsServerGetProviderUsageSnapshotRpc,
   WsServerGetDiagnosticsRpc,
@@ -835,6 +870,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProviderListModelsRpc,
   WsProviderListAgentsRpc,
   WsSkillsListLocalRpc,
+  WsSkillsSetEnabledRpc,
   WsAutomationListRpc,
   WsAutomationGetRpc,
   WsAutomationCreateRpc,

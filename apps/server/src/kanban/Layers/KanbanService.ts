@@ -661,6 +661,47 @@ const makeKanbanService = Effect.gen(function* () {
         ).pipe(Effect.asVoid);
       }),
 
+    recordTaskRunComment: (input) =>
+      Effect.gen(function* () {
+        const body = input.body.trim();
+        if (body.length === 0) {
+          return yield* Effect.fail(new Error("A board comment needs text to record."));
+        }
+        const thread = Option.getOrUndefined(
+          yield* projectQuery
+            .getThreadShellById(input.threadId)
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new Error(`Failed to read thread '${input.threadId}': ${describeCause(cause)}`),
+              ),
+            ),
+        );
+        if (!thread) {
+          return yield* Effect.fail(new Error(`Thread '${input.threadId}' was not found.`));
+        }
+
+        // Kept outside the mutation so the "no card owns this thread" case stays
+        // distinguishable from "written" — the mutation itself reports nothing.
+        let written = false;
+        yield* mutateBoard(thread.projectId, (document, now) =>
+          Effect.sync(() => {
+            const task = document.tasks.find(
+              (entry) =>
+                entry.agentThreadId === input.threadId && entry.agentRunStatus === "running",
+            );
+            // No task, or a newer run already replaced this one: the note has no
+            // card to belong to, so the board is left alone and the caller is told.
+            if (!task) return { document, changed: false };
+            appendStoredComment(task, { author: "agent", kind: "note", body, now });
+            task.updatedAt = now;
+            written = true;
+            return { document, changed: true };
+          }),
+        );
+        return written;
+      }),
+
     releaseStaleTaskRuns: () =>
       Effect.gen(function* () {
         const snapshot = yield* projectQuery

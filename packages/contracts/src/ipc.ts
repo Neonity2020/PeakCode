@@ -71,6 +71,12 @@ import type {
   ServerRefreshProvidersResult,
   ServerTestModelProviderInput,
   ServerTestModelProviderResult,
+  ServerInstallPiPackageInput,
+  ServerInstallPiPackageResult,
+  ServerListPiPackagesInput,
+  ServerListPiPackagesResult,
+  ServerRemovePiPackageInput,
+  ServerRemovePiPackageResult,
   ServerSaveModelProvidersInput,
   ServerSaveModelProvidersResult,
   ServerUpdateSettingsInput,
@@ -123,6 +129,8 @@ import type {
   ProviderReadPluginInput,
   ProviderReadPluginResult,
   ListLocalUserSkillsResult,
+  SetSkillEnabledInput,
+  SetSkillEnabledResult,
 } from "./providerDiscovery";
 import type { ProviderCompactThreadInput } from "./provider";
 import type {
@@ -440,6 +448,9 @@ export interface NativeApi {
     testModelProvider: (
       input: ServerTestModelProviderInput,
     ) => Promise<ServerTestModelProviderResult>;
+    listPiPackages: (input: ServerListPiPackagesInput) => Promise<ServerListPiPackagesResult>;
+    installPiPackage: (input: ServerInstallPiPackageInput) => Promise<ServerInstallPiPackageResult>;
+    removePiPackage: (input: ServerRemovePiPackageInput) => Promise<ServerRemovePiPackageResult>;
     getAuthSession: () => Promise<AuthSessionState>;
     bootstrapAuth: (input: AuthBootstrapInput) => Promise<AuthBootstrapResult>;
     bootstrapBearerAuth: (input: AuthBootstrapInput) => Promise<AuthBearerBootstrapResult>;
@@ -487,6 +498,7 @@ export interface NativeApi {
   };
   skills: {
     listLocal: () => Promise<ListLocalUserSkillsResult>;
+    setEnabled: (input: SetSkillEnabledInput) => Promise<SetSkillEnabledResult>;
   };
   /** Composer toolbar state: approval policy + context usage for a thread. */
   agentRuntime: {

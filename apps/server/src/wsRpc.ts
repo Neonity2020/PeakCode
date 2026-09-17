@@ -45,12 +45,14 @@ import { ProviderHealth } from "./provider/Services/ProviderHealth";
 import { ProviderService } from "./provider/Services/ProviderService";
 import { getProviderUsageSnapshot } from "./providerUsageSnapshot";
 import { listLocalUserSkills } from "./localSkills";
+import { isSkillEnabled, setSkillEnabled } from "@peakcode/agent-toolkit/skills/enablement";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
 import { readModelProvidersFile, saveModelProvidersFile } from "./modelProviders";
 import { testModelProvider } from "./modelProviderConnection";
+import { installPiPackage, listPiPackages, removePiPackage } from "./piPackages";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
 import { WorkspaceFileSystem } from "./workspace/Services/WorkspaceFileSystem";
@@ -623,6 +625,12 @@ export const makeWsRpcLayer = () =>
             Effect.promise(() => testModelProvider(input)),
             "Failed to test model provider",
           ),
+        [WS_METHODS.serverListPiPackages]: (input) =>
+          rpcEffect(listPiPackages(input.agentDir), "Failed to load pi packages"),
+        [WS_METHODS.serverInstallPiPackage]: (input) =>
+          rpcEffect(installPiPackage(input), "Failed to install pi package"),
+        [WS_METHODS.serverRemovePiPackage]: (input) =>
+          rpcEffect(removePiPackage(input), "Failed to remove pi package"),
         [WS_METHODS.serverListWorktrees]: () => Effect.succeed({ worktrees: [] }),
         [WS_METHODS.serverGetProviderUsageSnapshot]: (input) =>
           rpcEffect(getProviderUsageSnapshot(input), "Failed to load provider usage"),
@@ -769,10 +777,18 @@ export const makeWsRpcLayer = () =>
             Effect.tryPromise(() => listLocalUserSkills()),
             "Failed to list local skills",
           ),
+        [WS_METHODS.skillsSetEnabled]: ({ id, enabled }) =>
+          rpcEffect(
+            Effect.sync(() => {
+              const disabled = setSkillEnabled(id, enabled);
+              return { id, enabled: isSkillEnabled(id), disabled };
+            }),
+            "Failed to update the skill",
+          ),
 
         // Automation methods
         [WS_METHODS.automationList]: (input: ListAutomationsInput) =>
-          rpcEffect(automationService.listByProjectId(input), "Failed to list automations"),
+          rpcEffect(automationService.list(input), "Failed to list automations"),
         [WS_METHODS.automationGet]: (input: GetAutomationInput) =>
           rpcEffect(automationService.getById(input), "Failed to get automation"),
         [WS_METHODS.automationCreate]: (input: CreateAutomationInput) =>

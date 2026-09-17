@@ -36,6 +36,9 @@ describe("decideToolCall：不需要授权的调用", () => {
       "get_context_remaining",
       "web_search",
       "knowledge_search",
+      // Writes only the card the thread was dispatched from, and the model cannot point it
+      // anywhere else — gating each progress line would defeat per-step board comments.
+      "kanban_comment",
     ]) {
       expect(call(tool, {})).toBeNull();
     }

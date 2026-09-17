@@ -419,8 +419,37 @@ export function taskNeedsAgentRun(task: KanbanStoredTask): boolean {
 }
 
 /**
+ * The standing instructions every dispatched run gets, after the task's own text.
+ *
+ * A dispatched run has no user sitting in the conversation: nobody reads the thread while it
+ * works, and nobody can answer a question. What the user *does* watch is the card, and the
+ * card only shows what lands in its comments — so the two things this block has to establish
+ * are "how work gets decided here" and "every finished step goes onto the card".
+ *
+ * The workflow itself is not restated in full: the system prompt carries it, along with the
+ * skills that spell each stage out. This block only binds it to the board.
+ */
+export const BOARD_RUN_INSTRUCTIONS = [
+  "---",
+  "",
+  "这是一张看板卡片派发出来的任务：没有用户在会话里等你，用户在**卡片**上看进度。",
+  "",
+  "1. **按流程推进**：先界定要做什么、怎么算做完，再拆步骤、小步实现、逐段验证，最后自查一遍。",
+  "   标题或需求里没说清的地方，按最小合理假设定下来 —— 并在评论里写明你假设了什么。",
+  "   系统提示里的工程流程与技能（`read_skill`）就是这套做法，到哪一步读哪个技能。",
+  "2. **每完成一步就用 `kanban_comment` 在卡片上留一条评论**：这一步做完了什么、拿什么证明的",
+  "   （改了哪些文件、跑了什么命令、输出是什么）、下一步做什么。一条日志，不是汇报。",
+  "   会话里说了什么卡片上看不到 —— 只有写进评论的才留得下来。",
+  "3. **别把回合耗在提问上**：用户在卡片那边，不一定开着会话。遇到需要人拍板的分叉，",
+  "   选一个合理做法继续，并把分叉与选择写进评论；只有真的无法继续时才调用 ask_user。",
+  "4. **不要自己改卡片状态**：任务进入已完成 / 已阻塞由这一轮的结果自动回写，",
+  "   你只需要把过程与结论写清楚。",
+  "5. 收尾时再留一条总结评论：做完的内容、验证结果与命令、遗留问题或没做的部分。",
+].join("\n");
+
+/**
  * Requirement handed to the agent: the task title, then the requirement body
- * when the user wrote one.
+ * when the user wrote one, then the board's standing instructions.
  */
 export function buildTaskPrompt(task: {
   readonly title: string;
@@ -428,9 +457,15 @@ export function buildTaskPrompt(task: {
 }): string {
   const title = task.title.trim();
   const description = task.description.trim();
-  if (description.length === 0) return title;
-  if (title.length === 0) return description;
-  return `${title}\n\n${description}`;
+  const brief =
+    description.length === 0
+      ? title
+      : title.length === 0
+        ? description
+        : `${title}\n\n${description}`;
+  // A card with no text at all still gets the standing instructions: they are what makes the
+  // run comment on the board, and a title-less task is exactly when that matters most.
+  return brief.length === 0 ? BOARD_RUN_INSTRUCTIONS : `${brief}\n\n${BOARD_RUN_INSTRUCTIONS}`;
 }
 
 /** Terminal task status for a finished agent run. */

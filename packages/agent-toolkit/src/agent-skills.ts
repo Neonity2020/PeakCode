@@ -18,6 +18,8 @@ import { extname, join } from "node:path";
 
 import { listSkills } from "./skills/registry.ts";
 import { centralSkillDir } from "./skills/central-repo.ts";
+import { isSkillEnabled } from "./skills/enablement.ts";
+import { defaultPackSkillIds } from "./skills/workflow.ts";
 import { logEvent } from "./runtime/log.ts";
 import { isInsideDir, safeJoin } from "./path-safety.ts";
 
@@ -63,14 +65,30 @@ const TEXT_EXTENSIONS = new Set([
 /** 技能清单读失败只报一次（这个是每轮都要拼的系统提示片段，反复报会把日志刷满）。 */
 let loggedListFailure = false;
 
-export function skillsPromptSection(): string | null {
+export interface SkillsPromptOptions {
+  /**
+   * 是否把默认技能包（`skills/default-pack.ts`）也列进来。
+   *
+   * 默认**不列**：那 25 个技能已经由流程段按阶段讲过了（`skills/workflow.ts`），
+   * 再平铺一遍只会把用户自己装的技能挤出窗口。`read_skill` 不带名字时的清单
+   * 传 true —— 那里要回答的是"这台机器上有什么"，一个都不能少。
+   */
+  includeDefaultPack?: boolean;
+}
+
+export function skillsPromptSection(options: SkillsPromptOptions = {}): string | null {
   let skills: { id: string; name: string; description: string | null }[] = [];
   try {
-    skills = listSkills().map((skill) => ({
-      id: skill.id,
-      name: skill.name || skill.id,
-      description: skill.description,
-    }));
+    const defaultPack =
+      options.includeDefaultPack === true ? new Set<string>() : defaultPackSkillIds();
+    skills = listSkills()
+      .filter((skill) => !defaultPack.has(skill.id))
+      .filter((skill) => isSkillEnabled(skill.id))
+      .map((skill) => ({
+        id: skill.id,
+        name: skill.name || skill.id,
+        description: skill.description,
+      }));
   } catch (error) {
     // 技能子系统没起来（比如数据库迁移失败）不该拖垮 Agent 回合，但要留痕：
     // 不留的话现象是"Skills 页里装了技能，模型却像不知道有这回事"，
@@ -137,6 +155,9 @@ export function readSkillFile(name: string, file?: string): SkillFileResult {
     };
   }
   if (!dir) return { ok: false, reason: `技能名不合法：${name}` };
+  // 在设置里被停用的技能：明确说停用，并给出下一步 —— 否则模型会反复重试一个永远不会解析的名字。
+  if (!isSkillEnabled(name))
+    return { ok: false, reason: `技能 ${name} 已在本机停用：别再读它，按你自己的判断完成这一步` };
   if (!existsSync(dir))
     return { ok: false, reason: `没有名为 ${name} 的技能（先用 read_skill 不带参数看看有哪些）` };
 

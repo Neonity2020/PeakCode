@@ -7,6 +7,7 @@ export * from "./providerDiscovery";
 export * from "./providerRuntime";
 export * from "./model";
 export * from "./modelProviders";
+export * from "./piPackages";
 export * from "./agentGoal";
 export * from "./agentRuntime";
 export * from "./agentMentions";

@@ -18,6 +18,7 @@ import { TextGeneration } from "../../git/Services/TextGeneration.ts";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine.ts";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery.ts";
 import { WorkspaceLayerLive } from "../../workspace/runtimeLayer.ts";
+import { BOARD_RUN_INSTRUCTIONS } from "../boardDocument.ts";
 import { KanbanService } from "../Services/KanbanService.ts";
 import { KanbanServiceLive } from "./KanbanService.ts";
 
@@ -484,7 +485,11 @@ describe("kanban task dispatch", () => {
       expect(create.projectId).toBe(PROJECT_ID);
       expect(create.title).toBe("集成看板");
       expect(turnStart.threadId).toBe(task.agentThreadId);
-      expect(turnStart.message.text).toBe("集成看板\n\n拖到进行中就开始执行");
+      // The brief, then the board's standing instructions (which is what makes the run
+      // report each step back onto the card).
+      expect(turnStart.message.text).toBe(
+        `集成看板\n\n拖到进行中就开始执行\n\n${BOARD_RUN_INSTRUCTIONS}`,
+      );
 
       // The claim is persisted, so a board reload still knows about the run.
       const reloaded = await harness.run(
@@ -691,6 +696,172 @@ describe("kanban run write-back", () => {
         }),
       );
       expect(board.tasks.find((task) => task.taskId === "t_run")?.status).toBe("in_progress");
+    } finally {
+      await harness.dispose();
+    }
+  });
+});
+
+describe("kanban run progress comments", () => {
+  const seedRunningTask = async (harness: Harness, threadId: ThreadId) => {
+    await mkdir(join(harness.workspaceRoot, ".kanban"), { recursive: true });
+    await writeFile(
+      harness.boardFilePath,
+      JSON.stringify({
+        version: 1,
+        name: "Peak Code 看板",
+        projectId: PROJECT_ID,
+        tasks: [
+          {
+            id: "t_run",
+            title: "跑着的任务",
+            status: "in_progress",
+            agentThreadId: threadId,
+            agentRunStatus: "running",
+          },
+          { id: "t_other", title: "别的任务", status: "todo" },
+        ],
+      }),
+      "utf8",
+    );
+  };
+
+  const detailOf = (harness: Harness, taskId: string) =>
+    harness.run(
+      Effect.gen(function* () {
+        const kanban = yield* KanbanService;
+        return yield* kanban.getTaskDetail({
+          projectId: PROJECT_ID,
+          taskId: KanbanTaskId.makeUnsafe(taskId),
+        });
+      }),
+    );
+
+  it("appends the note to the running task and reports that it landed", async () => {
+    const threadId = ThreadId.makeUnsafe("thread_progress");
+    const harness = await makeHarness({ threads: [threadShell(threadId)] });
+    try {
+      await seedRunningTask(harness, threadId);
+      const written = await harness.run(
+        Effect.gen(function* () {
+          const kanban = yield* KanbanService;
+          return yield* kanban.recordTaskRunComment({
+            threadId,
+            body: "  实现完成：改了 boardDocument.ts，bun run test 全绿  ",
+          });
+        }),
+      );
+      expect(written).toBe(true);
+
+      const detail = await detailOf(harness, "t_run");
+      const comments = detail.task.comments;
+      expect(comments).toHaveLength(1);
+      expect(comments[0]).toMatchObject({
+        author: "agent",
+        kind: "note",
+        // Trimmed on the way in: the board keeps the text, not the model's padding.
+        body: "实现完成：改了 boardDocument.ts，bun run test 全绿",
+      });
+
+      // The other card is untouched.
+      const other = await detailOf(harness, "t_other");
+      expect(other.task.comments).toHaveLength(0);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it("keeps step comments in order, so the card reads as a timeline", async () => {
+    const threadId = ThreadId.makeUnsafe("thread_timeline");
+    const harness = await makeHarness({ threads: [threadShell(threadId)] });
+    try {
+      await seedRunningTask(harness, threadId);
+      await harness.run(
+        Effect.gen(function* () {
+          const kanban = yield* KanbanService;
+          yield* kanban.recordTaskRunComment({ threadId, body: "界定：按最小假设定了范围" });
+          yield* kanban.recordTaskRunComment({ threadId, body: "验证：bun run test 通过" });
+          return yield* kanban.recordTaskRunComment({ threadId, body: "收尾：无遗留问题" });
+        }),
+      );
+
+      const detail = await detailOf(harness, "t_run");
+      expect(detail.task.comments.map((comment) => comment.body)).toEqual([
+        "界定：按最小假设定了范围",
+        "验证：bun run test 通过",
+        "收尾：无遗留问题",
+      ]);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it("writes nothing when the thread is not a running board task", async () => {
+    const harness = await makeHarness({
+      threads: [threadShell(ThreadId.makeUnsafe("thread_plain"))],
+    });
+    try {
+      // A task exists, but it belongs to another thread: a plain conversation must not be
+      // able to attach itself to a card.
+      await seedRunningTask(harness, ThreadId.makeUnsafe("thread_someone_else"));
+      const written = await harness.run(
+        Effect.gen(function* () {
+          const kanban = yield* KanbanService;
+          return yield* kanban.recordTaskRunComment({
+            threadId: ThreadId.makeUnsafe("thread_plain"),
+            body: "顺便留一句",
+          });
+        }),
+      );
+      expect(written).toBe(false);
+
+      const detail = await detailOf(harness, "t_run");
+      expect(detail.task.comments).toHaveLength(0);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it("refuses an empty body instead of quietly recording nothing", async () => {
+    const threadId = ThreadId.makeUnsafe("thread_empty");
+    const harness = await makeHarness({ threads: [threadShell(threadId)] });
+    try {
+      await seedRunningTask(harness, threadId);
+      const failure = await harness
+        .run(
+          Effect.gen(function* () {
+            const kanban = yield* KanbanService;
+            return yield* kanban.recordTaskRunComment({ threadId, body: "   " });
+          }),
+        )
+        .then(() => null)
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(Error);
+
+      const detail = await detailOf(harness, "t_run");
+      expect(detail.task.comments).toHaveLength(0);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it("fails for a thread the projection does not know", async () => {
+    const harness = await makeHarness();
+    try {
+      await seedRunningTask(harness, ThreadId.makeUnsafe("thread_missing"));
+      const failure = await harness
+        .run(
+          Effect.gen(function* () {
+            const kanban = yield* KanbanService;
+            return yield* kanban.recordTaskRunComment({
+              threadId: ThreadId.makeUnsafe("thread_unknown"),
+              body: "内容",
+            });
+          }),
+        )
+        .then(() => null)
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(Error);
     } finally {
       await harness.dispose();
     }

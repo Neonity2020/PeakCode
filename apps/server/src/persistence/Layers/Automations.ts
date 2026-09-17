@@ -4,18 +4,19 @@ import { Effect, Layer, Option, Schema, Struct } from "effect";
 import * as SchemaGetter from "effect/SchemaGetter";
 
 import { PersistenceSqlError, toPersistenceSqlError } from "../Errors.ts";
-import { AutomationRepository, type AutomationRepositoryShape } from "../Services/Automations.ts";
+import {
+  AutomationRepository,
+  type AutomationRepositoryShape,
+  type AutomationWrite,
+} from "../Services/Automations.ts";
 import {
   Automation,
   AutomationId,
   AutomationRun,
   AutomationRunId,
-  CreateAutomationInput,
-  DeleteAutomationInput,
-  GetAutomationInput,
-  ListAutomationRunsInput,
-  ListAutomationsInput,
-  UpdateAutomationInput,
+  AutomationSchedule,
+  ProjectId,
+  ThreadId,
 } from "@peakcode/contracts";
 
 const SqliteBoolean = Schema.Number.pipe(
@@ -27,9 +28,11 @@ const SqliteBoolean = Schema.Number.pipe(
 
 const AutomationDbRow = Automation.mapFields(
   Struct.assign({
+    schedule: Schema.fromJsonString(AutomationSchedule),
     isEnabled: SqliteBoolean,
   }),
 );
+type AutomationDbRow = typeof AutomationDbRow.Type;
 
 const automationNotFound = (automationId: AutomationId) =>
   new PersistenceSqlError({
@@ -37,230 +40,192 @@ const automationNotFound = (automationId: AutomationId) =>
     detail: `Automation '${automationId}' was not found.`,
   });
 
+/**
+ * Every automation read, with the newest run's status riding along so a list card
+ * can show how the last run went without a second round trip.
+ */
+const automationColumns = (sql: SqlClient.SqlClient) => sql`
+  automation_id AS "automationId",
+  project_id AS "projectId",
+  title,
+  instructions,
+  schedule_json AS "schedule",
+  timezone,
+  mode,
+  is_enabled AS "isEnabled",
+  next_run_at AS "nextRunAt",
+  last_run_at AS "lastRunAt",
+  created_at AS "createdAt",
+  updated_at AS "updatedAt",
+  (
+    SELECT runs.status
+    FROM automation_runs AS runs
+    WHERE runs.automation_id = automations.automation_id
+    ORDER BY runs.started_at DESC, runs.run_id DESC
+    LIMIT 1
+  ) AS "lastRunStatus"
+`;
+
+const runColumns = (sql: SqlClient.SqlClient) => sql`
+  run_id AS "runId",
+  automation_id AS "automationId",
+  trigger,
+  status,
+  thread_id AS "threadId",
+  summary,
+  error_message AS "errorMessage",
+  started_at AS "startedAt",
+  finished_at AS "finishedAt"
+`;
+
+/** What the service writes, shaped as the entity the payloads carry. */
+const recordFor = (input: AutomationWrite): Automation => ({
+  ...input,
+  lastRunStatus: null,
+});
+
 const makeAutomationRepository = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
   const getAutomationByIdOption = SqlSchema.findOneOption({
-    Request: GetAutomationInput,
+    Request: Schema.Struct({ automationId: AutomationId }),
     Result: AutomationDbRow,
-    execute: ({ automationId }) =>
-      sql`
-        SELECT
-          automation_id AS "automationId",
-          project_id AS "projectId",
-          title,
-          description,
-          prompt,
-          script_id AS "scriptId",
-          script_name AS "scriptName",
-          script_command AS "scriptCommand",
-          schedule_type AS "scheduleType",
-          cron_expression AS "cronExpression",
-          timezone,
-          is_enabled AS "isEnabled",
-          template_id AS "templateId",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          last_run_at AS "lastRunAt"
-        FROM automations
-        WHERE automation_id = ${automationId}
-      `,
+    execute: ({ automationId }) => sql`
+      SELECT ${automationColumns(sql)}
+      FROM automations
+      WHERE automation_id = ${automationId}
+    `,
   });
 
-  const listAutomationsByProjectIdRows = SqlSchema.findAll({
-    Request: ListAutomationsInput,
+  const listAutomationRows = SqlSchema.findAll({
+    Request: Schema.Struct({ projectId: Schema.NullOr(ProjectId) }),
     Result: AutomationDbRow,
-    execute: ({ projectId }) =>
-      sql`
-        SELECT
-          automation_id AS "automationId",
-          project_id AS "projectId",
-          title,
-          description,
-          prompt,
-          script_id AS "scriptId",
-          script_name AS "scriptName",
-          script_command AS "scriptCommand",
-          schedule_type AS "scheduleType",
-          cron_expression AS "cronExpression",
-          timezone,
-          is_enabled AS "isEnabled",
-          template_id AS "templateId",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          last_run_at AS "lastRunAt"
-        FROM automations
-        WHERE project_id = ${projectId}
-        ORDER BY created_at DESC, automation_id ASC
-      `,
+    execute: ({ projectId }) => sql`
+      SELECT ${automationColumns(sql)}
+      FROM automations
+      WHERE ${projectId === null ? sql`1 = 1` : sql`project_id = ${projectId}`}
+      ORDER BY created_at DESC, automation_id ASC
+    `,
   });
 
-  const listEnabledCronRows = SqlSchema.findAll({
-    Request: Schema.Void,
+  const listDueRows = SqlSchema.findAll({
+    Request: Schema.Struct({ now: Schema.String }),
     Result: AutomationDbRow,
-    execute: () =>
-      sql`
-        SELECT
-          automation_id AS "automationId",
-          project_id AS "projectId",
-          title,
-          description,
-          prompt,
-          script_id AS "scriptId",
-          script_name AS "scriptName",
-          script_command AS "scriptCommand",
-          schedule_type AS "scheduleType",
-          cron_expression AS "cronExpression",
-          timezone,
-          is_enabled AS "isEnabled",
-          template_id AS "templateId",
-          created_at AS "createdAt",
-          updated_at AS "updatedAt",
-          last_run_at AS "lastRunAt"
-        FROM automations
-        WHERE is_enabled = 1
-          AND schedule_type = 'cron'
-          AND cron_expression IS NOT NULL
-        ORDER BY created_at ASC, automation_id ASC
-      `,
+    execute: ({ now }) => sql`
+      SELECT ${automationColumns(sql)}
+      FROM automations
+      WHERE is_enabled = 1
+        AND next_run_at IS NOT NULL
+        AND next_run_at <= ${now}
+      ORDER BY next_run_at ASC, automation_id ASC
+    `,
   });
 
-  const insertAutomation = SqlSchema.void({
-    Request: AutomationDbRow,
-    execute: (automation) =>
-      sql`
-        INSERT INTO automations (
-          automation_id,
-          project_id,
-          title,
-          description,
-          prompt,
-          script_id,
-          script_name,
-          script_command,
-          schedule_type,
-          cron_expression,
-          timezone,
-          is_enabled,
-          template_id,
-          created_at,
-          updated_at,
-          last_run_at
-        )
-        VALUES (
-          ${automation.automationId},
-          ${automation.projectId},
-          ${automation.title},
-          ${automation.description},
-          ${automation.prompt},
-          ${automation.scriptId},
-          ${automation.scriptName},
-          ${automation.scriptCommand},
-          ${automation.scheduleType},
-          ${automation.cronExpression},
-          ${automation.timezone},
-          ${automation.isEnabled ? 1 : 0},
-          ${automation.templateId},
-          ${automation.createdAt},
-          ${automation.updatedAt},
-          ${automation.lastRunAt}
-        )
-      `,
+  const insertAutomationRow = SqlSchema.void({
+    Request: Automation,
+    execute: (row) => sql`
+      INSERT INTO automations (
+        automation_id,
+        project_id,
+        title,
+        instructions,
+        schedule_json,
+        timezone,
+        mode,
+        is_enabled,
+        next_run_at,
+        last_run_at,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${row.automationId},
+        ${row.projectId},
+        ${row.title},
+        ${row.instructions},
+        ${JSON.stringify(row.schedule)},
+        ${row.timezone},
+        ${row.mode},
+        ${row.isEnabled ? 1 : 0},
+        ${row.nextRunAt},
+        ${row.lastRunAt},
+        ${row.createdAt},
+        ${row.updatedAt}
+      )
+    `,
   });
 
   const updateAutomationRow = SqlSchema.void({
-    Request: AutomationDbRow,
-    execute: (automation) =>
-      sql`
-        UPDATE automations
-        SET
-          title = ${automation.title},
-          description = ${automation.description},
-          prompt = ${automation.prompt},
-          script_id = ${automation.scriptId},
-          script_name = ${automation.scriptName},
-          script_command = ${automation.scriptCommand},
-          schedule_type = ${automation.scheduleType},
-          cron_expression = ${automation.cronExpression},
-          timezone = ${automation.timezone},
-          is_enabled = ${automation.isEnabled ? 1 : 0},
-          template_id = ${automation.templateId},
-          updated_at = ${automation.updatedAt},
-          last_run_at = ${automation.lastRunAt}
-        WHERE automation_id = ${automation.automationId}
-      `,
+    Request: Automation,
+    execute: (row) => sql`
+      UPDATE automations
+      SET
+        project_id = ${row.projectId},
+        title = ${row.title},
+        instructions = ${row.instructions},
+        schedule_json = ${JSON.stringify(row.schedule)},
+        timezone = ${row.timezone},
+        mode = ${row.mode},
+        is_enabled = ${row.isEnabled ? 1 : 0},
+        next_run_at = ${row.nextRunAt},
+        last_run_at = ${row.lastRunAt},
+        updated_at = ${row.updatedAt}
+      WHERE automation_id = ${row.automationId}
+    `,
   });
 
-  const deleteAutomationRow = SqlSchema.void({
-    Request: DeleteAutomationInput,
-    execute: ({ automationId }) =>
-      sql`
-        DELETE FROM automations
-        WHERE automation_id = ${automationId}
-      `,
+  const insertRunRow = SqlSchema.void({
+    Request: AutomationRun,
+    execute: (row) => sql`
+      INSERT INTO automation_runs (
+        run_id,
+        automation_id,
+        trigger,
+        status,
+        thread_id,
+        summary,
+        error_message,
+        started_at,
+        finished_at
+      )
+      VALUES (
+        ${row.runId},
+        ${row.automationId},
+        ${row.trigger},
+        ${row.status},
+        ${row.threadId},
+        ${row.summary},
+        ${row.errorMessage},
+        ${row.startedAt},
+        ${row.finishedAt}
+      )
+    `,
   });
 
-  const listAutomationRunsRows = SqlSchema.findAll({
-    Request: ListAutomationRunsInput,
+  const runningRunForAutomationOption = SqlSchema.findOneOption({
+    Request: Schema.Struct({ automationId: AutomationId }),
     Result: AutomationRun,
-    execute: ({ automationId }) =>
-      sql`
-        SELECT
-          run_id AS "runId",
-          automation_id AS "automationId",
-          status,
-          started_at AS "startedAt",
-          completed_at AS "completedAt",
-          error_message AS "errorMessage",
-          thread_id AS "threadId",
-          result_summary AS "resultSummary"
-        FROM automation_runs
-        WHERE automation_id = ${automationId}
-        ORDER BY started_at DESC, run_id ASC
-        LIMIT 10
-      `,
+    execute: ({ automationId }) => sql`
+      SELECT ${runColumns(sql)}
+      FROM automation_runs
+      WHERE automation_id = ${automationId}
+        AND status = 'running'
+      ORDER BY started_at DESC, run_id ASC
+      LIMIT 1
+    `,
   });
 
-  const insertRun = SqlSchema.void({
-    Request: AutomationRun,
-    execute: (run) =>
-      sql`
-        INSERT INTO automation_runs (
-          run_id,
-          automation_id,
-          status,
-          started_at,
-          completed_at,
-          error_message,
-          thread_id,
-          result_summary
-        )
-        VALUES (
-          ${run.runId},
-          ${run.automationId},
-          ${run.status},
-          ${run.startedAt},
-          ${run.completedAt},
-          ${run.errorMessage},
-          ${run.threadId},
-          ${run.resultSummary}
-        )
-      `,
-  });
-
-  const updateRunRow = SqlSchema.void({
-    Request: AutomationRun,
-    execute: (run) =>
-      sql`
-        UPDATE automation_runs
-        SET
-          status = ${run.status},
-          completed_at = ${run.completedAt},
-          error_message = ${run.errorMessage},
-          thread_id = ${run.threadId},
-          result_summary = ${run.resultSummary}
-        WHERE run_id = ${run.runId}
-      `,
+  const runningRunForThreadOption = SqlSchema.findOneOption({
+    Request: Schema.Struct({ threadId: ThreadId }),
+    Result: AutomationRun,
+    execute: ({ threadId }) => sql`
+      SELECT ${runColumns(sql)}
+      FROM automation_runs
+      WHERE thread_id = ${threadId}
+        AND status = 'running'
+      ORDER BY started_at DESC, run_id ASC
+      LIMIT 1
+    `,
   });
 
   const getAutomationById: AutomationRepositoryShape["getById"] = (input) =>
@@ -274,41 +239,20 @@ const makeAutomationRepository = Effect.gen(function* () {
       ),
     );
 
-  const listByProjectId: AutomationRepositoryShape["listByProjectId"] = (input) =>
-    listAutomationsByProjectIdRows(input).pipe(
-      Effect.mapError(toPersistenceSqlError("AutomationRepository.listByProjectId:query")),
+  const list: AutomationRepositoryShape["list"] = (input) =>
+    listAutomationRows({ projectId: input.projectId ?? null }).pipe(
+      Effect.mapError(toPersistenceSqlError("AutomationRepository.list:query")),
     );
 
-  const listEnabledCron: AutomationRepositoryShape["listEnabledCron"] = () =>
-    listEnabledCronRows(undefined).pipe(
-      Effect.mapError(toPersistenceSqlError("AutomationRepository.listEnabledCron:query")),
+  const listDue: AutomationRepositoryShape["listDue"] = (now) =>
+    listDueRows({ now }).pipe(
+      Effect.mapError(toPersistenceSqlError("AutomationRepository.listDue:query")),
     );
 
   const create: AutomationRepositoryShape["create"] = (input) =>
     Effect.gen(function* () {
-      const now = new Date().toISOString();
-      const automation = {
-        automationId: AutomationId.makeUnsafe(
-          `automation_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-        ),
-        projectId: input.projectId,
-        title: input.title,
-        description: input.description,
-        prompt: input.prompt,
-        scriptId: input.scriptId ?? null,
-        scriptName: input.scriptName ?? null,
-        scriptCommand: input.scriptCommand ?? null,
-        scheduleType: input.scheduleType,
-        cronExpression: input.cronExpression,
-        timezone: input.timezone,
-        isEnabled: true,
-        templateId: input.templateId,
-        createdAt: now,
-        updatedAt: now,
-        lastRunAt: null,
-      } satisfies Automation;
-
-      yield* insertAutomation(automation).pipe(
+      const automation = recordFor(input);
+      yield* insertAutomationRow(automation).pipe(
         Effect.mapError(toPersistenceSqlError("AutomationRepository.create:query")),
       );
       return automation;
@@ -316,123 +260,119 @@ const makeAutomationRepository = Effect.gen(function* () {
 
   const update: AutomationRepositoryShape["update"] = (input) =>
     Effect.gen(function* () {
-      const existing = yield* getAutomationById({ automationId: input.automationId });
-      const updated = {
-        ...existing,
-        title: input.title ?? existing.title,
-        description: input.description ?? existing.description,
-        prompt: input.prompt ?? existing.prompt,
-        scriptId: input.scriptId !== undefined ? input.scriptId : existing.scriptId,
-        scriptName: input.scriptName !== undefined ? input.scriptName : existing.scriptName,
-        scriptCommand:
-          input.scriptCommand !== undefined ? input.scriptCommand : existing.scriptCommand,
-        scheduleType: input.scheduleType ?? existing.scheduleType,
-        cronExpression:
-          input.cronExpression !== undefined ? input.cronExpression : existing.cronExpression,
-        timezone: input.timezone ?? existing.timezone,
-        isEnabled: input.isEnabled ?? existing.isEnabled,
-        updatedAt: new Date().toISOString(),
-      } satisfies Automation;
-
-      yield* updateAutomationRow(updated).pipe(
+      const automation = recordFor(input);
+      yield* updateAutomationRow(automation).pipe(
         Effect.mapError(toPersistenceSqlError("AutomationRepository.update:query")),
       );
-      return updated;
+      return yield* getAutomationById({ automationId: automation.automationId });
     });
 
-  const deleteById: AutomationRepositoryShape["delete"] = (input) =>
-    deleteAutomationRow(input).pipe(
-      Effect.mapError(toPersistenceSqlError("AutomationRepository.delete:query")),
-    );
+  const deleteById: AutomationRepositoryShape["delete"] = ({ automationId }) =>
+    sql`
+      DELETE FROM automations
+      WHERE automation_id = ${automationId}
+    `.pipe(Effect.mapError(toPersistenceSqlError("AutomationRepository.delete:query")));
 
   const listRuns: AutomationRepositoryShape["listRuns"] = (input) =>
-    listAutomationRunsRows(input).pipe(
-      Effect.mapError(toPersistenceSqlError("AutomationRepository.listRuns:query")),
-    );
+    SqlSchema.findAll({
+      Request: Schema.Struct({ automationId: AutomationId, limit: Schema.Number }),
+      Result: AutomationRun,
+      execute: ({ automationId, limit }) => sql`
+        SELECT ${runColumns(sql)}
+        FROM automation_runs
+        WHERE automation_id = ${automationId}
+        ORDER BY started_at DESC, run_id ASC
+        LIMIT ${limit}
+      `,
+    })(input).pipe(Effect.mapError(toPersistenceSqlError("AutomationRepository.listRuns:query")));
 
-  const createRun: AutomationRepositoryShape["createRun"] = (automationId, status) =>
+  const createRun: AutomationRepositoryShape["createRun"] = ({ automationId, trigger }) =>
     Effect.gen(function* () {
-      const now = new Date().toISOString();
       const run = {
-        runId: AutomationRunId.makeUnsafe(
-          `run_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
-        ),
+        runId: AutomationRunId.makeUnsafe(`run_${crypto.randomUUID()}`),
         automationId,
-        status,
-        startedAt: now,
-        completedAt: null,
-        errorMessage: null,
+        trigger,
+        status: "running" as const,
         threadId: null,
-        resultSummary: null,
+        summary: null,
+        errorMessage: null,
+        startedAt: new Date().toISOString(),
+        finishedAt: null,
       } satisfies AutomationRun;
 
-      yield* insertRun(run).pipe(
+      yield* insertRunRow(run).pipe(
         Effect.mapError(toPersistenceSqlError("AutomationRepository.createRun:query")),
       );
       return run;
     });
 
-  const getRunByIdOption = SqlSchema.findOneOption({
-    Request: Schema.Struct({ runId: AutomationRunId }),
-    Result: AutomationRun,
-    execute: ({ runId }) =>
-      sql`
-        SELECT
-          run_id AS "runId",
-          automation_id AS "automationId",
-          status,
-          started_at AS "startedAt",
-          completed_at AS "completedAt",
-          error_message AS "errorMessage",
-          thread_id AS "threadId",
-          result_summary AS "resultSummary"
-        FROM automation_runs
-        WHERE run_id = ${runId}
-      `,
-  });
+  const attachRunThread: AutomationRepositoryShape["attachRunThread"] = ({ runId, threadId }) =>
+    sql`
+      UPDATE automation_runs
+      SET thread_id = ${threadId}
+      WHERE run_id = ${runId}
+    `.pipe(Effect.mapError(toPersistenceSqlError("AutomationRepository.attachRunThread:query")));
 
-  const updateRun: AutomationRepositoryShape["updateRun"] = (runId, status, options) =>
-    Effect.gen(function* () {
-      const existingOption = yield* getRunByIdOption({ runId }).pipe(
-        Effect.mapError(toPersistenceSqlError("AutomationRepository.updateRun:get")),
-      );
-      const existing = Option.getOrUndefined(existingOption);
-      if (existing === undefined) {
-        return yield* new PersistenceSqlError({
-          operation: "AutomationRepository.updateRun:notFound",
-          detail: `Automation run '${runId}' was not found.`,
-        });
-      }
+  const runningRunForAutomation: AutomationRepositoryShape["runningRunForAutomation"] = (
+    automationId,
+  ) =>
+    runningRunForAutomationOption({ automationId }).pipe(
+      Effect.mapError(toPersistenceSqlError("AutomationRepository.runningRunForAutomation:query")),
+    );
 
-      yield* updateRunRow({
-        ...existing,
-        status,
-        completedAt: new Date().toISOString(),
-        errorMessage: options?.errorMessage ?? existing.errorMessage,
-        threadId: options?.threadId ?? existing.threadId,
-        resultSummary: options?.resultSummary ?? existing.resultSummary,
-      }).pipe(Effect.mapError(toPersistenceSqlError("AutomationRepository.updateRun:query")));
-    });
+  const runningRunForThread: AutomationRepositoryShape["runningRunForThread"] = (threadId) =>
+    runningRunForThreadOption({ threadId }).pipe(
+      Effect.mapError(toPersistenceSqlError("AutomationRepository.runningRunForThread:query")),
+    );
 
-  const updateLastRunAt: AutomationRepositoryShape["updateLastRunAt"] = (automationId, lastRunAt) =>
+  const finishRun: AutomationRepositoryShape["finishRun"] = (input) =>
+    sql`
+      UPDATE automation_runs
+      SET
+        status = ${input.status},
+        summary = ${input.summary ?? null},
+        error_message = ${input.errorMessage ?? null},
+        finished_at = ${new Date().toISOString()}
+      WHERE run_id = ${input.runId}
+    `.pipe(Effect.mapError(toPersistenceSqlError("AutomationRepository.finishRun:query")));
+
+  const finishRunningRuns: AutomationRepositoryShape["finishRunningRuns"] = (input) =>
+    sql`
+      UPDATE automation_runs
+      SET
+        status = ${input.status},
+        error_message = ${input.errorMessage},
+        finished_at = ${new Date().toISOString()}
+      WHERE status = 'running'
+    `.pipe(Effect.mapError(toPersistenceSqlError("AutomationRepository.finishRunningRuns:query")));
+
+  const saveScheduleState: AutomationRepositoryShape["saveScheduleState"] = (input) =>
     sql`
       UPDATE automations
-      SET last_run_at = ${lastRunAt}, updated_at = ${lastRunAt}
-      WHERE automation_id = ${automationId}
-    `.pipe(Effect.mapError(toPersistenceSqlError("AutomationRepository.updateLastRunAt:query")));
+      SET
+        next_run_at = ${input.nextRunAt},
+        last_run_at = COALESCE(${input.lastRunAt ?? null}, last_run_at),
+        is_enabled = COALESCE(${input.isEnabled === undefined ? null : input.isEnabled ? 1 : 0}, is_enabled),
+        updated_at = ${input.updatedAt}
+      WHERE automation_id = ${input.automationId}
+    `.pipe(Effect.mapError(toPersistenceSqlError("AutomationRepository.saveScheduleState:query")));
 
   return AutomationRepository.of({
     getById: getAutomationById,
-    listByProjectId,
-    listEnabledCron,
+    list,
+    listDue,
     create,
     update,
     delete: deleteById,
     listRuns,
     createRun,
-    updateRun,
-    updateLastRunAt,
-  });
+    attachRunThread,
+    runningRunForAutomation,
+    runningRunForThread,
+    finishRun,
+    finishRunningRuns,
+    saveScheduleState,
+  } satisfies AutomationRepositoryShape);
 });
 
 export const AutomationRepositoryLive = Layer.effect(

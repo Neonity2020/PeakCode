@@ -16,6 +16,7 @@ import {
 } from "../appSettings";
 import { APP_VERSION } from "../branding";
 import { ModelProvidersSettingsPanel } from "../components/ModelProvidersSettingsPanel";
+import { PiPackagesSettingsPanel } from "../components/PiPackagesSettingsPanel";
 import { SettingsNav } from "../components/SettingsNav";
 import { SkillsPanel } from "../components/SkillsPanel";
 import { SidebarHeaderNavigationControls } from "../components/SidebarHeaderNavigationControls";
@@ -1728,6 +1729,13 @@ function SettingsRouteView() {
         return renderWorktreesPanel();
       case "archived":
         return renderArchivedPanel();
+      case "piPackages":
+        return (
+          <PiPackagesSettingsPanel
+            key={settings.piAgentDir.trim()}
+            agentDir={settings.piAgentDir.trim()}
+          />
+        );
       case "modelProviders":
         return (
           <ModelProvidersSettingsPanel

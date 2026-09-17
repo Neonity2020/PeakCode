@@ -39,7 +39,9 @@ import {
   setGoalStatus,
 } from "@peakcode/agent-toolkit/agent-goals";
 import { approvePlan, planHandoffSection, savePlan } from "@peakcode/agent-toolkit/agent-plans";
+import { skillsPromptSection } from "@peakcode/agent-toolkit/agent-skills";
 import { contextUsage } from "@peakcode/agent-toolkit/agent-context";
+import { workflowPromptSection } from "@peakcode/agent-toolkit/skills/workflow";
 import { agentStore } from "@peakcode/agent-toolkit/store/AgentStore";
 import type { ToolOutcome } from "@peakcode/agent-toolkit/agent-tools";
 import { getSetting, updateSettings } from "@peakcode/agent-toolkit/runtime/settings";
@@ -52,8 +54,29 @@ const WRITE_CAPABLE_TOOLKIT_TOOLS = new Set([
   "edit_file",
   "apply_patch",
   "task",
+  // Scheduling a task is not a workspace write, but it commits the agent to acting later
+  // with nobody watching. Plan mode only proposes, so the tool stays off there.
+  "schedule_task",
+  // A board comment lands in the project's `.kanban/board.json`, which is a real file in the
+  // workspace. Plan mode promises not to write there, so this stays off too.
+  "kanban_comment",
   // `write_plan` writes too, but only into the toolkit's data directory — it is the one
   // write plan mode is allowed to make, so it is handled separately below.
+]);
+
+/**
+ * Tools contributed by pi packages rather than by this repo.
+ *
+ * Packages are installed and removed at runtime, so these names cannot be part of a typed
+ * tool set the way the toolkit's tools are. They are listed here for the same reason the
+ * built-ins are: plan mode's "touches nothing" promise is enforced by the tool registry,
+ * and a delegation tool can write through a subagent even though it writes nothing itself.
+ */
+const WRITE_CAPABLE_PACKAGE_TOOLS = new Set([
+  // pi-crew: `crew_spawn` starts a subagent whose own tools can edit the workspace, and
+  // `crew_respond` continues one that is already open.
+  "crew_spawn",
+  "crew_respond",
 ]);
 
 /** pi's own write-capable built-ins. Kept in sync with `createCodingTools`. */
@@ -75,7 +98,10 @@ export function activeToolNamesForMode(
   allToolNames: readonly string[],
 ): string[] {
   return allToolNames.filter((name) => {
-    const writeCapable = WRITE_CAPABLE_TOOLKIT_TOOLS.has(name) || WRITE_CAPABLE_PI_TOOLS.has(name);
+    const writeCapable =
+      WRITE_CAPABLE_TOOLKIT_TOOLS.has(name) ||
+      WRITE_CAPABLE_PI_TOOLS.has(name) ||
+      WRITE_CAPABLE_PACKAGE_TOOLS.has(name);
 
     if (mode === "plan") {
       if (GOAL_ONLY_TOOLS.has(name)) return false;
@@ -200,6 +226,11 @@ export interface ToolkitContextExtensionOptions {
  * can be created mid-session, and the goal section has to appear from the *next* turn on,
  * not from the next session. Returning `systemPrompt` replaces it for that turn only, so
  * nothing has to be unwound afterwards.
+ *
+ * The skills sections ride along here for the same reason, and because this is the one place
+ * every session's prompt is assembled: the workflow has to be in front of the model from the
+ * first turn of *any* conversation for "requests go through the process by default" to mean
+ * anything. Both are gated by their own settings and drop out when empty.
  */
 export function makeToolkitContextExtension(
   options: ToolkitContextExtensionOptions,
@@ -218,6 +249,13 @@ export function makeToolkitContextExtension(
         const handoff = planHandoffSection(options.conversationId);
         if (handoff) sections.push(handoff);
       }
+
+      // 流程段在前、技能清单在后：先讲"什么时候该用哪个"，再讲"这台机器上还有什么"。
+      const workflow = workflowPromptSection();
+      if (workflow) sections.push(workflow);
+      const skills = skillsPromptSection();
+      if (skills) sections.push(skills);
+
       if (sections.length === 0) return;
 
       return { systemPrompt: `${event.systemPrompt}\n\n${sections.join("\n\n")}` };

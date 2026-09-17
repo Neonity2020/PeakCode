@@ -6,7 +6,9 @@ import { getGoal } from "@peakcode/agent-toolkit/agent-goals";
 import { getPlan } from "@peakcode/agent-toolkit/agent-plans";
 import { createInMemoryAgentStore, setAgentStore } from "@peakcode/agent-toolkit/store/AgentStore";
 import { setAgentDataDir } from "@peakcode/agent-toolkit/runtime/paths";
-import { ThreadId } from "@peakcode/contracts";
+import { updateSettings } from "@peakcode/agent-toolkit/runtime/settings";
+import { ThreadId, type ProviderInteractionMode } from "@peakcode/contracts";
+import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import { afterAll, beforeEach, describe, expect, test } from "vitest";
 
 import {
@@ -14,6 +16,7 @@ import {
   applyGoalStatus,
   handleGoalTool,
   handleWritePlan,
+  makeToolkitContextExtension,
   readGoalView,
 } from "./agentToolkitMode";
 import { threadConversationKey } from "./agentToolkit";
@@ -61,14 +64,38 @@ const ALL_TOOLS = [
   "ask_user",
   "goal",
   "write_plan",
+  "schedule_task",
+  "kanban_comment",
   "task",
   "checkpoint",
   "rewind",
   "think",
   "read_skill",
+  // Contributed by installed pi packages rather than by this repo. The `crew_*` tools come
+  // from pi-crew, which Peak Code can install from Settings → Pi Packages.
+  "crew_list",
+  "crew_status",
+  "crew_spawn",
+  "crew_respond",
+  "crew_done",
+  "crew_abort",
+  "crew_report",
 ];
 
-const WRITE_CAPABLE = ["write", "edit", "bash", "write_file", "edit_file", "apply_patch", "task"];
+const WRITE_CAPABLE = [
+  "write",
+  "edit",
+  "bash",
+  "write_file",
+  "edit_file",
+  "apply_patch",
+  "task",
+  // Writes the project's `.kanban/board.json`, so plan mode must not reach it either.
+  "kanban_comment",
+  // Delegation: the spawn itself writes nothing, but the subagent it starts can.
+  "crew_spawn",
+  "crew_respond",
+];
 
 let scratchDir: string;
 
@@ -97,6 +124,11 @@ describe("activeToolNamesForMode", () => {
     expect(active).toContain("grep");
     expect(active).toContain("ask_user");
     expect(active).toContain("think");
+    // 包提供的只读工具照旧可用，只有会派活的那些被摘掉。
+    expect(active).toContain("crew_list");
+    expect(active).toContain("crew_status");
+    expect(active).not.toContain("crew_spawn");
+    expect(active).not.toContain("crew_respond");
   });
 
   test("goal：全套可用 + goal，但不给 write_plan", () => {
@@ -217,5 +249,47 @@ describe("applyGoalStatus", () => {
     handleGoalTool(CONVERSATION, { op: "create", objective: "x" });
     const paused = applyGoalStatus(THREAD, "paused");
     expect(paused?.status).toBe("paused");
+  });
+});
+
+/**
+ * 每轮系统提示的拼装。
+ *
+ * 流程段是"默认走流程"这个承诺的唯一落点：它在 `before_agent_start` 里拼进每一轮的
+ * 系统提示，任何一个模式、任何一条会话都绕不过去。这里用一个假的 pi API 把 handler
+ * 抓出来直接调用，钉住"基础提示被保留 + 两段都被追加 + 关掉开关就消失"。
+ */
+describe("makeToolkitContextExtension", () => {
+  type Handler = (event: { systemPrompt: string }) => { systemPrompt?: string } | void;
+
+  const runHandler = (conversationId: number, mode: ProviderInteractionMode) => {
+    const handlers = new Map<string, Handler>();
+    const pi = {
+      on: (name: string, handler: Handler) => {
+        handlers.set(name, handler);
+      },
+    } as unknown as Parameters<ExtensionFactory>[0];
+
+    makeToolkitContextExtension({ conversationId, currentMode: () => mode })(pi);
+    const handler = handlers.get("before_agent_start");
+    expect(handler, "扩展没有注册 before_agent_start").toBeDefined();
+    return handler!({ systemPrompt: "BASE PROMPT" });
+  };
+
+  test("Agent 模式下也追加流程段（不是只有 goal / plan 才注入）", () => {
+    const result = runHandler(CONVERSATION, "default");
+    const prompt = result && "systemPrompt" in result ? result.systemPrompt : undefined;
+    expect(prompt).toContain("BASE PROMPT");
+    // 流程段与机器上装了哪些技能无关，因此这条在任何环境都成立；
+    // 技能清单那一半取决于 `~/.agents/skills`，不在这里断言。
+    expect(prompt).toContain("工程流程");
+    expect(prompt).toContain("read_skill");
+  });
+
+  test("关掉流程开关后不再追加这一段", () => {
+    updateSettings({ AGENT_SKILL_WORKFLOW: "0" });
+    const result = runHandler(CONVERSATION, "default");
+    const prompt = result && "systemPrompt" in result ? result.systemPrompt : undefined;
+    expect(prompt ?? "").not.toContain("工程流程");
   });
 });

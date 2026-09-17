@@ -4,10 +4,10 @@ import { MESSAGES } from "./messages";
 
 describe("language", () => {
   it("normalizes unknown values to the default language", () => {
-    expect(normalizeLanguage("fr")).toBe("en");
-    expect(normalizeLanguage(undefined)).toBe("en");
-    expect(normalizeLanguage(null)).toBe("en");
-    expect(normalizeLanguage(42)).toBe("en");
+    expect(normalizeLanguage("fr")).toBe("zh");
+    expect(normalizeLanguage(undefined)).toBe("zh");
+    expect(normalizeLanguage(null)).toBe("zh");
+    expect(normalizeLanguage(42)).toBe("zh");
   });
 
   it("accepts supported language values", () => {
@@ -18,14 +18,14 @@ describe("language", () => {
     expect(isLanguage("ja")).toBe(false);
   });
 
-  it("falls back to English when no browser locale is available", () => {
+  it("falls back to the default language when no browser locale is available", () => {
     const original = (globalThis as { navigator?: Navigator }).navigator;
     Object.defineProperty(globalThis, "navigator", {
       value: undefined,
       configurable: true,
     });
     try {
-      expect(detectBrowserLanguage()).toBe("en");
+      expect(detectBrowserLanguage()).toBe("zh");
     } finally {
       Object.defineProperty(globalThis, "navigator", {
         value: original,

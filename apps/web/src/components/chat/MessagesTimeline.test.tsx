@@ -1,8 +1,14 @@
 import { MessageId, TurnId } from "@peakcode/contracts";
-import { renderToStaticMarkup } from "react-dom/server";
+import { renderToStaticMarkup as renderToStaticMarkupRaw } from "react-dom/server";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { formatShortTimestamp } from "../../timestampFormat";
 import { COLLAPSED_USER_MESSAGE_MAX_CHARS } from "./userMessagePreview";
+import { I18nProvider } from "../../i18n";
+
+// These tests assert English copy, so pin the language instead of relying on the
+// app default (which is Chinese for first launch).
+const renderToStaticMarkup: typeof renderToStaticMarkupRaw = (node) =>
+  renderToStaticMarkupRaw(<I18nProvider language="en">{node}</I18nProvider>);
 
 vi.mock("@legendapp/list/react", async () => {
   const React = await import("react");

@@ -19,6 +19,13 @@ import {
   type ServerConfigShape,
 } from "./config";
 import { configureAgentToolkit, openAgentToolkitStore } from "./agentToolkit";
+import {
+  ensureDefaultSkillPacks,
+  type SkillPackResult,
+} from "@peakcode/agent-toolkit/skills/default-pack";
+import { installBundledSkills } from "@peakcode/agent-toolkit/skills/bundled";
+import { makeAutomationToolHost, setAutomationToolHost } from "./automation/automationTool";
+import { makeKanbanToolHost, setKanbanToolHost } from "./kanban/kanbanTool";
 import { createLogger } from "./logger";
 import { migrateLegacyHomeIfNeeded } from "./homeMigration";
 import { fixPath, resolveBaseDir } from "./os-jank";
@@ -317,6 +324,61 @@ const makeServerProgram = (input: CliInput) =>
         },
       });
     });
+
+    // Bind the `schedule_task` tool to the running server, next to the toolkit store above.
+    // It has to be in place before any provider session starts: the tool reads it when the
+    // model calls it, so a session that outlived a rebind would hold a stale host.
+    const automationToolHost = yield* makeAutomationToolHost;
+    yield* Effect.sync(() => setAutomationToolHost(automationToolHost));
+
+    // Same for `kanban_comment`: a board-dispatched run reports each finished step onto its
+    // card through this host, so it has to exist before the first task is handed to an agent.
+    const kanbanToolHost = yield* makeKanbanToolHost;
+    yield* Effect.sync(() => setKanbanToolHost(kanbanToolHost));
+
+    // Keep the default engineering-workflow skill pack present in the shared library the
+    // agent reads (`~/.agents/skills`). The workflow section of the system prompt names those
+    // skills, so an install that has never run the skills CLI would otherwise advertise
+    // skills the model cannot open. Forked on purpose: it may reach the network through npx,
+    // and a fresh machine paying for that must not hold up the server.
+    yield* Effect.forkChild(
+      Effect.gen(function* () {
+        const results = yield* Effect.tryPromise({
+          try: () => ensureDefaultSkillPacks(),
+          catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+        }).pipe(
+          Effect.catch((error) =>
+            Effect.logWarning("default skill pack check failed", { cause: error.message }).pipe(
+              Effect.as<SkillPackResult[]>([]),
+            ),
+          ),
+        );
+        for (const result of results) {
+          if (result.status === "installed") {
+            yield* Effect.logInfo("default skill pack installed", { pack: result.pack });
+          } else if (result.status === "failed") {
+            yield* Effect.logWarning("default skill pack unavailable", {
+              pack: result.pack,
+              detail: result.detail,
+            });
+          }
+        }
+
+        // The in-tree oh-my-pi skills cannot come from the GitHub pack, so they are written
+        // from the embedded payload. Same switch (`AGENT_SKILL_PACKS`) and same create-only
+        // contract; this path never touches the network.
+        for (const result of installBundledSkills()) {
+          if (result.status === "installed") {
+            yield* Effect.logInfo("bundled skill installed", { skill: result.skill });
+          } else if (result.status === "failed") {
+            yield* Effect.logWarning("bundled skill unavailable", {
+              skill: result.skill,
+              detail: result.detail,
+            });
+          }
+        }
+      }),
+    );
 
     if (!config.devUrl && !config.staticDir) {
       yield* Effect.logWarning(

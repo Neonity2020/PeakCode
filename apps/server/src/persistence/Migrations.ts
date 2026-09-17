@@ -53,6 +53,7 @@ import Migration0037 from "./Migrations/037_ProjectionSnapshotCapIndexes.ts";
 import Migration0038 from "./Migrations/038_Automations.ts";
 import Migration0039 from "./Migrations/039_AutomationScripts.ts";
 import Migration0040 from "./Migrations/040_AgentToolkit.ts";
+import Migration0041 from "./Migrations/041_AutomationSchedules.ts";
 
 /**
  * Migration loader with all migrations defined inline.
@@ -105,6 +106,7 @@ export const migrationEntries = [
   [38, "Automations", Migration0038],
   [39, "AutomationScripts", Migration0039],
   [40, "AgentToolkit", Migration0040],
+  [41, "AutomationSchedules", Migration0041],
 ] as const;
 
 export const makeMigrationLoader = (throughId?: number) =>

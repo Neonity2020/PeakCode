@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   appendStoredComment,
+  BOARD_RUN_INSTRUCTIONS,
   buildTaskPrompt,
   countTasksByStatus,
   KANBAN_DEFAULT_COLUMNS,
@@ -317,11 +318,22 @@ describe("agent runs", () => {
 
   it("sends the title and the requirement description to the agent", () => {
     expect(buildTaskPrompt({ title: " 写周报 ", description: " 汇总本周进展 " })).toBe(
-      "写周报\n\n汇总本周进展",
+      `写周报\n\n汇总本周进展\n\n${BOARD_RUN_INSTRUCTIONS}`,
     );
-    expect(buildTaskPrompt({ title: "只有标题", description: "   " })).toBe("只有标题");
-    expect(buildTaskPrompt({ title: "  ", description: "只有描述" })).toBe("只有描述");
-    expect(buildTaskPrompt({ title: "", description: "" })).toBe("");
+    expect(buildTaskPrompt({ title: "只有标题", description: "   " })).toBe(
+      `只有标题\n\n${BOARD_RUN_INSTRUCTIONS}`,
+    );
+    expect(buildTaskPrompt({ title: "  ", description: "只有描述" })).toBe(
+      `只有描述\n\n${BOARD_RUN_INSTRUCTIONS}`,
+    );
+    expect(buildTaskPrompt({ title: "", description: "" })).toBe(BOARD_RUN_INSTRUCTIONS);
+  });
+
+  it("tells a dispatched run to leave a comment per finished step", () => {
+    // The board only shows what lands in its comments, so the standing instructions have to
+    // name the tool and the per-step cadence — without them a run works silently in its thread.
+    expect(BOARD_RUN_INSTRUCTIONS).toContain("kanban_comment");
+    expect(BOARD_RUN_INSTRUCTIONS).toContain("每完成一步");
   });
 
   it("maps a run outcome and a checkpoint status onto the task column", () => {

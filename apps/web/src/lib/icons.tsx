@@ -64,8 +64,10 @@ import {
   IconMicrophone,
   IconMoon,
   IconPalette,
+  IconPackage,
   IconPaperclip,
   IconPinnedFilled,
+  IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
   IconPlus,
@@ -148,6 +150,7 @@ export const DownloadIcon = adaptIcon(IconDownload);
 export const EllipsisIcon = adaptIcon(IconDots);
 export const ExternalLinkIcon = adaptIcon(IconExternalLink);
 export const EyeIcon = adaptIcon(IconEye);
+export const PackageIcon = adaptIcon(IconPackage);
 export const PaletteIcon = adaptIcon(IconPalette);
 export const PaperclipIcon = adaptIcon(IconPaperclip);
 export const AdjustmentsIcon = adaptIcon(IconAdjustments);
@@ -228,6 +231,7 @@ export const PinIcon: LucideIcon = (props) => (
   </svg>
 );
 export const PinnedFilledIcon = adaptIcon(IconPinnedFilled);
+export const PauseIcon = adaptIcon(IconPlayerPause);
 export const PlayIcon = adaptIcon(IconPlayerPlay);
 export const Plus = adaptIcon(IconPlus);
 export const PlusIcon = adaptIcon(IconPlus);

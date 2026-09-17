@@ -4,6 +4,7 @@
 // Exports: Theme types, normalization helpers, import/export utilities, and CSS variable builders.
 
 import { THEME_SEED_CATALOG } from "./theme.seed.generated";
+import { OH_MY_PI_CODE_THEME_OPTIONS, OH_MY_PI_THEME_SEEDS } from "./oh-my-pi.seed.generated";
 import { normalizeFontFamilyCssValue } from "../lib/fontFamily";
 
 export type ThemeMode = "light" | "dark" | "system";
@@ -190,7 +191,7 @@ const CODE_THEME_SEED_PATCH_METADATA: Partial<
 
 // Mirror the packaged Codex catalog closely enough that share-string validation
 // can preserve the "known theme + variant availability" behavior.
-export const CODE_THEME_OPTIONS: readonly CodeThemeOption[] = [
+const BASE_CODE_THEME_OPTIONS: readonly CodeThemeOption[] = [
   { id: "absolutely", label: "Absolutely", variants: ["light", "dark"] },
   { id: "ayu", label: "Ayu", variants: ["dark"] },
   { id: "catppuccin", label: "Catppuccin", variants: ["light", "dark"] },
@@ -220,6 +221,22 @@ export const CODE_THEME_OPTIONS: readonly CodeThemeOption[] = [
   { id: "vercel", label: "Vercel", variants: ["light", "dark"] },
   { id: "vscode-plus", label: "VS Code Plus", variants: ["light", "dark"] },
 ] as const;
+
+/**
+ * Every selectable code theme: Peak Code's own catalog plus the themes ported from
+ * oh-my-pi (`oh-my-pi.seed.generated.ts`). The ported ids are prefixed `omp-` so a theme
+ * with the same palette name (for example `nord`) stays distinguishable.
+ */
+export const CODE_THEME_OPTIONS: readonly CodeThemeOption[] = [
+  ...BASE_CODE_THEME_OPTIONS,
+  ...OH_MY_PI_CODE_THEME_OPTIONS,
+];
+
+/** Seed lookup across both catalogs; the oh-my-pi entries never shadow a base id. */
+const ALL_THEME_SEEDS: Record<string, Partial<Record<ThemeVariant, ChromeTheme>>> = {
+  ...THEME_SEED_CATALOG,
+  ...OH_MY_PI_THEME_SEEDS,
+};
 
 export const DEFAULT_CHROME_THEME_BY_VARIANT: Record<ThemeVariant, ChromeTheme> = {
   dark: {
@@ -525,7 +542,7 @@ export function setThemeCodeThemeId(
 
 export function getCodeThemeSeed(codeThemeId: string, variant: ThemeVariant): ChromeTheme {
   const fallback = DEFAULT_CHROME_THEME_BY_VARIANT[variant];
-  const themeSeed = THEME_SEED_CATALOG[codeThemeId]?.[variant];
+  const themeSeed = ALL_THEME_SEEDS[codeThemeId]?.[variant];
   return themeSeed ? normalizeChromeTheme(themeSeed, variant) : fallback;
 }
 
@@ -533,7 +550,7 @@ export function getCodeThemeSeedPatch(
   codeThemeId: string,
   variant: ThemeVariant,
 ): ChromeThemeSeedPatch {
-  const themeSeed = THEME_SEED_CATALOG[codeThemeId]?.[variant];
+  const themeSeed = ALL_THEME_SEEDS[codeThemeId]?.[variant];
   if (!themeSeed) {
     return {};
   }

@@ -7,9 +7,10 @@
 import { useDeferredValue, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CheckIcon, CircleAlertIcon, ExternalLinkIcon, SearchIcon } from "~/lib/icons";
-import { localSkillsQueryOptions } from "~/localSkillsReactQuery";
+import { localSkillsQueryOptions, useSetSkillEnabledMutation } from "~/localSkillsReactQuery";
 import { useMessages } from "~/i18n/I18nContext";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "./ui/input-group";
+import { Switch } from "./ui/switch";
 import { Skeleton } from "./ui/skeleton";
 import { useProviderDiscoveryData } from "./useProviderDiscoveryData";
 
@@ -28,6 +29,7 @@ export function SkillsPanel() {
   const data = useProviderDiscoveryData("skills");
   const localSkillsQuery = useQuery(localSkillsQueryOptions());
   const deferredQuery = useDeferredValue(data.skillSearch);
+  const setSkillEnabled = useSetSkillEnabledMutation();
 
   const localSkills = useMemo(() => localSkillsQuery.data?.skills ?? [], [localSkillsQuery.data]);
   const filteredLocalSkills = useMemo(() => {
@@ -38,6 +40,10 @@ export function SkillsPanel() {
       return haystack.includes(q);
     });
   }, [deferredQuery, localSkills]);
+
+  const handleToggle = (id: string, enabled: boolean) => {
+    setSkillEnabled.mutate({ id, enabled });
+  };
 
   return (
     <div className="space-y-6">
@@ -74,6 +80,8 @@ export function SkillsPanel() {
         isLoading={localSkillsQuery.isLoading}
         skills={filteredLocalSkills}
         search={deferredQuery}
+        onToggle={handleToggle}
+        pendingId={setSkillEnabled.isPending ? (setSkillEnabled.variables?.id ?? null) : null}
       />
 
       <section className="space-y-3">
@@ -118,6 +126,8 @@ export function SkillsPanel() {
 }
 
 interface LocalSkill {
+  /** Directory name — the key `read_skill` and the enable/disable setting use. */
+  readonly id: string;
   readonly name: string;
   readonly description?: string | undefined;
   readonly version?: string | undefined;
@@ -132,10 +142,14 @@ function LocalSkillsSection({
   isLoading,
   skills,
   search,
+  onToggle,
+  pendingId,
 }: {
   isLoading: boolean;
   skills: ReadonlyArray<LocalSkill>;
   search: string;
+  onToggle: (id: string, enabled: boolean) => void;
+  pendingId: string | null;
 }) {
   const messages = useMessages();
 
@@ -186,14 +200,28 @@ function LocalSkillsSection({
       {heading}
       <div className="grid grid-cols-1 gap-2">
         {skills.map((skill) => (
-          <LocalSkillCard key={`${skill.source}::${skill.name}`} skill={skill} />
+          <LocalSkillCard
+            key={`${skill.source}::${skill.id}`}
+            skill={skill}
+            onToggle={onToggle}
+            isPending={pendingId === skill.id}
+          />
         ))}
       </div>
     </section>
   );
 }
 
-function LocalSkillCard({ skill }: { skill: LocalSkill }) {
+function LocalSkillCard({
+  skill,
+  onToggle,
+  isPending,
+}: {
+  skill: LocalSkill;
+  onToggle: (id: string, enabled: boolean) => void;
+  isPending: boolean;
+}) {
+  const messages = useMessages();
   const sourceLabel = SOURCE_LABEL[skill.source] ?? SOURCE_LABEL.unknown ?? "Unknown";
   return (
     <div className="group flex flex-col gap-2 rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-panel)] px-4 py-3 transition-colors hover:bg-[var(--sidebar-accent)]">
@@ -208,32 +236,37 @@ function LocalSkillCard({ skill }: { skill: LocalSkill }) {
                 v{skill.version}
               </span>
             ) : null}
-            {skill.enabled ? (
-              <span
-                className="inline-flex size-4 shrink-0 items-center justify-center rounded-full border border-border/40 text-muted-foreground/60"
-                title="Enabled"
-              >
-                <CheckIcon className="size-2.5" />
-              </span>
-            ) : null}
           </div>
           {skill.description ? (
             <p className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-muted-foreground/85">
               {skill.description}
             </p>
           ) : null}
+          {!skill.enabled ? (
+            <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground/70">
+              {messages.skills.disabledHint}
+            </p>
+          ) : null}
         </div>
-        {skill.homepage ? (
-          <a
-            href={skill.homepage}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-border/60 px-2 text-[11px] text-foreground/80 transition-colors hover:bg-accent/40"
-            title={skill.homepage}
-          >
-            <ExternalLinkIcon className="size-3" />
-          </a>
-        ) : null}
+        <div className="flex shrink-0 items-center gap-2">
+          {skill.homepage ? (
+            <a
+              href={skill.homepage}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-border/60 px-2 text-[11px] text-foreground/80 transition-colors hover:bg-accent/40"
+              title={skill.homepage}
+            >
+              <ExternalLinkIcon className="size-3" />
+            </a>
+          ) : null}
+          <Switch
+            checked={skill.enabled}
+            disabled={isPending}
+            onCheckedChange={(checked) => onToggle(skill.id, Boolean(checked))}
+            aria-label={messages.skills.enableAria(skill.name)}
+          />
+        </div>
       </div>
       <div className="flex items-center gap-2 text-[10.5px] text-muted-foreground/70">
         <span className="rounded-full border border-border/40 bg-background/70 px-1.5 py-0.5 font-mono">

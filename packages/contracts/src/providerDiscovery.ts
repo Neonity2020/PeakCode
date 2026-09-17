@@ -82,6 +82,12 @@ export const LocalUserSkillSource = Schema.Literals([
 export type LocalUserSkillSource = typeof LocalUserSkillSource.Type;
 
 export const LocalUserSkillDescriptor = Schema.Struct({
+  /**
+   * The skill's directory name. This — not `name` — is what `read_skill` resolves and what
+   * the enable/disable setting keys on, so the two are carried separately: a skill whose
+   * frontmatter `name` differs from its directory would otherwise be toggled by the wrong key.
+   */
+  id: TrimmedNonEmptyString,
   name: TrimmedNonEmptyString,
   description: Schema.optional(TrimmedNonEmptyString),
   version: Schema.optional(TrimmedNonEmptyString),
@@ -101,6 +107,25 @@ export type ListLocalUserSkillsResult = typeof ListLocalUserSkillsResult.Type;
 
 export const ListLocalUserSkillsInput = Schema.Struct({});
 export type ListLocalUserSkillsInput = typeof ListLocalUserSkillsInput.Type;
+
+/**
+ * Switch one skill on or off for the agent. `id` is the skill's directory name, the same key
+ * `read_skill` resolves. Disabling keeps the files on disk — it only hides the skill from the
+ * per-turn list and makes `read_skill` refuse it.
+ */
+export const SetSkillEnabledInput = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  enabled: Schema.Boolean,
+});
+export type SetSkillEnabledInput = typeof SetSkillEnabledInput.Type;
+
+export const SetSkillEnabledResult = Schema.Struct({
+  id: TrimmedNonEmptyString,
+  enabled: Schema.Boolean,
+  /** Every id that is disabled after the write, so the caller can re-render without a refetch. */
+  disabled: Schema.Array(TrimmedNonEmptyString),
+});
+export type SetSkillEnabledResult = typeof SetSkillEnabledResult.Type;
 
 export const ProviderNativeCommandDescriptor = Schema.Struct({
   name: TrimmedNonEmptyString,

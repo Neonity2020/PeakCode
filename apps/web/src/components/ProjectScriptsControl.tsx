@@ -61,6 +61,7 @@ import { Menu, MenuItem, MenuPopup, MenuShortcut, MenuTrigger } from "./ui/menu"
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover";
 import { Switch } from "./ui/switch";
 import { Textarea } from "./ui/textarea";
+import { useMessages } from "../i18n";
 
 const SCRIPT_ICONS: Array<{ id: ProjectScriptIcon; label: string }> = [
   { id: "play", label: "Play" },
@@ -168,6 +169,7 @@ export default function ProjectScriptsControl({
   onUpdateScript,
   onDeleteScript,
 }: ProjectScriptsControlProps) {
+  const messages = useMessages();
   const addScriptFormId = React.useId();
   const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -396,7 +398,7 @@ export default function ProjectScriptsControl({
           <DialogPanel>
             <form id={addScriptFormId} className="space-y-4" onSubmit={submitAddScript}>
               <div className="space-y-1.5">
-                <Label htmlFor="script-name">Name</Label>
+                <Label htmlFor="script-name">{messages.projectScripts.nameLabel}</Label>
                 <div className="flex items-center gap-2">
                   <Popover onOpenChange={setIconPickerOpen} open={iconPickerOpen}>
                     <PopoverTrigger
@@ -447,7 +449,7 @@ export default function ProjectScriptsControl({
                 </div>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="script-keybinding">Keybinding</Label>
+                <Label htmlFor="script-keybinding">{messages.projectScripts.keybindingLabel}</Label>
                 <Input
                   id="script-keybinding"
                   placeholder="Press shortcut"
@@ -460,7 +462,7 @@ export default function ProjectScriptsControl({
                 </p>
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="script-command">Command</Label>
+                <Label htmlFor="script-command">{messages.projectScripts.commandLabel}</Label>
                 <Textarea
                   id="script-command"
                   placeholder="bun test"
@@ -469,7 +471,7 @@ export default function ProjectScriptsControl({
                 />
               </div>
               <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 px-3 py-2 text-sm">
-                <span>Run automatically on worktree creation</span>
+                <span>{messages.projectScripts.autoRunLabel}</span>
                 <Switch
                   checked={runOnWorktreeCreate}
                   onCheckedChange={(checked) => setRunOnWorktreeCreate(Boolean(checked))}
@@ -508,13 +510,17 @@ export default function ProjectScriptsControl({
       <AlertDialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
         <AlertDialogPopup>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete action "{name}"?</AlertDialogTitle>
-            <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+            <AlertDialogTitle>{messages.projectScripts.deleteConfirmTitle(name)}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {messages.projectScripts.deleteConfirmDescription}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogClose render={<Button variant="outline" />}>Cancel</AlertDialogClose>
+            <AlertDialogClose render={<Button variant="outline" />}>
+              {messages.common.cancel}
+            </AlertDialogClose>
             <Button variant="destructive" onClick={confirmDeleteScript}>
-              Delete action
+              {messages.projectScripts.deleteAction}
             </Button>
           </AlertDialogFooter>
         </AlertDialogPopup>

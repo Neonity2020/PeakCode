@@ -6,19 +6,8 @@
 // Layer: Component
 // Exports: KanbanView
 
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type DragEvent,
-  type FormEvent,
-} from "react";
-import {
-  KANBAN_AGENT_PROVIDERS,
-  KANBAN_TASK_STATUSES,
-  type KanbanAgentProvider,
   type KanbanAgentRunStatus,
   type KanbanProjectSummary,
   type KanbanTask,
@@ -28,16 +17,11 @@ import {
   type ProjectId,
 } from "@peakcode/contracts";
 import { useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
-import { useAppSettings } from "../appSettings";
 import { useMessages } from "../i18n/I18nContext";
 import { persistKanbanProjectId, readKanbanProjectId } from "../kanbanUiState";
-import { providerModelsQueryOptions } from "../lib/providerDiscoveryReactQuery";
 import { dropIndexFromMiddles, resolveDropIndex } from "../lib/kanbanDrag";
 import {
   useKanbanBoardQuery,
-  useKanbanCreateTaskMutation,
-  useKanbanGenerateRequirementDraftMutation,
   useKanbanMoveTaskMutation,
   useKanbanProjectsQuery,
 } from "../lib/kanbanReactQuery";
@@ -48,8 +32,6 @@ import {
   FolderIcon,
   LoaderIcon,
   PlusIcon,
-  SparklesIcon,
-  XIcon,
 } from "../lib/icons";
 import { cn } from "../lib/utils";
 import { useLatestProjectStore } from "../latestProjectStore";
@@ -86,11 +68,6 @@ const statusGroup = <T,>(makeValue: () => T): Record<KanbanTaskStatus, T> => ({
   archived: makeValue(),
 });
 
-/** Display name for the agents a task can be handed to. */
-const PROVIDER_LABELS: Record<string, string> = { pi: "Pi" };
-
-const providerLabel = (provider: string): string => PROVIDER_LABELS[provider] ?? provider;
-
 const AVATAR_COLORS = ["#F59E0B", "#3B82F6", "#10B981", "#8B5CF6", "#EF4444", "#0EA5E9", "#F97316"];
 
 const avatarColorFor = (name: string): string => {
@@ -107,18 +84,6 @@ const shortPath = (value: string): string => {
   return match ? `~/${match[1]}` : value;
 };
 
-type TaskDraft = {
-  readonly title: string;
-  readonly description: string;
-  readonly status: KanbanTaskStatus;
-  readonly priority: KanbanTaskPriority;
-  readonly pipeline: string;
-  readonly assignee: string;
-  readonly agentProvider: KanbanAgentProvider;
-  /** Empty means "run with the default model". */
-  readonly agentModel: string;
-};
-
 type DropTarget = {
   readonly status: KanbanTaskStatus;
   readonly index: number;
@@ -133,16 +98,6 @@ function dropIndexFor(container: HTMLElement, clientY: number): number {
   return dropIndexFromMiddles(cardMiddles, clientY);
 }
 
-const EMPTY_TASK_DRAFT: Omit<TaskDraft, "status"> = {
-  title: "",
-  description: "",
-  priority: "medium",
-  pipeline: "",
-  assignee: "",
-  agentProvider: "pi",
-  agentModel: "",
-};
-
 export function KanbanView() {
   const messages = useMessages();
   const navigate = useNavigate();
@@ -154,8 +109,6 @@ export function KanbanView() {
     () => (readKanbanProjectId() as ProjectId | null) ?? null,
   );
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [draft, setDraft] = useState<TaskDraft>({ ...EMPTY_TASK_DRAFT, status: "todo" });
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
   const draggingTaskIdRef = useRef<KanbanTaskId | null>(null);
 
@@ -174,9 +127,7 @@ export function KanbanView() {
 
   const boardQuery = useKanbanBoardQuery(selectedProjectId);
   const board = boardQuery.data ?? null;
-  const createTask = useKanbanCreateTaskMutation();
   const moveTask = useKanbanMoveTaskMutation();
-  const generateRequirementDraft = useKanbanGenerateRequirementDraftMutation();
 
   const selectedSummary = useMemo(
     () => projects.find((project) => project.projectId === selectedProjectId) ?? null,
@@ -213,50 +164,6 @@ export function KanbanView() {
     [messages],
   );
 
-  const { settings } = useAppSettings();
-  const agentProvider = draft.agentProvider;
-  const agentModelsQuery = useQuery(
-    providerModelsQueryOptions({
-      provider: agentProvider === "pi" ? "pi" : "pi",
-      binaryPath: settings.piBinaryPath || null,
-      agentDir: settings.piAgentDir || null,
-      enabled: modalOpen,
-    }),
-  );
-  /**
-   * Models the selected agent is configured with, plus any slug the task still
-   * stores. Same-named models from different upstream providers are qualified so
-   * the list stays unambiguous.
-   */
-  const agentModelOptions = useMemo(() => {
-    const models = agentModelsQuery.data?.models ?? [];
-    const nameCounts = new Map<string, number>();
-    for (const model of models) {
-      nameCounts.set(model.name, (nameCounts.get(model.name) ?? 0) + 1);
-    }
-    const options = models.map((model) => ({
-      value: model.slug,
-      label:
-        (nameCounts.get(model.name) ?? 0) > 1 && model.upstreamProviderName
-          ? `${model.name} · ${model.upstreamProviderName}`
-          : model.name,
-    }));
-    if (
-      draft.agentModel.length > 0 &&
-      !options.some((option) => option.value === draft.agentModel)
-    ) {
-      options.unshift({ value: draft.agentModel, label: draft.agentModel });
-    }
-    return options;
-  }, [agentModelsQuery.data, draft.agentModel]);
-
-  const defaultModelLabel = useMemo(() => {
-    const selection = selectedSummary?.defaultModelSelection ?? null;
-    if (!selection) return messages.kanban.defaultModel;
-    const match = agentModelOptions.find((option) => option.value === selection.model);
-    return messages.kanban.defaultModelWithName(match?.label ?? selection.model);
-  }, [agentModelOptions, messages, selectedSummary]);
-
   const runStatusLabel = useCallback(
     (status: KanbanAgentRunStatus): string =>
       status === "running"
@@ -269,16 +176,17 @@ export function KanbanView() {
     [messages],
   );
 
-  /** Board column order, falling back to the four standard columns while loading. */
-  const modalColumnKeys: ReadonlyArray<KanbanTaskStatus> = useMemo(
-    () => board?.columns.map((column) => column.key) ?? KANBAN_TASK_STATUSES,
-    [board],
+  /**
+   * Creation is a full page: the dialog was small and easy to dismiss with a
+   * stray backdrop click. The clicked column travels along as the initial status.
+   */
+  const openCreatePage = useCallback(
+    (status: KanbanTaskStatus) => {
+      if (!selectedProjectId) return;
+      void navigate({ to: "/kanban/new", search: { project: selectedProjectId, status } });
+    },
+    [navigate, selectedProjectId],
   );
-
-  const openCreateModal = useCallback((status: KanbanTaskStatus) => {
-    setDraft({ ...EMPTY_TASK_DRAFT, status });
-    setModalOpen(true);
-  }, []);
 
   /**
    * A tracked task carries requirements, comments and run history, so it opens
@@ -295,80 +203,6 @@ export function KanbanView() {
     },
     [navigate, selectedProjectId],
   );
-
-  const closeModal = useCallback(() => {
-    setModalOpen(false);
-  }, []);
-
-  const submitDraft = useCallback(() => {
-    if (!selectedProjectId) return;
-    const title = draft.title.trim();
-    if (title.length === 0) return;
-
-    const payload = {
-      title,
-      description: draft.description.trim(),
-      status: draft.status,
-      priority: draft.priority,
-      pipeline: draft.pipeline.trim(),
-      assignee: draft.assignee.trim(),
-      agentProvider: draft.agentProvider,
-      agentModel: draft.agentModel,
-    };
-
-    createTask.mutate({ projectId: selectedProjectId, ...payload });
-    closeModal();
-  }, [closeModal, createTask, draft, selectedProjectId]);
-
-  /**
-   * Drafts the requirement for the task being written: the title and whatever
-   * the user already typed go to the agent, and the brief comes back into the
-   * description field for review before the task is created.
-   */
-  const onGenerateRequirement = useCallback(async () => {
-    if (!selectedProjectId) return;
-    const title = draft.title.trim();
-    if (title.length === 0) return;
-    const notes = draft.description.trim();
-    if (notes.length > 0 && !window.confirm(messages.kanban.detail.generateRequirementConfirm)) {
-      return;
-    }
-
-    try {
-      const generated = await generateRequirementDraft.mutateAsync({
-        projectId: selectedProjectId,
-        title,
-        ...(notes.length > 0 ? { notes } : {}),
-        agentProvider: draft.agentProvider,
-        ...(draft.agentModel.length > 0 ? { agentModel: draft.agentModel } : {}),
-      });
-      // The dialog may have been closed and re-opened for another task while the
-      // agent worked, in which case this brief belongs to nobody.
-      setDraft((previous) =>
-        previous.title.trim() === title
-          ? { ...previous, description: generated.requirement }
-          : previous,
-      );
-    } catch {
-      // The mutation already reported the failure; the draft keeps its text.
-    }
-  }, [draft, generateRequirementDraft, messages, selectedProjectId]);
-
-  useEffect(() => {
-    if (!modalOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        closeModal();
-        return;
-      }
-      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        submitDraft();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeModal, modalOpen, submitDraft]);
 
   useEffect(() => {
     if (!pickerOpen) return;
@@ -564,7 +398,7 @@ export function KanbanView() {
                   type="button"
                   aria-label={`${messages.kanban.addTask} · ${columnLabel(status)}`}
                   className="ml-auto inline-flex size-6 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent/60 hover:text-foreground"
-                  onClick={() => openCreateModal(status)}
+                  onClick={() => openCreatePage(status)}
                 >
                   <PlusIcon className="size-3.5" />
                 </button>
@@ -657,233 +491,6 @@ export function KanbanView() {
     </div>
   );
 
-  const renderModal = () => {
-    if (!modalOpen) return null;
-    return (
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-        onMouseDown={(event) => {
-          if (event.target === event.currentTarget) closeModal();
-        }}
-      >
-        <div className="w-full max-w-md rounded-xl border border-border/60 bg-background p-5 shadow-lg">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="text-[15px] font-semibold text-foreground">
-                {messages.kanban.newTask}
-              </h2>
-              <p className="mt-0.5 truncate text-[12px] text-muted-foreground/80">
-                {selectedSummary?.title ?? board?.projectTitle ?? ""}
-              </p>
-            </div>
-            <button
-              type="button"
-              aria-label={messages.kanban.cancel}
-              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent/60 hover:text-foreground"
-              onClick={closeModal}
-            >
-              <XIcon className="size-4" />
-            </button>
-          </div>
-
-          <form
-            className="mt-4 flex flex-col gap-3"
-            onSubmit={(event: FormEvent) => {
-              event.preventDefault();
-              submitDraft();
-            }}
-          >
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-medium tracking-wider text-muted-foreground/70 uppercase">
-                {messages.kanban.taskTitle}
-              </span>
-              <input
-                autoFocus
-                value={draft.title}
-                placeholder={messages.kanban.taskTitlePlaceholder}
-                onChange={(event) => setDraft((prev) => ({ ...prev, title: event.target.value }))}
-                className="h-9 rounded-md border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-              />
-            </label>
-
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-medium tracking-wider text-muted-foreground/70 uppercase">
-                {messages.kanban.taskDescription}
-              </span>
-              <textarea
-                rows={4}
-                value={draft.description}
-                aria-label={messages.kanban.taskDescription}
-                placeholder={messages.kanban.taskDescriptionPlaceholder}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, description: event.target.value }))
-                }
-                className="resize-y rounded-md border border-border/60 bg-background/60 px-2.5 py-2 text-[13px] leading-relaxed text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-              />
-              <div className="flex items-center gap-2">
-                <span className="flex-1 text-[11.5px] leading-relaxed text-muted-foreground/55">
-                  {messages.kanban.detail.generateRequirementHint}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => void onGenerateRequirement()}
-                  disabled={generateRequirementDraft.isPending || draft.title.trim().length === 0}
-                  title={messages.kanban.detail.generateRequirementHint}
-                  className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-border/60 bg-background/60 px-2.5 text-[11.5px] text-foreground/80 transition-colors hover:bg-accent/40 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {generateRequirementDraft.isPending ? (
-                    <LoaderIcon className="size-3.5 animate-spin" />
-                  ) : (
-                    <SparklesIcon className="size-3.5" />
-                  )}
-                  {generateRequirementDraft.isPending
-                    ? messages.kanban.detail.generatingRequirement
-                    : messages.kanban.detail.generateRequirement}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex gap-3">
-              <div className="flex flex-1 flex-col gap-1.5">
-                <span className="text-[11px] font-medium tracking-wider text-muted-foreground/70 uppercase">
-                  {messages.kanban.priority}
-                </span>
-                <div className="inline-flex rounded-md bg-[var(--color-background-elevated-secondary)] p-0.5">
-                  {(["high", "medium", "low"] as const).map((priority) => (
-                    <button
-                      key={priority}
-                      type="button"
-                      onClick={() => setDraft((prev) => ({ ...prev, priority }))}
-                      className={cn(
-                        "flex-1 rounded-sm px-2 py-1 text-[11.5px] font-medium transition-colors",
-                        draft.priority === priority
-                          ? "bg-[var(--composer-surface)] text-foreground shadow-xs"
-                          : "text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {messages.kanban.priorities[priority]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <label className="flex flex-1 flex-col gap-1.5">
-                <span className="text-[11px] font-medium tracking-wider text-muted-foreground/70 uppercase">
-                  {messages.kanban.status}
-                </span>
-                <select
-                  value={draft.status}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      status: event.target.value as KanbanTaskStatus,
-                    }))
-                  }
-                  className="h-9 rounded-md border border-border/60 bg-background/60 px-2 text-[13px] text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  {modalColumnKeys.map((key) => (
-                    <option key={key} value={key}>
-                      {columnLabel(key)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-medium tracking-wider text-muted-foreground/70 uppercase">
-                {messages.kanban.pipeline}
-              </span>
-              <input
-                value={draft.pipeline}
-                placeholder={messages.kanban.pipelinePlaceholder}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, pipeline: event.target.value }))
-                }
-                className="h-9 rounded-md border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-              />
-            </label>
-
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-medium tracking-wider text-muted-foreground/70 uppercase">
-                {messages.kanban.assignee}
-              </span>
-              <input
-                value={draft.assignee}
-                placeholder={messages.kanban.assigneePlaceholder}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, assignee: event.target.value }))
-                }
-                className="h-9 rounded-md border border-border/60 bg-background/60 px-2.5 text-[13px] text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-              />
-            </label>
-
-            <div className="flex gap-3">
-              <label className="flex flex-1 flex-col gap-1.5">
-                <span className="text-[11px] font-medium tracking-wider text-muted-foreground/70 uppercase">
-                  {messages.kanban.agent}
-                </span>
-                <select
-                  value={draft.agentProvider}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      agentProvider: event.target.value as KanbanAgentProvider,
-                      agentModel: "",
-                    }))
-                  }
-                  className="h-9 rounded-md border border-border/60 bg-background/60 px-2 text-[13px] text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  {KANBAN_AGENT_PROVIDERS.map((provider) => (
-                    <option key={provider} value={provider}>
-                      {providerLabel(provider)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-[1.4] flex-col gap-1.5">
-                <span className="text-[11px] font-medium tracking-wider text-muted-foreground/70 uppercase">
-                  {messages.kanban.agentModel}
-                </span>
-                <select
-                  value={draft.agentModel}
-                  onChange={(event) =>
-                    setDraft((prev) => ({ ...prev, agentModel: event.target.value }))
-                  }
-                  className="h-9 rounded-md border border-border/60 bg-background/60 px-2 text-[13px] text-foreground outline-hidden focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  <option value="">{defaultModelLabel}</option>
-                  {agentModelOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <div className="mt-1 flex items-center gap-2">
-              <span className="flex-1" />
-              <button
-                type="button"
-                onClick={closeModal}
-                className="inline-flex h-8 items-center rounded-md border border-border/60 bg-background/60 px-3 text-[12px] text-foreground/80 transition-colors hover:bg-accent/40"
-              >
-                {messages.kanban.cancel}
-              </button>
-              <button
-                type="submit"
-                disabled={draft.title.trim().length === 0}
-                className="inline-flex h-8 items-center rounded-md bg-foreground/90 px-3 text-[12px] font-medium text-background transition-colors hover:bg-foreground disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {messages.kanban.create}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    );
-  };
-
   return (
     <SidebarInset className="h-dvh min-h-0 overflow-hidden isolate">
       <div className="flex h-full min-h-0 flex-col bg-background">
@@ -916,7 +523,7 @@ export function KanbanView() {
             </div>
             <button
               type="button"
-              onClick={() => openCreateModal("todo")}
+              onClick={() => openCreatePage("todo")}
               disabled={!selectedProjectId}
               className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground/90 px-3 text-[12px] font-medium text-background transition-colors hover:bg-foreground disabled:cursor-not-allowed disabled:opacity-60"
             >
@@ -958,7 +565,6 @@ export function KanbanView() {
           )}
         </div>
       </div>
-      {renderModal()}
     </SidebarInset>
   );
 }

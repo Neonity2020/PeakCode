@@ -88,12 +88,10 @@ it.effect("accepts automation.create requests", () =>
         _tag: WS_METHODS.automationCreate,
         projectId: "project-1",
         title: "Daily briefing",
-        description: "",
-        prompt: "Summarize project activity.",
-        scheduleType: "cron",
-        cronExpression: "0 8 * * 1-5",
+        instructions: "Summarize project activity.",
+        schedule: { kind: "daily", hour: 8, minute: 0 },
         timezone: "UTC",
-        templateId: null,
+        mode: "default",
       },
     });
     assert.strictEqual(parsed.body._tag, WS_METHODS.automationCreate);

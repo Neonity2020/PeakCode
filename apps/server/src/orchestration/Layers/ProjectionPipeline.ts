@@ -1,46 +1,22 @@
-import {
-  ApprovalRequestId,
-  type ChatAttachment,
-  EventId,
-  type OrchestrationEvent,
-  type OrchestrationThreadActivity,
-} from "@peakcode/contracts";
+import type { ChatAttachment, OrchestrationEvent } from "@peakcode/contracts";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, FileSystem, Layer, Option, Path, Stream } from "effect";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
 
 import { toPersistenceSqlError, type ProjectionRepositoryError } from "../../persistence/Errors.ts";
 import { OrchestrationEventStore } from "../../persistence/Services/OrchestrationEventStore.ts";
-import {
-  type ProjectionPendingApprovalRepositoryShape,
-  ProjectionPendingApprovalRepository,
-} from "../../persistence/Services/ProjectionPendingApprovals.ts";
+import { ProjectionPendingApprovalRepository } from "../../persistence/Services/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepository } from "../../persistence/Services/ProjectionProjects.ts";
 import { ProjectionStateRepository } from "../../persistence/Services/ProjectionState.ts";
-import {
-  type ProjectionThreadActivity,
-  type ProjectionThreadActivityRepositoryShape,
-  ProjectionThreadActivityRepository,
-} from "../../persistence/Services/ProjectionThreadActivities.ts";
-import {
-  type ProjectionThreadMessage,
-  type ProjectionThreadMessageRepositoryShape,
-  ProjectionThreadMessageRepository,
-} from "../../persistence/Services/ProjectionThreadMessages.ts";
-import {
-  type ProjectionThreadProposedPlan,
-  type ProjectionThreadProposedPlanRepositoryShape,
-  ProjectionThreadProposedPlanRepository,
-} from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
+import { ProjectionThreadActivityRepository } from "../../persistence/Services/ProjectionThreadActivities.ts";
+import { ProjectionThreadMessageRepository } from "../../persistence/Services/ProjectionThreadMessages.ts";
+import { ProjectionThreadProposedPlanRepository } from "../../persistence/Services/ProjectionThreadProposedPlans.ts";
 import { ProjectionThreadSessionRepository } from "../../persistence/Services/ProjectionThreadSessions.ts";
 import {
   type ProjectionTurn,
   ProjectionTurnRepository,
 } from "../../persistence/Services/ProjectionTurns.ts";
-import {
-  type ProjectionThread,
-  ProjectionThreadRepository,
-} from "../../persistence/Services/ProjectionThreads.ts";
+import { ProjectionThreadRepository } from "../../persistence/Services/ProjectionThreads.ts";
 import { ProjectionPendingApprovalRepositoryLive } from "../../persistence/Layers/ProjectionPendingApprovals.ts";
 import { ProjectionProjectRepositoryLive } from "../../persistence/Layers/ProjectionProjects.ts";
 import { ProjectionStateRepositoryLive } from "../../persistence/Layers/ProjectionState.ts";
@@ -60,29 +36,32 @@ import {
   advanceProjectMetadataSnapshotState,
   PROJECT_METADATA_SNAPSHOT_PROJECTORS,
 } from "../projectMetadataProjection.ts";
+import {} from "../../attachmentStore.ts";
+
+import { ORCHESTRATION_PROJECTOR_NAMES, type ProjectorName } from "../projectionNames.ts";
 import {
-  attachmentRelativePath,
-  parseAttachmentIdFromRelativePath,
-  parseThreadSegmentFromAttachmentId,
-  toSafeThreadAttachmentSegment,
-} from "../../attachmentStore.ts";
-import { deriveThreadSummaryState } from "@peakcode/shared/threadSummary";
+  collectThreadAttachmentRelativePaths,
+  runAttachmentSideEffects,
+  type AttachmentSideEffects,
+} from "../projectionAttachmentSideEffects.ts";
+import {
+  retainProjectionActivitiesAfterConversationRollback,
+  retainProjectionActivitiesAfterRevert,
+  retainProjectionMessagesAfterRevert,
+  retainProjectionProposedPlansAfterConversationRollback,
+  retainProjectionProposedPlansAfterRevert,
+  retainProjectionTurnsAfterConversationRollback,
+  rollbackProjectionMessagesFromMessage,
+} from "../projectionRetention.ts";
+import {
+  extractActivityRequestId,
+  isStalePendingApprovalFailure,
+  shouldRefreshThreadShellSummary,
+  withRefreshedThreadShellSummary,
+} from "../threadShellSummaryProjection.ts";
 
-export const ORCHESTRATION_PROJECTOR_NAMES = {
-  projects: "projection.projects",
-  threads: "projection.threads",
-  threadShellSummaries: "projection.thread-shell-summaries",
-  threadMessages: "projection.thread-messages",
-  threadProposedPlans: "projection.thread-proposed-plans",
-  threadActivities: "projection.thread-activities",
-  threadSessions: "projection.thread-sessions",
-  threadTurns: "projection.thread-turns",
-  checkpoints: "projection.checkpoints",
-  pendingApprovals: "projection.pending-approvals",
-} as const;
-
-type ProjectorName =
-  (typeof ORCHESTRATION_PROJECTOR_NAMES)[keyof typeof ORCHESTRATION_PROJECTOR_NAMES];
+// Re-exported for projection tests that historically imported these from the pipeline module.
+export { ORCHESTRATION_PROJECTOR_NAMES } from "../projectionNames.ts";
 
 interface ProjectorDefinition {
   readonly name: ProjectorName;
@@ -94,21 +73,7 @@ interface ProjectorDefinition {
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 
-interface AttachmentSideEffects {
-  readonly deletedThreadIds: Set<string>;
-  readonly prunedThreadRelativePaths: Map<string, Set<string>>;
-}
-
 const REQUIRED_SNAPSHOT_PROJECTORS = PROJECT_METADATA_SNAPSHOT_PROJECTORS;
-const THREAD_SHELL_SUMMARY_ACTIVITY_KINDS = new Set([
-  "approval.requested",
-  "approval.resolved",
-  "provider.approval.respond.failed",
-  "user-input.requested",
-  "user-input.resolved",
-  "provider.user-input.respond.failed",
-]);
-
 const materializeAttachmentsForProjection = Effect.fn(
   (input: { readonly attachments: ReadonlyArray<ChatAttachment> }) =>
     Effect.succeed(input.attachments.length === 0 ? [] : input.attachments),
@@ -136,432 +101,7 @@ function finalizeTurnStateFromSessionStatus(
   }
 }
 
-function extractActivityRequestId(payload: unknown): ApprovalRequestId | null {
-  if (typeof payload !== "object" || payload === null) {
-    return null;
-  }
-  const requestId = (payload as Record<string, unknown>).requestId;
-  return typeof requestId === "string" ? ApprovalRequestId.makeUnsafe(requestId) : null;
-}
-
-function isStalePendingApprovalFailure(payload: unknown): boolean {
-  if (typeof payload !== "object" || payload === null) {
-    return false;
-  }
-  const detail = (payload as Record<string, unknown>).detail;
-  if (typeof detail !== "string") {
-    return false;
-  }
-  const normalized = detail.toLowerCase();
-  return (
-    normalized.includes("stale pending approval request") ||
-    normalized.includes("unknown pending approval request") ||
-    normalized.includes("unknown pending permission request")
-  );
-}
-
-function shouldRefreshThreadShellSummary(event: OrchestrationEvent): boolean {
-  switch (event.type) {
-    case "thread.message-sent":
-      return event.payload.role === "user";
-    case "thread.proposed-plan-upserted":
-    case "thread.approval-response-requested":
-    case "thread.user-input-response-requested":
-    case "thread.reverted":
-    case "thread.conversation-rolled-back":
-    case "thread.session-set":
-    case "thread.turn-diff-completed":
-      return true;
-    case "thread.activity-appended":
-      return THREAD_SHELL_SUMMARY_ACTIVITY_KINDS.has(event.payload.activity.kind);
-    default:
-      return false;
-  }
-}
-
 // Recompute the denormalized sidebar shell summary after per-thread timeline changes.
-const withRefreshedThreadShellSummary = Effect.fn(function* (input: {
-  readonly thread: ProjectionThread;
-  readonly projectionThreadMessageRepository: ProjectionThreadMessageRepositoryShape;
-  readonly projectionThreadActivityRepository: ProjectionThreadActivityRepositoryShape;
-  readonly projectionThreadProposedPlanRepository: ProjectionThreadProposedPlanRepositoryShape;
-  readonly projectionPendingApprovalRepository: ProjectionPendingApprovalRepositoryShape;
-  readonly summaryUserInputResponseRequestId?: string;
-  readonly summaryUserInputResponseCreatedAt?: string;
-}) {
-  const [messages, activities, proposedPlans, pendingApprovals] = yield* Effect.all([
-    input.projectionThreadMessageRepository.listByThreadId({
-      threadId: input.thread.threadId,
-    }),
-    input.projectionThreadActivityRepository.listByThreadId({
-      threadId: input.thread.threadId,
-    }),
-    input.projectionThreadProposedPlanRepository.listByThreadId({
-      threadId: input.thread.threadId,
-    }),
-    input.projectionPendingApprovalRepository.listByThreadId({
-      threadId: input.thread.threadId,
-    }),
-  ]);
-  const summary = deriveThreadSummaryState({
-    messages,
-    activities: [
-      ...activities.map((activity) => ({
-        id: activity.activityId,
-        kind: activity.kind,
-        payload: activity.payload as OrchestrationThreadActivity["payload"],
-        sequence: activity.sequence,
-        createdAt: activity.createdAt,
-      })),
-      ...(input.summaryUserInputResponseRequestId
-        ? [
-            {
-              id: EventId.makeUnsafe(
-                `synthetic-user-input-resolved:${input.summaryUserInputResponseRequestId}:${input.summaryUserInputResponseCreatedAt ?? input.thread.updatedAt}`,
-              ),
-              kind: "user-input.resolved" as const,
-              payload: {
-                requestId: input.summaryUserInputResponseRequestId,
-              },
-              createdAt: input.summaryUserInputResponseCreatedAt ?? input.thread.updatedAt,
-            },
-          ]
-        : []),
-    ],
-    proposedPlans: proposedPlans.map((plan) => ({
-      id: plan.planId,
-      turnId: plan.turnId,
-      updatedAt: plan.updatedAt,
-      implementedAt: plan.implementedAt,
-    })),
-    latestTurn: input.thread.latestTurnId ? { turnId: input.thread.latestTurnId } : null,
-  });
-  const requestedApprovalIds = new Set(
-    activities
-      .filter((activity) => activity.kind === "approval.requested")
-      .map((activity) => extractActivityRequestId(activity.payload))
-      .filter((requestId): requestId is ApprovalRequestId => requestId !== null),
-  );
-  const pendingApprovalCount = pendingApprovals.filter(
-    (approval) => approval.status === "pending" && requestedApprovalIds.has(approval.requestId),
-  ).length;
-
-  return {
-    ...input.thread,
-    latestUserMessageAt: summary.latestUserMessageAt,
-    pendingApprovalCount,
-    pendingUserInputCount: summary.pendingUserInputCount,
-    hasActionableProposedPlan: summary.hasActionableProposedPlan ? 1 : 0,
-  } satisfies ProjectionThread;
-});
-
-function retainProjectionMessagesAfterRevert(
-  messages: ReadonlyArray<ProjectionThreadMessage>,
-  turns: ReadonlyArray<ProjectionTurn>,
-  turnCount: number,
-): ReadonlyArray<ProjectionThreadMessage> {
-  const retainedMessageIds = new Set<string>();
-  const retainedTurnIds = new Set<string>();
-  const keptTurns = turns.filter(
-    (turn) =>
-      turn.turnId !== null &&
-      turn.checkpointTurnCount !== null &&
-      turn.checkpointTurnCount <= turnCount,
-  );
-  for (const turn of keptTurns) {
-    if (turn.turnId !== null) {
-      retainedTurnIds.add(turn.turnId);
-    }
-    if (turn.pendingMessageId !== null) {
-      retainedMessageIds.add(turn.pendingMessageId);
-    }
-    if (turn.assistantMessageId !== null) {
-      retainedMessageIds.add(turn.assistantMessageId);
-    }
-  }
-
-  for (const message of messages) {
-    if (message.role === "system") {
-      retainedMessageIds.add(message.messageId);
-      continue;
-    }
-    if (message.turnId !== null && retainedTurnIds.has(message.turnId)) {
-      retainedMessageIds.add(message.messageId);
-    }
-  }
-
-  const retainedUserCount = messages.filter(
-    (message) => message.role === "user" && retainedMessageIds.has(message.messageId),
-  ).length;
-  const missingUserCount = Math.max(0, turnCount - retainedUserCount);
-  if (missingUserCount > 0) {
-    const fallbackUserMessages = messages
-      .filter(
-        (message) =>
-          message.role === "user" &&
-          !retainedMessageIds.has(message.messageId) &&
-          (message.turnId === null || retainedTurnIds.has(message.turnId)),
-      )
-      .toSorted(
-        (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) ||
-          left.messageId.localeCompare(right.messageId),
-      )
-      .slice(0, missingUserCount);
-    for (const message of fallbackUserMessages) {
-      retainedMessageIds.add(message.messageId);
-    }
-  }
-
-  const retainedAssistantCount = messages.filter(
-    (message) => message.role === "assistant" && retainedMessageIds.has(message.messageId),
-  ).length;
-  const missingAssistantCount = Math.max(0, turnCount - retainedAssistantCount);
-  if (missingAssistantCount > 0) {
-    const fallbackAssistantMessages = messages
-      .filter(
-        (message) =>
-          message.role === "assistant" &&
-          !retainedMessageIds.has(message.messageId) &&
-          (message.turnId === null || retainedTurnIds.has(message.turnId)),
-      )
-      .toSorted(
-        (left, right) =>
-          left.createdAt.localeCompare(right.createdAt) ||
-          left.messageId.localeCompare(right.messageId),
-      )
-      .slice(0, missingAssistantCount);
-    for (const message of fallbackAssistantMessages) {
-      retainedMessageIds.add(message.messageId);
-    }
-  }
-
-  return messages.filter((message) => retainedMessageIds.has(message.messageId));
-}
-
-function retainProjectionActivitiesAfterRevert(
-  activities: ReadonlyArray<ProjectionThreadActivity>,
-  turns: ReadonlyArray<ProjectionTurn>,
-  turnCount: number,
-): ReadonlyArray<ProjectionThreadActivity> {
-  const retainedTurnIds = new Set<string>(
-    turns
-      .filter(
-        (turn) =>
-          turn.turnId !== null &&
-          turn.checkpointTurnCount !== null &&
-          turn.checkpointTurnCount <= turnCount,
-      )
-      .flatMap((turn) => (turn.turnId === null ? [] : [turn.turnId])),
-  );
-  return activities.filter(
-    (activity) => activity.turnId === null || retainedTurnIds.has(activity.turnId),
-  );
-}
-
-function retainProjectionProposedPlansAfterRevert(
-  proposedPlans: ReadonlyArray<ProjectionThreadProposedPlan>,
-  turns: ReadonlyArray<ProjectionTurn>,
-  turnCount: number,
-): ReadonlyArray<ProjectionThreadProposedPlan> {
-  const retainedTurnIds = new Set<string>(
-    turns
-      .filter(
-        (turn) =>
-          turn.turnId !== null &&
-          turn.checkpointTurnCount !== null &&
-          turn.checkpointTurnCount <= turnCount,
-      )
-      .flatMap((turn) => (turn.turnId === null ? [] : [turn.turnId])),
-  );
-  return proposedPlans.filter(
-    (proposedPlan) => proposedPlan.turnId === null || retainedTurnIds.has(proposedPlan.turnId),
-  );
-}
-
-function rollbackProjectionMessagesFromMessage(
-  messages: ReadonlyArray<ProjectionThreadMessage>,
-  messageId: string,
-): {
-  readonly keptRows: ReadonlyArray<ProjectionThreadMessage>;
-  readonly removedTurnIds: ReadonlySet<string>;
-  readonly changed: boolean;
-} {
-  const targetIndex = messages.findIndex((message) => message.messageId === messageId);
-  if (targetIndex < 0) {
-    return { keptRows: messages, removedTurnIds: new Set(), changed: false };
-  }
-  const removedRows = messages.slice(targetIndex);
-  return {
-    keptRows: messages.slice(0, targetIndex),
-    removedTurnIds: new Set(
-      removedRows.flatMap((message) => (message.turnId === null ? [] : [message.turnId])),
-    ),
-    changed: true,
-  };
-}
-
-function retainProjectionTurnsAfterConversationRollback(
-  turns: ReadonlyArray<ProjectionTurn>,
-  removedTurnIds: ReadonlySet<string>,
-): ReadonlyArray<ProjectionTurn> {
-  if (removedTurnIds.size === 0) {
-    return turns;
-  }
-  return turns.filter((turn) => turn.turnId === null || !removedTurnIds.has(turn.turnId));
-}
-
-function retainProjectionActivitiesAfterConversationRollback(
-  activities: ReadonlyArray<ProjectionThreadActivity>,
-  removedTurnIds: ReadonlySet<string>,
-): ReadonlyArray<ProjectionThreadActivity> {
-  return activities.filter(
-    (activity) => activity.turnId === null || !removedTurnIds.has(activity.turnId),
-  );
-}
-
-function retainProjectionProposedPlansAfterConversationRollback(
-  proposedPlans: ReadonlyArray<ProjectionThreadProposedPlan>,
-  removedTurnIds: ReadonlySet<string>,
-): ReadonlyArray<ProjectionThreadProposedPlan> {
-  return proposedPlans.filter(
-    (proposedPlan) => proposedPlan.turnId === null || !removedTurnIds.has(proposedPlan.turnId),
-  );
-}
-
-function collectThreadAttachmentRelativePaths(
-  threadId: string,
-  messages: ReadonlyArray<ProjectionThreadMessage>,
-): Set<string> {
-  const threadSegment = toSafeThreadAttachmentSegment(threadId);
-  if (!threadSegment) {
-    return new Set();
-  }
-  const relativePaths = new Set<string>();
-  for (const message of messages) {
-    for (const attachment of message.attachments ?? []) {
-      if (attachment.type !== "image") {
-        continue;
-      }
-      const attachmentThreadSegment = parseThreadSegmentFromAttachmentId(attachment.id);
-      if (!attachmentThreadSegment || attachmentThreadSegment !== threadSegment) {
-        continue;
-      }
-      relativePaths.add(attachmentRelativePath(attachment));
-    }
-  }
-  return relativePaths;
-}
-
-const runAttachmentSideEffects = Effect.fn(function* (sideEffects: AttachmentSideEffects) {
-  const serverConfig = yield* Effect.service(ServerConfig);
-  const fileSystem = yield* Effect.service(FileSystem.FileSystem);
-  const path = yield* Effect.service(Path.Path);
-
-  const attachmentsRootDir = serverConfig.attachmentsDir;
-  const attachmentRootEntries = yield* fileSystem
-    .readDirectory(attachmentsRootDir, { recursive: false })
-    .pipe(Effect.catch(() => Effect.succeed([] as Array<string>)));
-
-  // Deleted-thread cleanup removes every attachment owned by the thread.
-  const removeDeletedThreadAttachmentEntry = Effect.fn(function* (
-    threadSegment: string,
-    entry: string,
-  ) {
-    const normalizedEntry = entry.replace(/^[/\\]+/, "").replace(/\\/g, "/");
-    if (normalizedEntry.length === 0 || normalizedEntry.includes("/")) {
-      return;
-    }
-    const attachmentId = parseAttachmentIdFromRelativePath(normalizedEntry);
-    if (!attachmentId) {
-      return;
-    }
-    const attachmentThreadSegment = parseThreadSegmentFromAttachmentId(attachmentId);
-    if (!attachmentThreadSegment || attachmentThreadSegment !== threadSegment) {
-      return;
-    }
-    yield* fileSystem.remove(path.join(attachmentsRootDir, normalizedEntry), {
-      force: true,
-    });
-  });
-
-  const deleteThreadAttachments = Effect.fn(function* (threadId: string) {
-    const threadSegment = toSafeThreadAttachmentSegment(threadId);
-    if (!threadSegment) {
-      yield* Effect.logWarning("skipping attachment cleanup for unsafe thread id", {
-        threadId,
-      });
-      return;
-    }
-
-    yield* Effect.forEach(
-      attachmentRootEntries,
-      (entry) => removeDeletedThreadAttachmentEntry(threadSegment, entry),
-      {
-        concurrency: 1,
-      },
-    );
-  });
-
-  const pruneThreadAttachmentEntry = Effect.fn(function* (
-    threadSegment: string,
-    keptThreadRelativePaths: Set<string>,
-    entry: string,
-  ) {
-    const relativePath = entry.replace(/^[/\\]+/, "").replace(/\\/g, "/");
-    if (relativePath.length === 0 || relativePath.includes("/")) {
-      return;
-    }
-    const attachmentId = parseAttachmentIdFromRelativePath(relativePath);
-    if (!attachmentId) {
-      return;
-    }
-    const attachmentThreadSegment = parseThreadSegmentFromAttachmentId(attachmentId);
-    if (!attachmentThreadSegment || attachmentThreadSegment !== threadSegment) {
-      return;
-    }
-
-    const absolutePath = path.join(attachmentsRootDir, relativePath);
-    const fileInfo = yield* fileSystem
-      .stat(absolutePath)
-      .pipe(Effect.catch(() => Effect.succeed(null)));
-    if (!fileInfo || fileInfo.type !== "File") {
-      return;
-    }
-
-    if (!keptThreadRelativePaths.has(relativePath)) {
-      yield* fileSystem.remove(absolutePath, { force: true });
-    }
-  });
-
-  yield* Effect.forEach(
-    sideEffects.deletedThreadIds,
-    (threadId) => deleteThreadAttachments(threadId),
-    { concurrency: 1 },
-  );
-
-  yield* Effect.forEach(
-    sideEffects.prunedThreadRelativePaths.entries(),
-    ([threadId, keptThreadRelativePaths]) => {
-      if (sideEffects.deletedThreadIds.has(threadId)) {
-        return Effect.void;
-      }
-      return Effect.gen(function* () {
-        const threadSegment = toSafeThreadAttachmentSegment(threadId);
-        if (!threadSegment) {
-          yield* Effect.logWarning("skipping attachment prune for unsafe thread id", { threadId });
-          return;
-        }
-        yield* Effect.forEach(
-          attachmentRootEntries,
-          (entry) => pruneThreadAttachmentEntry(threadSegment, keptThreadRelativePaths, entry),
-          { concurrency: 1 },
-        );
-      });
-    },
-    { concurrency: 1 },
-  );
-});
 
 const makeOrchestrationProjectionPipeline = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

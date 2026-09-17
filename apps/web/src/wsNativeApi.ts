@@ -576,6 +576,9 @@ export function createWsNativeApi(): NativeApi {
       listModelProviders: (input) => transport.request(WS_METHODS.serverListModelProviders, input),
       saveModelProviders: (input) => transport.request(WS_METHODS.serverSaveModelProviders, input),
       testModelProvider: (input) => transport.request(WS_METHODS.serverTestModelProvider, input),
+      listPiPackages: (input) => transport.request(WS_METHODS.serverListPiPackages, input),
+      installPiPackage: (input) => transport.request(WS_METHODS.serverInstallPiPackage, input),
+      removePiPackage: (input) => transport.request(WS_METHODS.serverRemovePiPackage, input),
       listWorktrees: () => transport.request(WS_METHODS.serverListWorktrees),
       getProviderUsageSnapshot: (input) =>
         transport.request(WS_METHODS.serverGetProviderUsageSnapshot, input),
@@ -601,6 +604,7 @@ export function createWsNativeApi(): NativeApi {
     },
     skills: {
       listLocal: () => transport.request(WS_METHODS.skillsListLocal, null),
+      setEnabled: (input) => transport.request(WS_METHODS.skillsSetEnabled, input),
     },
     orchestration: {
       getSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getSnapshot),

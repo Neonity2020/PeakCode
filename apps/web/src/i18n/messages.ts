@@ -148,11 +148,11 @@ export type Messages = {
       unexpectedError: string;
     };
     command: {
-      openHome: {
+      newChat: {
         title: string;
         description: string;
       };
-      newChat: {
+      newThread: {
         title: string;
         description: string;
       };
@@ -173,11 +173,57 @@ export type Messages = {
   };
   searchPalette: {
     importHeading: string;
+    importDescription: string;
+    backAria: string;
+    providerLabel: string;
+    noImportProviders: string;
+    sessionIdLabel: string;
+    sessionIdPlaceholder: string;
+    sessionIdHelp: string;
+    importAction: string;
+    importing: string;
+    importFailed: string;
     suggestedGroup: string;
     projectsGroup: string;
     configureGroup: string;
+    darkThemesGroup: string;
+    lightThemesGroup: string;
+    darkColorTheme: string;
+    lightColorTheme: string;
+    followSystemTheme: string;
+    followSystemThemeDescription: string;
+    switchToLightTheme: string;
+    switchToDarkTheme: string;
+    lightThemeDescription: string;
+    darkThemeDescription: string;
+    applyToLightSlot: string;
+    applyToDarkSlot: string;
+    chatHits: (count: number) => string;
+    chatMatch: string;
+    projectMatch: string;
+    untitledThread: string;
+    untitledProject: string;
+    noMatches: string;
+    noMatchingFolders: string;
     inputHint: string;
     enterHint: string;
+    searchPlaceholder: string;
+    browsePlaceholder: string;
+    add: string;
+    createAndAdd: string;
+    addHighlightedFolder: (label: string, modifier: string) => string;
+    addWithEnter: (label: string) => string;
+    addingProject: string;
+    browseHint: string;
+    enterToGoUp: string;
+    enterToAddProject: string;
+    enterToOpenWithModifier: (modifier: string) => string;
+    createFolderHintPrefix: string;
+    createFolderHintSuffix: string;
+    errorEnterFolderPath: string;
+    errorWindowsPath: string;
+    errorRelativePath: string;
+    errorAddProjectFallback: string;
   };
   chat: {
     loadingModels: string;
@@ -356,48 +402,83 @@ export type Messages = {
     unavailableTitle: string;
     unavailableDescription: string;
     needsWorkspace: string;
+    enableAria: (name: string) => string;
+    enabledHint: string;
+    disabledHint: string;
   };
   automations: {
     subtitle: string;
-    viewTemplates: string;
-    createFromChat: string;
+    newAutomation: string;
     emptyTitle: string;
     emptyDescription: string;
-    noProjectTitle: string;
-    noProjectDescription: string;
-    templatesHeading: string;
-    templatesHint: string;
+    noWorkspaceTitle: string;
+    noWorkspaceDescription: string;
     loading: string;
     createTitle: string;
-    createDescription: string;
     editTitle: string;
-    title: string;
-    description: string;
-    prompt: string;
-    scheduleType: string;
-    manual: string;
-    cron: string;
-    cronExpression: string;
-    cronPlaceholder: string;
+    taskTitle: string;
+    taskTitlePlaceholder: string;
+    instructions: string;
+    instructionsHint: string;
+    instructionsPlaceholder: string;
+    workspace: string;
+    selectWorkspace: string;
+    workspaceMissing: string;
+    plan: string;
+    planKinds: {
+      once: string;
+      daily: string;
+      weekly: string;
+    };
+    onceAt: string;
+    time: string;
+    weekdays: string;
+    /** Indexed by `Date.prototype.getDay()`: 0 = Sunday. */
+    weekdayLabels: ReadonlyArray<string>;
+    timezone: string;
+    mode: string;
+    modes: {
+      default: string;
+      plan: string;
+      goal: string;
+    };
     create: string;
     save: string;
     cancel: string;
     creating: string;
     saving: string;
+    createFailed: string;
     runNow: string;
     edit: string;
     delete: string;
+    deleteConfirmTitle: string;
+    deleteConfirmDescription: string;
     enable: string;
     disable: string;
-    script: string;
-    missingScript: string;
+    disabled: string;
+    openConversation: string;
+    runsHeading: string;
+    noRuns: string;
+    nextRun: string;
+    noNextRun: string;
     lastRun: string;
-    chooseTemplate: string;
-    chooseTemplateDescription: string;
-    createdFromChatTitle: string;
-    createdFromChatDescription: (title: string) => string;
-    createFailedTitle: string;
-    createFailedDescription: string;
+    never: string;
+    runStatus: {
+      running: string;
+      succeeded: string;
+      failed: string;
+      interrupted: string;
+    };
+    triggerManual: string;
+    scheduleDaily: (time: string) => string;
+    scheduleWeekly: (days: string, time: string) => string;
+    scheduleOnce: (at: string) => string;
+    createdToast: string;
+    savedToast: string;
+    deletedToast: string;
+    runStartedToast: string;
+    runFailedToast: string;
+    chatHint: string;
   };
   kanban: {
     subtitle: string;
@@ -428,6 +509,7 @@ export type Messages = {
     assignee: string;
     assigneePlaceholder: string;
     create: string;
+    unsavedChangesConfirm: string;
     save: string;
     cancel: string;
     deleteTask: string;
@@ -500,6 +582,7 @@ export type Messages = {
       notifications: { label: string; description: string };
       behavior: { label: string; description: string };
       skills: { label: string; description: string };
+      piPackages: { label: string; description: string };
       worktrees: { label: string; description: string };
       archived: { label: string; description: string };
       modelProviders: { label: string; description: string };
@@ -893,6 +976,33 @@ export type Messages = {
       unsavedHint: string;
       cancelButton: string;
     };
+    piPackages: {
+      heading: string;
+      description: string;
+      settingsPathLabel: string;
+      sourceLabel: string;
+      sourcePlaceholder: string;
+      sourceHint: string;
+      installButton: string;
+      installingButton: string;
+      loadingLabel: string;
+      loadFailedTitle: string;
+      loadFailedFallback: string;
+      emptyTitle: string;
+      emptyDescription: string;
+      projectScopeLabel: string;
+      filteredLabel: string;
+      notInstalledLabel: string;
+      reloadHint: string;
+      resources: {
+        skills: string;
+        prompts: string;
+        extensions: string;
+        themes: string;
+      };
+      removeConfirm: (source: string) => string;
+      removeAria: (source: string) => string;
+    };
     advanced: {
       heading: string;
       description: string;
@@ -1096,6 +1206,8 @@ export type Messages = {
     deleteConfirmDescription: string;
     addScript: string;
     delete: string;
+    deleteConfirmTitle: (name: string) => string;
+    deleteAction: string;
   };
   themeEditor: {
     copiedTitle: string;
@@ -1362,12 +1474,12 @@ const en: Messages = {
       unexpectedError: "An unexpected error occurred.",
     },
     command: {
-      openHome: {
-        title: "Open new chat home",
-        description: "Open the new chat landing screen.",
-      },
       newChat: {
         title: "New chat",
+        description: "Open the new chat landing screen.",
+      },
+      newThread: {
+        title: "New thread",
         description: "Start a fresh thread in the current project.",
       },
       addProject: {
@@ -1387,11 +1499,57 @@ const en: Messages = {
   },
   searchPalette: {
     importHeading: "Import thread from provider",
+    importDescription: "Create a local app thread and resume it from an existing provider id.",
+    backAria: "Back to search",
+    providerLabel: "Provider",
+    noImportProviders: "No connected providers expose chat import in this build.",
+    sessionIdLabel: "Session ID",
+    sessionIdPlaceholder: "Paste a Pi session id",
+    sessionIdHelp: "Pi resumes a persisted session by session id.",
+    importAction: "Import",
+    importing: "Importing...",
+    importFailed: "Failed to import thread.",
     suggestedGroup: "Suggested",
     projectsGroup: "Projects",
     configureGroup: "Configure",
+    darkThemesGroup: "Dark themes",
+    lightThemesGroup: "Light themes",
+    darkColorTheme: "Dark color theme",
+    lightColorTheme: "Light color theme",
+    followSystemTheme: "Follow system theme",
+    followSystemThemeDescription: "Match your OS appearance setting.",
+    switchToLightTheme: "Switch to light theme",
+    switchToDarkTheme: "Switch to dark theme",
+    lightThemeDescription: "Always use the light theme.",
+    darkThemeDescription: "Always use the dark theme.",
+    applyToLightSlot: "Apply to the current light theme slot.",
+    applyToDarkSlot: "Apply to the current dark theme slot.",
+    chatHits: (count) => `${count} chat hits`,
+    chatMatch: "Chat match",
+    projectMatch: "Project match",
+    untitledThread: "Untitled thread",
+    untitledProject: "Untitled project",
+    noMatches: "No matches.",
+    noMatchingFolders: "No matching folders.",
     inputHint: "Jump to threads, projects, actions, or appearance.",
     enterHint: "Enter to open",
+    searchPlaceholder: "Search projects, threads, and actions",
+    browsePlaceholder: "Enter project path (e.g. ~/projects/my-app)",
+    add: "Add",
+    createAndAdd: "Create & Add",
+    addHighlightedFolder: (label, modifier) => `${label} highlighted folder (${modifier} Enter)`,
+    addWithEnter: (label) => `${label} (Enter)`,
+    addingProject: "Adding project...",
+    browseHint: "Type a path, ↑↓ to navigate folders.",
+    enterToGoUp: "Enter to go up",
+    enterToAddProject: "Enter to add project",
+    enterToOpenWithModifier: (modifier) => `Enter to open · ${modifier}+Enter to add`,
+    createFolderHintPrefix: "Press Enter to create",
+    createFolderHintSuffix: "and add it as a project.",
+    errorEnterFolderPath: "Enter a folder path.",
+    errorWindowsPath: "Windows paths are not supported on this platform.",
+    errorRelativePath: "Relative paths are not supported. Use an absolute path or start with ~/.",
+    errorAddProjectFallback: "Failed to add project.",
   },
   chat: {
     loadingModels: "Loading models",
@@ -1572,49 +1730,87 @@ const en: Messages = {
     unavailableTitle: "Skills unavailable for {provider}",
     unavailableDescription: "This provider does not expose skill discovery.",
     needsWorkspace: "Skills need a workspace path. Open a project or thread first.",
+    enableAria: (name) => `Enable or disable the ${name} skill`,
+    enabledHint: "Listed to the agent every turn, and readable with read_skill.",
+    disabledHint:
+      "Hidden from the agent and refused by read_skill. The files stay on disk — turn it back on any time.",
   },
   automations: {
-    subtitle: "Run chats on a schedule or on demand.",
-    viewTemplates: "View templates",
-    createFromChat: "Create from chat",
+    subtitle: "A plan plus one instruction, running in the workspace you pick.",
+    newAutomation: "New automation",
     emptyTitle: "Create your first automation",
     emptyDescription:
-      "Automations are a fast, flexible way to do recurring work with your chats. Build one in seconds by describing what you need.",
-    noProjectTitle: "Open a project first",
-    noProjectDescription: "Automations are attached to projects so their runs know where to work.",
-    templatesHeading: "Templates",
-    templatesHint: "Pick a starter to seed a new automation.",
+      "Describe what should happen on a schedule — an agent runs it in the workspace you choose and leaves the whole conversation behind.",
+    noWorkspaceTitle: "Open a workspace first",
+    noWorkspaceDescription:
+      "Automations run inside a workspace so their runs know where to read and write.",
     loading: "Loading automations...",
-    createTitle: "Create automation",
-    createDescription: "Create a new automation to run chats on a schedule or on demand.",
+    createTitle: "New automation",
     editTitle: "Edit automation",
-    title: "Title",
-    description: "Description",
-    prompt: "Prompt",
-    scheduleType: "Schedule type",
-    manual: "Manual",
-    cron: "Cron",
-    cronExpression: "Cron expression",
-    cronPlaceholder: "e.g., 0 8 * * 1-5",
+    taskTitle: "Task name",
+    taskTitlePlaceholder: "Daily briefing",
+    instructions: "What should it do?",
+    instructionsHint:
+      "Nobody is around when this runs: name the files to read, the exact format you want, and where to write the result.",
+    instructionsPlaceholder:
+      "Summarise yesterday's commits into reports/daily.md and reply with the one thing I should look at first.",
+    workspace: "Workspace",
+    selectWorkspace: "Select a workspace",
+    workspaceMissing: "This workspace is no longer available",
+    plan: "Plan",
+    planKinds: {
+      once: "Once",
+      daily: "Every day",
+      weekly: "Every week",
+    },
+    onceAt: "Run at",
+    time: "Time",
+    weekdays: "Weekdays",
+    weekdayLabels: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    timezone: "Timezone",
+    mode: "Mode",
+    modes: {
+      default: "Agent",
+      plan: "Plan",
+      goal: "Goal",
+    },
     create: "Create",
     save: "Save",
     cancel: "Cancel",
     creating: "Creating...",
     saving: "Saving...",
+    createFailed: "Could not save the automation",
     runNow: "Run now",
     edit: "Edit",
     delete: "Delete",
-    enable: "Enable",
-    disable: "Disable",
-    script: "Script",
-    missingScript: "No script is linked to this automation.",
-    lastRun: "Last run",
-    chooseTemplate: "Choose a template",
-    chooseTemplateDescription: "Select a template to create a new automation.",
-    createdFromChatTitle: "Automation created",
-    createdFromChatDescription: (title) => `"${title}" is now listed in Automations.`,
-    createFailedTitle: "Could not create automation",
-    createFailedDescription: "An error occurred while creating the automation.",
+    deleteConfirmTitle: "Delete this automation?",
+    deleteConfirmDescription: "Its runs and their links to past conversations go with it.",
+    enable: "Resume",
+    disable: "Pause",
+    disabled: "Paused",
+    openConversation: "Open conversation",
+    runsHeading: "Runs",
+    noRuns: "No runs yet.",
+    nextRun: "Next",
+    noNextRun: "—",
+    lastRun: "Last",
+    never: "Never run",
+    runStatus: {
+      running: "Running",
+      succeeded: "Succeeded",
+      failed: "Failed",
+      interrupted: "Interrupted",
+    },
+    triggerManual: "manual",
+    scheduleDaily: (time) => `Every day ${time}`,
+    scheduleWeekly: (days, time) => `Every week ${days} ${time}`,
+    scheduleOnce: (at) => `Once · ${at}`,
+    createdToast: "Automation created",
+    savedToast: "Automation saved",
+    deletedToast: "Automation deleted",
+    runStartedToast: "Run started — it opens its own conversation",
+    runFailedToast: "Could not start the run",
+    chatHint: "You can also just ask in a chat: “every morning, summarise what changed here”.",
   },
   kanban: {
     subtitle: "Tasks stored with each project in .kanban/board.json.",
@@ -1645,6 +1841,7 @@ const en: Messages = {
     assignee: "Assignee",
     assigneePlaceholder: "e.g. Full-stack dev",
     create: "Create",
+    unsavedChangesConfirm: "You have unsaved changes. Leave without creating this task?",
     save: "Save",
     cancel: "Cancel",
     deleteTask: "Delete task",
@@ -1745,6 +1942,10 @@ const en: Messages = {
       archived: {
         label: "Archived",
         description: "View and restore archived threads.",
+      },
+      piPackages: {
+        label: "Pi Packages",
+        description: "Install pi packages from npm, git, or a local path.",
       },
       modelProviders: {
         label: "Model Providers",
@@ -2176,6 +2377,37 @@ const en: Messages = {
       unsavedHint: "You have unsaved changes.",
       cancelButton: "Cancel",
     },
+    piPackages: {
+      heading: "Pi Packages",
+      description:
+        "Packages bundle extensions, skills, prompt templates, and themes. Installing records the source in settings.json; new threads load it automatically.",
+      settingsPathLabel: "Recorded in",
+      sourceLabel: "Package source",
+      sourcePlaceholder: "npm:@scope/pkg or git:host/user/repo",
+      sourceHint:
+        "npm sources install through your global npm prefix; git sources clone into the pi agent directory. A local path is referenced in place.",
+      installButton: "Install",
+      installingButton: "Installing…",
+      loadingLabel: "Reading installed packages…",
+      loadFailedTitle: "Could not load pi packages",
+      loadFailedFallback: "Check that the pi agent directory is readable.",
+      emptyTitle: "No packages installed",
+      emptyDescription:
+        "Install a package to add extensions, skills, or prompt templates to every thread.",
+      projectScopeLabel: "project",
+      filteredLabel: "resources disabled",
+      notInstalledLabel: "Not on disk yet — installed on the next session start.",
+      reloadHint:
+        "Extensions load when a session starts. In an open thread, run /reload to pick up a new package.",
+      resources: {
+        skills: "skills",
+        prompts: "prompts",
+        extensions: "extensions",
+        themes: "themes",
+      },
+      removeConfirm: (source) => `Uninstall ${source} and remove it from settings?`,
+      removeAria: (source) => `Uninstall ${source}`,
+    },
     advanced: {
       heading: "Advanced",
       description: "Keybindings, recovery, and version info.",
@@ -2386,6 +2618,8 @@ const en: Messages = {
     deleteConfirmDescription: "This action cannot be undone.",
     addScript: "Add script",
     delete: "Delete",
+    deleteConfirmTitle: (name) => `Delete action "${name}"?`,
+    deleteAction: "Delete action",
   },
   themeEditor: {
     copiedTitle: "Theme copied",
@@ -2654,12 +2888,12 @@ const zh: Messages = {
       unexpectedError: "发生意外错误。",
     },
     command: {
-      openHome: {
-        title: "打开新聊天首页",
-        description: "打开新聊天着陆页。",
-      },
       newChat: {
         title: "新建聊天",
+        description: "打开新聊天着陆页。",
+      },
+      newThread: {
+        title: "新建线程",
         description: "在当前项目中开启一个全新线程。",
       },
       addProject: {
@@ -2679,11 +2913,57 @@ const zh: Messages = {
   },
   searchPalette: {
     importHeading: "从提供方导入线程",
+    importDescription: "创建一个本地应用线程，并从现有提供方 id 恢复它。",
+    backAria: "返回搜索",
+    providerLabel: "提供方",
+    noImportProviders: "当前构建中没有可导入聊天的已连接提供方。",
+    sessionIdLabel: "会话 ID",
+    sessionIdPlaceholder: "粘贴 Pi 会话 id",
+    sessionIdHelp: "Pi 通过会话 id 恢复已持久化的会话。",
+    importAction: "导入",
+    importing: "导入中…",
+    importFailed: "导入线程失败。",
     suggestedGroup: "推荐",
     projectsGroup: "项目",
     configureGroup: "配置",
+    darkThemesGroup: "深色主题",
+    lightThemesGroup: "浅色主题",
+    darkColorTheme: "深色配色主题",
+    lightColorTheme: "浅色配色主题",
+    followSystemTheme: "跟随系统主题",
+    followSystemThemeDescription: "匹配操作系统的外观设置。",
+    switchToLightTheme: "切换到浅色主题",
+    switchToDarkTheme: "切换到深色主题",
+    lightThemeDescription: "始终使用浅色主题。",
+    darkThemeDescription: "始终使用深色主题。",
+    applyToLightSlot: "应用到当前浅色主题槽位。",
+    applyToDarkSlot: "应用到当前深色主题槽位。",
+    chatHits: (count) => `${count} 条聊天命中`,
+    chatMatch: "聊天命中",
+    projectMatch: "项目命中",
+    untitledThread: "未命名线程",
+    untitledProject: "未命名项目",
+    noMatches: "没有匹配结果。",
+    noMatchingFolders: "没有匹配的文件夹。",
     inputHint: "跳转到线程、项目、操作或外观设置。",
     enterHint: "回车打开",
+    searchPlaceholder: "搜索项目、线程和操作",
+    browsePlaceholder: "输入项目路径（例如 ~/projects/my-app）",
+    add: "添加",
+    createAndAdd: "创建并添加",
+    addHighlightedFolder: (label, modifier) => `${label}高亮的文件夹（${modifier}+回车）`,
+    addWithEnter: (label) => `${label}（回车）`,
+    addingProject: "正在添加项目…",
+    browseHint: "输入路径，↑↓ 浏览文件夹。",
+    enterToGoUp: "回车返回上一级",
+    enterToAddProject: "回车添加项目",
+    enterToOpenWithModifier: (modifier) => `回车打开 · ${modifier}+回车添加`,
+    createFolderHintPrefix: "按回车创建",
+    createFolderHintSuffix: "并添加为项目。",
+    errorEnterFolderPath: "请输入文件夹路径。",
+    errorWindowsPath: "当前平台不支持 Windows 路径。",
+    errorRelativePath: "不支持相对路径。请使用绝对路径或以 ~/ 开头。",
+    errorAddProjectFallback: "添加项目失败。",
   },
   chat: {
     loadingModels: "正在加载模型",
@@ -2863,49 +3143,84 @@ const zh: Messages = {
     unavailableTitle: "{provider} 暂不支持技能",
     unavailableDescription: "该模型未开放技能发现能力。",
     needsWorkspace: "技能需要工作区路径。请先打开项目或会话。",
+    enableAria: (name) => `启用或停用技能 ${name}`,
+    enabledHint: "每轮都会列给模型，可以用 read_skill 读正文。",
+    disabledHint: "不再列给模型，read_skill 也会拒绝读取。文件仍保留在磁盘上，随时可以再打开。",
   },
   automations: {
-    subtitle: "按计划或按需运行聊天。",
-    viewTemplates: "查看模板",
-    createFromChat: "通过聊天创建",
-    emptyTitle: "创建首个自动化",
+    subtitle: "一个计划 + 一句话 + 一个工作区，到点在那个工作区里跑一轮。",
+    newAutomation: "新建自动化",
+    emptyTitle: "创建第一个自动化",
     emptyDescription:
-      "自动化是让你以聊天为载体快速处理重复性工作的方式。只需描述需求，秒级创建一个。",
-    noProjectTitle: "请先打开项目",
-    noProjectDescription: "自动化会绑定到项目，这样运行时才能知道工作目录。",
-    templatesHeading: "模板",
-    templatesHint: "选一个模板来快速创建一个自动化。",
-    loading: "加载自动化...",
-    createTitle: "创建自动化",
-    createDescription: "创建一个新的自动化，按计划或按需运行聊天。",
+      "描述一下到点要做什么 —— 智能体会在你选的工作区里跑一轮，并把整条会话留下来。",
+    noWorkspaceTitle: "请先打开一个工作区",
+    noWorkspaceDescription: "自动化在某个工作区里运行，这样它才知道该在哪里读、在哪里写。",
+    loading: "加载自动化…",
+    createTitle: "新建自动化",
     editTitle: "编辑自动化",
-    title: "标题",
-    description: "描述",
-    prompt: "提示词",
-    scheduleType: "调度类型",
-    manual: "手动",
-    cron: "定时",
-    cronExpression: "Cron 表达式",
-    cronPlaceholder: "例如：0 8 * * 1-5",
+    taskTitle: "任务名",
+    taskTitlePlaceholder: "每日简报",
+    instructions: "要它做什么？",
+    instructionsHint: "跑的时候没人在旁边补话：把要读的文件、要什么格式、结果写到哪里都写清楚。",
+    instructionsPlaceholder:
+      "汇总工作区里昨天的提交，整理成一页写入 reports/daily.md，最后用一句话说明今天最需要我注意的事。",
+    workspace: "工作区",
+    selectWorkspace: "选择工作区",
+    workspaceMissing: "这个工作区已不可用",
+    plan: "计划",
+    planKinds: {
+      once: "仅一次",
+      daily: "每天",
+      weekly: "每周",
+    },
+    onceAt: "执行时间",
+    time: "时间",
+    weekdays: "星期",
+    weekdayLabels: ["周日", "周一", "周二", "周三", "周四", "周五", "周六"],
+    timezone: "时区",
+    mode: "模式",
+    modes: {
+      default: "Agent",
+      plan: "Plan",
+      goal: "Goal",
+    },
     create: "创建",
     save: "保存",
     cancel: "取消",
-    creating: "创建中...",
-    saving: "保存中...",
+    creating: "创建中…",
+    saving: "保存中…",
+    createFailed: "无法保存自动化",
     runNow: "立即运行",
     edit: "编辑",
     delete: "删除",
-    enable: "启用",
-    disable: "禁用",
-    script: "脚本",
-    missingScript: "此自动化尚未关联脚本。",
-    lastRun: "上次运行",
-    chooseTemplate: "选择模板",
-    chooseTemplateDescription: "选择一个模板来创建新的自动化。",
-    createdFromChatTitle: "自动化已创建",
-    createdFromChatDescription: (title) => `“${title}” 已添加到自动化列表。`,
-    createFailedTitle: "无法创建自动化",
-    createFailedDescription: "创建自动化时发生错误。",
+    deleteConfirmTitle: "删除这个自动化？",
+    deleteConfirmDescription: "它的运行记录，以及这些记录指向的历史会话入口，会一并删除。",
+    enable: "恢复",
+    disable: "暂停",
+    disabled: "已暂停",
+    openConversation: "打开会话",
+    runsHeading: "运行记录",
+    noRuns: "还没跑过。",
+    nextRun: "下次",
+    noNextRun: "—",
+    lastRun: "上次",
+    never: "还没跑过",
+    runStatus: {
+      running: "运行中",
+      succeeded: "成功",
+      failed: "失败",
+      interrupted: "已中断",
+    },
+    triggerManual: "手动",
+    scheduleDaily: (time) => `每天 ${time}`,
+    scheduleWeekly: (days, time) => `每周 ${days} ${time}`,
+    scheduleOnce: (at) => `仅一次 · ${at}`,
+    createdToast: "自动化已创建",
+    savedToast: "自动化已保存",
+    deletedToast: "自动化已删除",
+    runStartedToast: "已开始运行 —— 它会开一条自己的会话",
+    runFailedToast: "无法开始运行",
+    chatHint: "也可以在对话里直接说：「每天早上帮我汇总一下这里的改动」。",
   },
   kanban: {
     subtitle: "任务随项目存放于 .kanban/board.json，智能体与界面读写同一份文件。",
@@ -2936,6 +3251,7 @@ const zh: Messages = {
     assignee: "负责人",
     assigneePlaceholder: "例如：全栈开发",
     create: "创建",
+    unsavedChangesConfirm: "还有未保存的内容，确定离开且不创建任务吗？",
     save: "保存",
     cancel: "取消",
     deleteTask: "删除任务",
@@ -3031,6 +3347,10 @@ const zh: Messages = {
       archived: {
         label: "已归档",
         description: "查看和恢复已归档的线程。",
+      },
+      piPackages: {
+        label: "Pi 包",
+        description: "从 npm、git 或本地路径安装 pi 包。",
       },
       modelProviders: {
         label: "模型提供商",
@@ -3442,6 +3762,35 @@ const zh: Messages = {
       unsavedHint: "有未保存的修改。",
       cancelButton: "取消",
     },
+    piPackages: {
+      heading: "Pi 包",
+      description:
+        "pi 包可同时携带扩展、技能、提示词模板与主题。安装会把来源写入 settings.json，新线程会自动加载。",
+      settingsPathLabel: "记录于",
+      sourceLabel: "包来源",
+      sourcePlaceholder: "npm:@scope/pkg 或 git:host/user/repo",
+      sourceHint:
+        "npm 来源通过全局 npm 前缀安装；git 来源克隆到 pi agent 目录；本地路径则直接引用，不复制。",
+      installButton: "安装",
+      installingButton: "安装中…",
+      loadingLabel: "正在读取已安装的包…",
+      loadFailedTitle: "无法读取 pi 包",
+      loadFailedFallback: "请确认 pi agent 目录可读。",
+      emptyTitle: "尚未安装任何包",
+      emptyDescription: "安装一个包，即可为所有线程加入扩展、技能或提示词模板。",
+      projectScopeLabel: "项目级",
+      filteredLabel: "资源已停用",
+      notInstalledLabel: "尚未落盘——下次会话启动时安装。",
+      reloadHint: "扩展在会话启动时加载。已打开的线程可执行 /reload 以载入新安装的包。",
+      resources: {
+        skills: "技能",
+        prompts: "提示词",
+        extensions: "扩展",
+        themes: "主题",
+      },
+      removeConfirm: (source) => `卸载 ${source} 并从设置中移除？`,
+      removeAria: (source) => `卸载 ${source}`,
+    },
     advanced: {
       heading: "高级",
       description: "快捷键、恢复与版本信息。",
@@ -3646,6 +3995,8 @@ const zh: Messages = {
     deleteConfirmDescription: "此操作无法撤销。",
     addScript: "添加脚本",
     delete: "删除",
+    deleteConfirmTitle: (name) => `删除操作“${name}”？`,
+    deleteAction: "删除操作",
   },
   themeEditor: {
     copiedTitle: "主题已复制",

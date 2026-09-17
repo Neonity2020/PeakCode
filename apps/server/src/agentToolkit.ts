@@ -155,6 +155,8 @@ export interface ThreadToolkitToolsInput {
         | "onRewind"
         | "onGoal"
         | "onWritePlan"
+        | "onScheduleTask"
+        | "onKanbanComment"
       >
     | undefined;
 }

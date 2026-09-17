@@ -7,6 +7,7 @@ import { ChevronDownIcon, ChevronRightIcon, HandoffIcon } from "~/lib/icons";
 import { PiLaptop } from "react-icons/pi";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useAppSettings } from "~/appSettings";
+import { useMessages } from "../i18n";
 
 import { newCommandId, cn } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
@@ -114,6 +115,7 @@ export default function BranchToolbar({
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const threads = useStore(useRef(createAllThreadsSelector()).current);
   const { settings } = useAppSettings();
+  const messages = useMessages();
 
   const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
   const activeProjectId = serverThread?.projectId ?? draftThread?.projectId ?? null;
@@ -312,7 +314,7 @@ export default function BranchToolbar({
                     }}
                   >
                     <WorktreeGlyph className="size-4 text-[var(--color-text-foreground-secondary)]" />
-                    <span>New worktree</span>
+                    <span>{messages.branchToolbar.newWorktree}</span>
                   </button>
                 ) : null}
                 {effectiveEnvMode === "worktree" && !canHandoffToLocal ? (
@@ -343,7 +345,7 @@ export default function BranchToolbar({
                     }}
                   >
                     <WorktreeGlyph className="size-4 text-[var(--color-text-foreground-secondary)]" />
-                    <span>Hand off to new worktree</span>
+                    <span>{messages.branchToolbar.handoffNewWorktree}</span>
                   </button>
                 ) : null}
                 {canHandoffToLocal && onHandoffToLocal ? (
@@ -357,7 +359,7 @@ export default function BranchToolbar({
                     }}
                   >
                     <HandoffIcon className="size-4 text-[var(--color-text-foreground-secondary)]" />
-                    <span>Hand off to local</span>
+                    <span>{messages.branchToolbar.handoffLocal}</span>
                   </button>
                 ) : null}
               </div>
@@ -379,7 +381,7 @@ export default function BranchToolbar({
                       <circle cx="12" cy="12" r="10" />
                       <polyline points="12 6 12 12 16 14" />
                     </svg>
-                    <span>Rate limits remaining</span>
+                    <span>{messages.branchToolbar.rateLimitsRemaining}</span>
                     <ChevronRightIcon
                       className={cn(
                         "ml-auto size-3.5 text-[var(--color-text-foreground-secondary)] transition-transform duration-150",

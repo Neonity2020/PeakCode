@@ -36,6 +36,12 @@ export interface KanbanTaskRunOutcomeInput {
   readonly runStatus: KanbanTaskRunOutcome;
 }
 
+export interface KanbanTaskRunCommentInput {
+  readonly threadId: ThreadId;
+  /** The progress line. Empty text is refused rather than silently dropped. */
+  readonly body: string;
+}
+
 export interface KanbanServiceShape {
   /**
    * List the app's projects with kanban task counts, so callers can see which
@@ -80,6 +86,22 @@ export interface KanbanServiceShape {
    * back are resolved by the reactor that calls this.
    */
   readonly recordTaskRunOutcome: (input: KanbanTaskRunOutcomeInput) => Effect.Effect<void, Error>;
+
+  /**
+   * Append one progress note from the agent to the task its run belongs to. The
+   * task is resolved from the thread, so the agent never names a card itself.
+   *
+   * Resolves `false` when no running task owns this thread (a plain chat, or a
+   * run that already finished) — the caller has to be able to say "nothing was
+   * written" instead of reporting a comment that never landed.
+   *
+   * This is what keeps the card's timeline readable on its own: a dispatched run
+   * leaves a line per finished step, and the conversation it ran in stays where
+   * the detail belongs.
+   */
+  readonly recordTaskRunComment: (
+    input: KanbanTaskRunCommentInput,
+  ) => Effect.Effect<boolean, Error>;
 
   /**
    * One task with its full comment stream: comments kept on the board plus the

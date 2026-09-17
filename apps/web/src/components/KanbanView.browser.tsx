@@ -1,8 +1,7 @@
 // FILE: KanbanView.browser.tsx
-// Purpose: Locks in how the create dialog drafts a task's requirement. The agent
-//          works from the title and whatever the user already wrote, the brief
-//          lands in the description field for review, and nothing reaches the
-//          board until the task is actually created.
+// Purpose: Locks in that creating a task leaves the board for the full create
+//          page instead of opening a dialog: the clicked column travels along as
+//          the initial status, and no form is rendered over the board.
 // Layer: Component browser tests
 
 import "../index.css";
@@ -12,27 +11,16 @@ import { afterEach, expect, it, vi } from "vitest";
 import { page } from "vitest/browser";
 import { render } from "vitest-browser-react";
 
-import type { KanbanBoard, KanbanCreateTaskInput, ProjectId } from "@peakcode/contracts";
+import type { KanbanBoard, ProjectId } from "@peakcode/contracts";
 
 import { I18nProvider } from "../i18n";
 import { KanbanView } from "./KanbanView";
 
 const PROJECT_ID = "p_kanban_view" as ProjectId;
-const TITLE = "Ship the create dialog";
-const NOTES = "先按我的想法写一版";
-const BRIEF = [
-  "## Goal",
-  "Ship the create dialog.",
-  "",
-  "## Acceptance",
-  "- [ ] The brief lands in the description field",
-].join("\n");
 
 const api = vi.hoisted(() => ({
   listProjects: vi.fn(),
   getBoard: vi.fn(),
-  createTask: vi.fn(),
-  generateRequirementDraft: vi.fn(),
   listModels: vi.fn(),
 }));
 const navigate = vi.hoisted(() => vi.fn());
@@ -68,8 +56,8 @@ function boardFixture(): KanbanBoard {
   };
 }
 
-/** Renders the board and opens the create dialog on a project that has one. */
-async function openCreateDialog() {
+/** Renders the board on a project that has one. */
+async function mountBoard() {
   api.listProjects.mockResolvedValue({
     projects: [
       {
@@ -88,8 +76,6 @@ async function openCreateDialog() {
     ],
   });
   api.getBoard.mockImplementation(async () => boardFixture());
-  api.createTask.mockImplementation(async () => boardFixture());
-  api.generateRequirementDraft.mockResolvedValue({ requirement: BRIEF });
   api.listModels.mockResolvedValue({ models: [] });
 
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -101,9 +87,7 @@ async function openCreateDialog() {
     </QueryClientProvider>,
   );
 
-  // Exact: the per-column "+" buttons are named "New task · <column>".
-  await page.getByRole("button", { name: "New task", exact: true }).click();
-  await expect.element(page.getByRole("textbox", { name: "Task title" })).toBeVisible();
+  await expect.element(page.getByRole("button", { name: "New task", exact: true })).toBeVisible();
   return screen;
 }
 
@@ -112,58 +96,25 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-it("drafts the requirement from the title before the task exists", async () => {
-  await openCreateDialog();
+it("opens the create page instead of a dialog", async () => {
+  const screen = await mountBoard();
 
-  // Without a title there is nothing to draft a brief from.
-  const generate = page.getByRole("button", { name: "Generate" });
-  await expect.element(generate).toBeDisabled();
-
-  await page.getByRole("textbox", { name: "Task title" }).fill(TITLE);
-  await expect.element(generate).toBeEnabled();
-  await generate.click();
+  // Exact: the per-column "+" buttons are named "New task · <column>".
+  await page.getByRole("button", { name: "New task", exact: true }).click();
 
   await expect
-    .poll(() => api.generateRequirementDraft.mock.calls[0]?.[0])
-    .toEqual({
-      projectId: PROJECT_ID,
-      title: TITLE,
-      agentProvider: "pi",
-    });
-  await expect.element(page.getByRole("textbox", { name: "Requirements" })).toHaveValue(BRIEF);
-
-  // Creating stores what is on screen; the draft alone never touches the board.
-  await page.getByRole("button", { name: "Create" }).click();
-  await expect
-    .poll(() => api.createTask.mock.calls[0]?.[0])
-    .toMatchObject({
-      projectId: PROJECT_ID,
-      title: TITLE,
-      description: BRIEF,
-    } satisfies Partial<KanbanCreateTaskInput>);
+    .poll(() => navigate.mock.calls[0]?.[0])
+    .toEqual({ to: "/kanban/new", search: { project: PROJECT_ID, status: "todo" } });
+  // No form is rendered over the board: creation is a page now.
+  expect(screen.container.querySelector('input[aria-label="Task title"]')).toBeNull();
+  expect(screen.container.textContent).not.toContain("Task title");
 });
 
-it("asks before replacing requirements the user already wrote", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-  await openCreateDialog();
+it("carries the clicked column along as the initial status", async () => {
+  await mountBoard();
 
-  await page.getByRole("textbox", { name: "Task title" }).fill(TITLE);
-  const description = page.getByRole("textbox", { name: "Requirements" });
-  await description.fill(NOTES);
-
-  await page.getByRole("button", { name: "Generate" }).click();
-  expect(api.generateRequirementDraft).not.toHaveBeenCalled();
-
-  confirm.mockReturnValue(true);
-  await page.getByRole("button", { name: "Generate" }).click();
-
+  await page.getByRole("button", { name: "New task · In progress" }).click();
   await expect
-    .poll(() => api.generateRequirementDraft.mock.calls[0]?.[0])
-    .toEqual({
-      projectId: PROJECT_ID,
-      title: TITLE,
-      notes: NOTES,
-      agentProvider: "pi",
-    });
-  await expect.element(description).toHaveValue(BRIEF);
+    .poll(() => navigate.mock.calls[0]?.[0])
+    .toEqual({ to: "/kanban/new", search: { project: PROJECT_ID, status: "in_progress" } });
 });

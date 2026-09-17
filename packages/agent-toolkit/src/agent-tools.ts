@@ -109,6 +109,63 @@ export type ToolContext = {
   }) => ToolOutcome;
   /** Plan 模式唯一能写的东西：把方案写到数据目录里（agent.ts 注入）。 */
   onWritePlan?: (content: string) => ToolOutcome;
+  /**
+   * 定时任务（自动化）的创建与管理（宿主注入，见宿主的 automation 模块）。
+   * 只在 Agent / Goal 模式下可用：Plan 模式一行都不许改，而"排一个以后会自己跑的任务"
+   * 是要落库、以后会真的动手的事，不属于"只出方案"。
+   */
+  onScheduleTask?: (params: ScheduleTaskToolParams) => ToolOutcome | Promise<ToolOutcome>;
+  /**
+   * 在看板卡片上留一条进度评论（宿主注入，见宿主的 kanban 模块）。
+   *
+   * 只有从看板派发出去的那条会话认得回去的卡片：宿主用会话 id 反查任务，
+   * 所以模型不需要（也不该）自己带任务 id。不是看板任务时宿主会如实说明。
+   */
+  onKanbanComment?: (params: KanbanCommentToolParams) => ToolOutcome | Promise<ToolOutcome>;
+};
+
+/**
+ * `schedule_task` 的入参。
+ *
+ * 字段名是给模型看的接口（跟其它工具一致用 snake_case），宿主再映射到内部契约。
+ */
+export type ScheduleTaskToolParams = {
+  /** create | list | set_enabled */
+  op: string;
+  /** create：任务名（列表和会话标题里靠它辨认）。 */
+  title?: string;
+  /** create：这一轮要做什么 —— 就是发给 Agent 的那句话。 */
+  instructions?: string;
+  /** create：once | daily | weekly。 */
+  schedule_kind?: string;
+  /** create + once：ISO 时间，唯一一次执行的时刻。 */
+  at?: string;
+  /** create + daily/weekly：当地时间的时（0-23）。 */
+  hour?: number;
+  /** create + daily/weekly：当地时间的分（0-59）。 */
+  minute?: number;
+  /** create + weekly：星期几（0=周日 … 6=周六），可多选。 */
+  days_of_week?: number[];
+  /** create：IANA 时区名，缺省用当前时区。 */
+  timezone?: string;
+  /** create：default | plan | goal，缺省 default。 */
+  mode?: string;
+  /** create：换一个工作区（项目 id）跑，缺省用当前会话所在的工作区。 */
+  project_id?: string;
+  /** set_enabled：要暂停 / 恢复的任务 id（list 会给）。 */
+  automation_id?: string;
+  /** set_enabled：true 恢复，false 暂停。 */
+  enabled?: boolean;
+};
+
+/**
+ * `kanban_comment` 的入参。
+ *
+ * 只有 body：卡片由宿主按会话反查，模型不该也不需要在参数里指认任务。
+ */
+export type KanbanCommentToolParams = {
+  /** 这一条进度：做完了什么、拿什么证明的、下一步是什么。 */
+  body: string;
 };
 
 /**
@@ -1223,6 +1280,130 @@ export function createWritePlan(ctx: ToolContext): BuiltTool {
 }
 
 /**
+ * `schedule_task`：把一句话变成以后会自己跑的定时任务。
+ *
+ * 用户平常就是这么描述定时任务的（"每天早上帮我把昨天的改动汇总一下"），
+ * 与其让宿主去猜自然语言，不如给模型一个工具：它听得懂人话，也知道该把哪些细节补全。
+ * 真正的落库、计划计算、到点开一条会话，全在宿主的自动化模块里，这里只做转述。
+ *
+ * 结果里必须带上任务 id 和**下次触发时间**：用户要的是"我什么时候能看到结果"，
+ * 模型也要靠 id 才能在后续对话里暂停 / 恢复这个任务。
+ */
+export function createScheduleTaskTool(ctx: ToolContext): BuiltTool {
+  return {
+    name: "schedule_task",
+    label: "Schedule a task",
+    description:
+      "Create and manage scheduled tasks (automations): a plan plus one instruction, run in a workspace on a schedule. " +
+      "Each run opens a real conversation in that workspace, so the work is readable afterwards. " +
+      "`create` adds a task — give it a title, instructions, and schedule_kind (once | daily | weekly) with the matching " +
+      "time fields: `at` (ISO) for once, `hour` + `minute` for daily, `hour` + `minute` + `days_of_week` for weekly. " +
+      "It runs in the current workspace unless `project_id` says otherwise, and in the current timezone unless `timezone` does. " +
+      "`list` shows the existing tasks with their ids, plan and next run. " +
+      "`set_enabled` pauses or resumes one by automation_id. " +
+      "Write instructions that stand on their own: a scheduled run has nobody to answer questions, so name the files to touch, " +
+      "the exact format you want, and where the result should be written. " +
+      "Summarise what you scheduled — next run included — in your reply.",
+    parameters: Type.Object({
+      op: Type.String({ description: "create | list | set_enabled" }),
+      title: Type.Optional(
+        Type.String({
+          description: "create: short name, used in the task list and in run titles.",
+        }),
+      ),
+      instructions: Type.Optional(
+        Type.String({
+          description:
+            "create: what the run must do, in one paragraph. Self-contained: nobody will be there to clarify it.",
+        }),
+      ),
+      schedule_kind: Type.Optional(Type.String({ description: "create: once | daily | weekly." })),
+      at: Type.Optional(
+        Type.String({ description: "create, once: ISO instant of the single run (future)." }),
+      ),
+      hour: Type.Optional(
+        Type.Number({ description: "create, daily/weekly: wall-clock hour in `timezone` (0-23)." }),
+      ),
+      minute: Type.Optional(
+        Type.Number({
+          description: "create, daily/weekly: wall-clock minute in `timezone` (0-59).",
+        }),
+      ),
+      days_of_week: Type.Optional(
+        Type.Array(Type.Number(), {
+          description: "create, weekly: weekdays, 0=Sunday … 6=Saturday.",
+        }),
+      ),
+      timezone: Type.Optional(
+        Type.String({
+          description: "create: IANA timezone, e.g. Asia/Shanghai. Defaults to the current one.",
+        }),
+      ),
+      mode: Type.Optional(
+        Type.String({
+          description:
+            "create: default | plan | goal. `plan` only proposes changes, `goal` works toward an acceptance criterion.",
+        }),
+      ),
+      project_id: Type.Optional(
+        Type.String({
+          description: "create: run in another workspace (project id) instead of this one.",
+        }),
+      ),
+      automation_id: Type.Optional(
+        Type.String({ description: "set_enabled: the task id reported by list." }),
+      ),
+      enabled: Type.Optional(
+        Type.Boolean({ description: "set_enabled: true resumes the plan, false pauses it." }),
+      ),
+    }),
+    execute: async (_toolCallId, params: ScheduleTaskToolParams) => {
+      if (!ctx.onScheduleTask) {
+        return errorResult("Scheduled tasks are not available in this session.");
+      }
+      return ctx.onScheduleTask(params);
+    },
+  };
+}
+
+/**
+ * `kanban_comment`：把"这一步做完了"记到看板卡片上。
+ *
+ * 看板派发的任务在界面上是**一张卡片**：用户盯着卡片看进度，不一定会开那条会话。
+ * 会话里说过什么，卡片那边看不见 —— 只有落到 comments 里的东西才看得见。
+ * 所以流程每走完一步就留一条，卡片详情页的时间线才是完整的。
+ *
+ * 宿主按会话反查卡片，模型只管写内容：让它自己填任务 id 既多余又容易填错。
+ */
+export function createKanbanCommentTool(ctx: ToolContext): BuiltTool {
+  return {
+    name: "kanban_comment",
+    label: "Comment on the board",
+    description:
+      "Post one progress comment on the kanban card this conversation was started from. " +
+      "Board tasks are expected to leave a comment whenever a step of the workflow finishes " +
+      "(define / plan / build / verify / review / ship) — the card's timeline is the only place " +
+      "someone watching the board can follow the work, since conversation text does not reach it. " +
+      "Write one short line: which step just finished, the evidence (files touched, commands run, " +
+      "what the output showed), and what comes next. No essays — this is a log line. " +
+      "Conversations that are not a board task are told so instead of writing anything.",
+    parameters: Type.Object({
+      body: Type.String({
+        description:
+          "The progress line, plain text. Say what finished, what proved it, and what is next.",
+      }),
+    }),
+    execute: async (_toolCallId, params: KanbanCommentToolParams) => {
+      if (!ctx.onKanbanComment) {
+        return errorResult("Board comments are not available in this session.");
+      }
+      if (!params.body?.trim()) return errorResult("A board comment needs a `body`.");
+      return ctx.onKanbanComment(params);
+    },
+  };
+}
+
+/**
  * `task` 的子智能体类型。
  *
  * - `explore`：只读调研，自己读一堆文件，只回一段能自包含的结论；
@@ -1476,7 +1657,7 @@ function createReadSkill(): BuiltTool {
       const name = params.name?.trim();
       const file = params.file;
       if (!name) {
-        const section = skillsPromptSection();
+        const section = skillsPromptSection({ includeDefaultPack: true });
         return textResult(section ?? "这台机器上还没有安装任何 Skill。");
       }
       const result = readSkillFile(name, file);
@@ -1521,6 +1702,8 @@ export function buildAgentTools(ctx: ToolContext): BuiltTool[] {
     createApplyPatch(ctx),
     createWritePlan(ctx),
     createGoalTool(ctx),
+    createScheduleTaskTool(ctx),
+    createKanbanCommentTool(ctx),
     createBash(ctx),
     createTaskTool(ctx),
   ];

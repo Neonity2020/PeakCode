@@ -18,7 +18,7 @@ import type {
   ServerProviderUpdateState,
 } from "@peakcode/contracts";
 import { ServerProviderUpdateError } from "@peakcode/contracts";
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import {
   Cache,
   Cause,
@@ -201,42 +201,60 @@ export const checkPiProviderStatus = (
         ? parseGenericCliVersion(`${version.stdout}\n${version.stderr}`)
         : null;
 
-    try {
-      const trimmedAgentDir = nonEmptyTrimmed(agentDir);
-      const authStorage = trimmedAgentDir
-        ? AuthStorage.create(nodePath.join(trimmedAgentDir, "auth.json"))
-        : AuthStorage.create();
-      const registry = trimmedAgentDir
-        ? ModelRegistry.create(authStorage, nodePath.join(trimmedAgentDir, "models.json"))
-        : ModelRegistry.create(authStorage);
-      registry.refresh();
-      const modelCount = registry.getAvailable().length;
-      const authPath = trimmedAgentDir
-        ? nodePath.join(trimmedAgentDir, "auth.json")
-        : "~/.pi/agent/auth.json";
-      return {
-        provider: PI_PROVIDER,
-        status: modelCount > 0 ? "ready" : "warning",
-        available: modelCount > 0,
-        authStatus: modelCount > 0 ? "authenticated" : "unknown",
-        version: parsedVersion,
-        checkedAt,
-        message:
-          modelCount > 0
-            ? `Pi SDK is available with ${modelCount} authenticated model${modelCount === 1 ? "" : "s"}.`
-            : `Pi SDK is available, but no authenticated models were found in ${authPath}.`,
-      } satisfies ServerProviderStatus;
-    } catch (cause) {
+    const trimmedAgentDir = nonEmptyTrimmed(agentDir);
+    const authPath = trimmedAgentDir
+      ? nodePath.join(trimmedAgentDir, "auth.json")
+      : "~/.pi/agent/auth.json";
+    const probe = yield* Effect.promise(() =>
+      probePiAuthenticatedModelCount(trimmedAgentDir).then(
+        (modelCount) => ({ ok: true as const, modelCount }),
+        (cause: unknown) => ({ ok: false as const, cause }),
+      ),
+    );
+    if (!probe.ok) {
       return {
         provider: PI_PROVIDER,
         status: "error" as const,
         available: false,
         authStatus: "unknown" as const,
         checkedAt,
-        message: `Failed to read Pi auth/model registry: ${cause instanceof Error ? cause.message : String(cause)}.`,
+        message: `Failed to read Pi auth/model registry: ${probe.cause instanceof Error ? probe.cause.message : String(probe.cause)}.`,
       } satisfies ServerProviderStatus;
     }
+    const modelCount = probe.modelCount;
+    return {
+      provider: PI_PROVIDER,
+      status: modelCount > 0 ? "ready" : "warning",
+      available: modelCount > 0,
+      authStatus: modelCount > 0 ? "authenticated" : "unknown",
+      version: parsedVersion,
+      checkedAt,
+      message:
+        modelCount > 0
+          ? `Pi SDK is available with ${modelCount} authenticated model${modelCount === 1 ? "" : "s"}.`
+          : `Pi SDK is available, but no authenticated models were found in ${authPath}.`,
+    } satisfies ServerProviderStatus;
   });
+
+/**
+ * Count the models Pi can actually authenticate, against the same runtime sessions use.
+ *
+ * Model/auth resolution moved behind the async `ModelRuntime` in pi 0.80; the previous
+ * synchronous registry is gone, so this returns a promise and the caller maps failures
+ * onto a provider status instead of throwing.
+ */
+async function probePiAuthenticatedModelCount(agentDir: string | undefined): Promise<number> {
+  const modelRuntime = await ModelRuntime.create(
+    agentDir
+      ? {
+          authPath: nodePath.join(agentDir, "auth.json"),
+          modelsPath: nodePath.join(agentDir, "models.json"),
+        }
+      : {},
+  );
+  await modelRuntime.refresh();
+  return (await modelRuntime.getAvailable()).length;
+}
 
 // ── Snapshot helpers ────────────────────────────────────────────────
 

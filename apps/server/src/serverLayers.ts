@@ -29,6 +29,7 @@ import { WorkspaceLayerLive } from "./workspace/runtimeLayer";
 import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResolver";
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
 import { AutomationServiceLive } from "./automation/Layers/AutomationService";
+import { AutomationRunReactorLive } from "./automation/Layers/AutomationRunReactor";
 import { AutomationRepositoryLive } from "./persistence/Layers/Automations";
 import { KanbanRunReactorLive } from "./kanban/Layers/KanbanRunReactor";
 import { KanbanServiceLive } from "./kanban/Layers/KanbanService";
@@ -52,6 +53,9 @@ export function makeServerRuntimeServicesLayer() {
   const automationServiceLayer = AutomationServiceLive.pipe(
     Layer.provide(AutomationRepositoryLive),
     Layer.provideMerge(runtimeServicesLayer),
+  );
+  const automationRunReactorLayer = AutomationRunReactorLive.pipe(
+    Layer.provideMerge(automationServiceLayer),
   );
   const kanbanServiceLayer = KanbanServiceLive.pipe(
     Layer.provideMerge(runtimeServicesLayer),
@@ -120,6 +124,7 @@ export function makeServerRuntimeServicesLayer() {
     WorkspaceLayerLive,
     ProjectFaviconResolverLive,
     automationServiceLayer,
+    automationRunReactorLayer,
     kanbanServiceLayer,
     kanbanRunReactorLayer,
   ).pipe(Layer.provideMerge(NodeServices.layer));

@@ -15,6 +15,7 @@ import { ServerConfig } from "./config";
 import { patchBunWebSocketCloseEventCompatibility } from "./bunWebSocketCompatibility";
 import { makeEffectHttpRouteLayer } from "./http";
 import { Keybindings } from "./keybindings";
+import { AutomationRunReactor } from "./automation/Services/AutomationRunReactor";
 import { AutomationService } from "./automation/Services/AutomationService";
 import { KanbanRunReactor } from "./kanban/Services/KanbanRunReactor";
 import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReactor";
@@ -34,6 +35,7 @@ export interface ServerShape {
     | ServerConfig
     | FileSystem.FileSystem
     | Path.Path
+    | AutomationRunReactor
     | AutomationService
     | KanbanRunReactor
     | Keybindings
@@ -59,6 +61,7 @@ export class ServerLifecycleError extends Schema.TaggedErrorClass<ServerLifecycl
 
 export const createEffectServer = Effect.fn(function* () {
   const config = yield* ServerConfig;
+  const automationRunReactor = yield* AutomationRunReactor;
   const automationService = yield* AutomationService;
   const kanbanRunReactor = yield* KanbanRunReactor;
   const keybindings = yield* Keybindings;
@@ -125,6 +128,7 @@ export const createEffectServer = Effect.fn(function* () {
   yield* Scope.provide(orchestrationReactor.start, subscriptionsScope);
   yield* Scope.provide(threadDeletionReactor.start(), subscriptionsScope);
   yield* Scope.provide(kanbanRunReactor.start(), subscriptionsScope);
+  yield* Scope.provide(automationRunReactor.start(), subscriptionsScope);
   yield* Scope.provide(providerSessionReaper.start(), subscriptionsScope);
   yield* automationService.startScheduler();
   yield* Effect.addFinalizer(() =>

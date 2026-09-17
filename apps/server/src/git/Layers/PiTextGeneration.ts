@@ -12,8 +12,7 @@ import nodePath from "node:path";
 import { readFile } from "node:fs/promises";
 
 import {
-  AuthStorage,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
   createAgentSessionFromServices,
   createAgentSessionRuntime,
@@ -104,22 +103,22 @@ function parseModelReference(
 }
 
 function findPiModel(
-  registry: ModelRegistry,
+  runtime: ModelRuntime,
   modelId: string | null | undefined,
 ): Model<Api> | undefined {
   const parsed = parseModelReference(modelId);
   if (parsed?.provider) {
-    return registry.find(parsed.provider, parsed.id);
+    return runtime.getModel(parsed.provider, parsed.id);
   }
+  const models = runtime.getModels();
   if (parsed) {
     return (
-      registry
-        .getAll()
-        .find((model) => model.id === parsed.id || `${model.provider}/${model.id}` === parsed.id) ??
-      registry.getAll()[0]
+      models.find(
+        (model) => model.id === parsed.id || `${model.provider}/${model.id}` === parsed.id,
+      ) ?? models[0]
     );
   }
-  return registry.getAll()[0];
+  return models[0];
 }
 
 function textFromContent(content: string | ReadonlyArray<AgentContentBlock>): string {
@@ -163,12 +162,11 @@ async function runPiPrompt(options: {
   readonly images?: ReadonlyArray<ImageContent>;
 }): Promise<string> {
   const sessionManager = SessionManager.create(options.cwd);
-  const authStorage = AuthStorage.create(nodePath.join(options.agentDir, "auth.json"));
-  const registry = ModelRegistry.create(
-    authStorage,
-    nodePath.join(options.agentDir, "models.json"),
-  );
-  const model = findPiModel(registry, options.modelId);
+  const modelRuntime = await ModelRuntime.create({
+    authPath: nodePath.join(options.agentDir, "auth.json"),
+    modelsPath: nodePath.join(options.agentDir, "models.json"),
+  });
+  const model = findPiModel(modelRuntime, options.modelId);
 
   const createRuntime: CreateAgentSessionRuntimeFactory = async ({
     cwd,
@@ -179,7 +177,7 @@ async function runPiPrompt(options: {
     const services = await createAgentSessionServices({
       cwd,
       agentDir,
-      modelRegistry: registry,
+      modelRuntime,
     });
     return {
       ...(await createAgentSessionFromServices({

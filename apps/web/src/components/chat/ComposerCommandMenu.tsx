@@ -23,6 +23,9 @@ import {
   TbUsers,
   TbGitCompare,
   TbTerminal2,
+  TbArrowsMinimize,
+  TbWriting,
+  TbGitPullRequest,
 } from "react-icons/tb";
 import { GoRepoForked } from "react-icons/go";
 import { formatSkillScope } from "~/lib/providerDiscovery";
@@ -100,6 +103,12 @@ function commandMenuTitle(
       return "Status";
     case "subagents":
       return "Subagents";
+    case "compress":
+      return "Compress Text";
+    case "prompt-review":
+      return "Review A Prompt";
+    case "review-prs":
+      return "Review Pull Requests";
     default:
       return humanizeProviderCommandName(item.command);
   }
@@ -478,6 +487,12 @@ const ComposerCommandMenuItem = memo(function ComposerCommandMenuItem(props: {
                 return <GoRepoForked className={cls} />;
               case "side":
                 return <TbMessage className={cls} />;
+              case "compress":
+                return <TbArrowsMinimize className={cls} />;
+              case "prompt-review":
+                return <TbWriting className={cls} />;
+              case "review-prs":
+                return <TbGitPullRequest className={cls} />;
               default:
                 return <TbTerminal2 className={cls} />;
             }
