@@ -22,7 +22,6 @@ import {
   SiStripe,
   SiVercel,
 } from "react-icons/si";
-import { cn } from "~/lib/utils";
 import { isInstalledProviderPlugin } from "~/lib/providerDiscovery";
 import { type PluginEntry } from "./useProviderDiscoveryData";
 
@@ -41,6 +40,23 @@ const KNOWN_PLUGIN_BRANDS: Record<string, { color: string; icon: typeof SiCanva 
   slack: { icon: SiSlack, color: "#4A154B" },
   stripe: { icon: SiStripe, color: "#635BFF" },
   vercel: { icon: SiVercel, color: "#111111" },
+};
+
+/**
+ * Plugins shipped by Peak Code itself, drawn as app icons rather than left to the accent
+ * tile and the fallback hammer.
+ *
+ * Both files are the draw.io "3D Icons" set `3d-dynamic-gradient` — CC0-1.0 public domain,
+ * browsable at `icons.motucloud.com/collection/motu-diagrams-n-3d-dynamic-gradient` — kept at
+ * the set's 128px render size so the 44px tile stays crisp on retina. `browser-use` uses the
+ * set's link (the web URL); `computer-use` uses its desktop computer. To swap art, drop a new
+ * file in `apps/web/public/plugin-icons/` and point the path at it.
+ *
+ * A provider that ships its own `interface.logo` still wins over this map.
+ */
+const KNOWN_PLUGIN_APP_ICONS: Record<string, string> = {
+  browseruse: "/plugin-icons/browser-use.png",
+  computeruse: "/plugin-icons/computer-use.png",
 };
 
 // ── Utilities ──────────────────────────────────────────────────────────────
@@ -69,19 +85,29 @@ function resolvePluginLogo(plugin: ProviderPluginDescriptor): string | undefined
   return plugin.interface?.logo?.trim() || undefined;
 }
 
+function brandKeyCandidates(plugin: ProviderPluginDescriptor): string[] {
+  return [plugin.interface?.composerIcon, plugin.interface?.displayName, plugin.name].map(
+    normalizeBrandKey,
+  );
+}
+
 function resolvePluginBrand(
   plugin: ProviderPluginDescriptor,
 ): { color: string; icon: typeof SiCanva } | undefined {
-  const candidates = [
-    plugin.interface?.composerIcon,
-    plugin.interface?.displayName,
-    plugin.name,
-  ].map(normalizeBrandKey);
-
-  for (const candidate of candidates) {
+  for (const candidate of brandKeyCandidates(plugin)) {
     if (!candidate) continue;
     const knownBrand = KNOWN_PLUGIN_BRANDS[candidate];
     if (knownBrand) return knownBrand;
+  }
+
+  return undefined;
+}
+
+function resolvePluginAppIcon(plugin: ProviderPluginDescriptor): string | undefined {
+  for (const candidate of brandKeyCandidates(plugin)) {
+    if (!candidate) continue;
+    const appIcon = KNOWN_PLUGIN_APP_ICONS[candidate];
+    if (appIcon) return appIcon;
   }
 
   return undefined;
@@ -100,6 +126,7 @@ function nameToHue(name: string): number {
 export function PluginGlyph({ plugin }: { plugin: ProviderPluginDescriptor }) {
   const accent = resolvePluginAccent(plugin);
   const logo = resolvePluginLogo(plugin);
+  const appIcon = resolvePluginAppIcon(plugin);
   const brand = resolvePluginBrand(plugin);
   const hue = nameToHue(plugin.interface?.displayName ?? plugin.name);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -125,6 +152,20 @@ export function PluginGlyph({ plugin }: { plugin: ProviderPluginDescriptor }) {
           className="size-7 rounded-md object-contain"
           onError={() => setLogoFailed(true)}
         />
+      </span>
+    );
+  }
+
+  if (appIcon) {
+    return (
+      <span
+        className="inline-flex size-11 shrink-0 items-center justify-center"
+        data-testid="plugin-app-icon"
+      >
+        {/* The renders carry their own transparent margin, so the art is drawn larger than the
+            tile: at 44px the monitor would read as a 28px stamp. `shrink-0` keeps the flex row
+            from squeezing it back into the tile. */}
+        <img src={appIcon} alt="" className="size-13 shrink-0 object-contain" draggable={false} />
       </span>
     );
   }
@@ -182,23 +223,72 @@ export function InstalledStatus({ installed }: { installed: boolean }) {
 
 // ── Grid items ─────────────────────────────────────────────────────────────
 
-export function PluginGridItem({ entry }: { entry: PluginEntry }) {
+export function PluginGridItem({
+  entry,
+  onSelect,
+}: {
+  entry: PluginEntry;
+  onSelect: (entry: PluginEntry) => void;
+}) {
   const description =
     entry.plugin.interface?.shortDescription ??
     entry.plugin.interface?.longDescription ??
     entry.plugin.source.path;
+  const installed = isInstalledProviderPlugin(entry.plugin);
 
   return (
-    <div className="flex items-center gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-[var(--sidebar-accent)]">
+    <button
+      type="button"
+      onClick={() => onSelect(entry)}
+      data-testid="plugin-grid-item"
+      className="flex w-full items-start gap-3 rounded-xl border border-border/60 bg-background/60 px-3.5 py-3 text-left transition-colors hover:bg-[var(--sidebar-accent)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    >
       <PluginGlyph plugin={entry.plugin} />
       <div className="min-w-0 flex-1">
         <p className="text-[13px] font-semibold leading-snug text-foreground">
           {entry.plugin.interface?.displayName ?? entry.plugin.name}
         </p>
+        {/* One line, like the marketplace it mirrors: the full sentence is in the detail
+            view, and a two-line clamp makes every row a different height. */}
         <p className="mt-0.5 truncate text-[12px] text-muted-foreground">{description}</p>
       </div>
-      <InstalledStatus installed={isInstalledProviderPlugin(entry.plugin)} />
-    </div>
+      {installed ? (
+        <span className="mt-0.5 shrink-0 text-[12px] text-muted-foreground/70">
+          {INSTALLED_MARK}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+/**
+ * The trailing affordance for an installed plugin.
+ *
+ * Not a button: a bundled plugin is compiled into the server, so there is no install,
+ * uninstall or disable to offer, and a control that does nothing is worse than a label.
+ */
+const INSTALLED_MARK = "…";
+
+/** One icon in the "installed" strip at the top of the marketplace. */
+export function PluginInstalledTile({
+  entry,
+  onSelect,
+}: {
+  entry: PluginEntry;
+  onSelect: (entry: PluginEntry) => void;
+}) {
+  const name = entry.plugin.interface?.displayName ?? entry.plugin.name;
+  return (
+    <button
+      type="button"
+      title={name}
+      aria-label={name}
+      onClick={() => onSelect(entry)}
+      data-testid="plugin-installed-tile"
+      className="inline-flex rounded-[14px] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    >
+      <PluginGlyph plugin={entry.plugin} />
+    </button>
   );
 }
 

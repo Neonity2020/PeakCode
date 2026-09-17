@@ -1,0 +1,15 @@
+{
+  "name": "browser-use",
+  "displayName": "Browser Use",
+  "shortDescription": "Give the agent the app's own browser: open pages, read them, and act on them.",
+  "longDescription": "The agent drives the same browser pane you are looking at, so every navigation, click and keystroke happens where you can see it. Pages are read as an accessibility tree with stable element handles rather than as HTML or pixels, which makes the loop cheap enough to run on every turn. Use it to verify a local dev server actually works, to read a rendered page that plain HTTP fetching cannot see, to fill and submit a form, or to check what a page really shows after a change. Web work that does not need a rendered page is still better served by web_fetch.",
+  "developerName": "Peak Code",
+  "category": "developer-tools",
+  "capabilities": ["browser", "screenshots", "form-filling", "page-verification"],
+  "defaultPrompt": [
+    "Check that the login form on localhost:5173 actually submits.",
+    "Open the release notes page and tell me what changed."
+  ],
+  "skills": ["browser-use"],
+  "brandColor": "#2563EB"
+}

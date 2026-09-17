@@ -1,0 +1,23 @@
+{
+  "name": "computer-use",
+  "displayName": "Computer Use",
+  "shortDescription": "Work a macOS app the way a person would — read its controls, press them, scroll, drag, and fall back to real input.",
+  "longDescription": "The agent gets a native macOS helper app that reads an app's accessibility tree and acts on its controls, so it can fill a form in a native app, drive a dialog that has no CLI, or check what an app actually shows. Element actions go through the accessibility API: they are precise, and they do not move your pointer or take your focus. The rest of the desktop is there too — clicks with double and right-button forms, drags that follow a real path (a slider, a reorder, a selection), wheel scrolling, typing either keystroke by keystroke or as one paste for long text and CJK, keyboard shortcuts, the clipboard in both directions, and screenshots of the display or of one specific window. Real input does move your cursor and type into your focus, so the agent is told to keep it brief and to say what it is doing. The work rides on a separate helper process, which is what macOS files the Accessibility and Screen Recording grants against — grant it once and it keeps working across rebuilds. The browser pane is still the better tool for web pages, and the shell for files.",
+  "developerName": "Peak Code",
+  "category": "developer-tools",
+  "capabilities": [
+    "macos",
+    "desktop-automation",
+    "accessibility",
+    "screenshots",
+    "clipboard",
+    "input"
+  ],
+  "defaultPrompt": [
+    "Take a screenshot of my screen and tell me what that dialog says.",
+    "In Finder, open my Downloads folder, scroll to the end and tell me what the newest file is.",
+    "In the app in front, select all the text, copy it and read the clipboard back to me."
+  ],
+  "skills": ["computer-use"],
+  "brandColor": "#7C3AED"
+}
