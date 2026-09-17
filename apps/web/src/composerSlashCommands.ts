@@ -1,10 +1,11 @@
-import type { GitBranch, ProviderKind } from "@peakcode/contracts";
+import type { GitBranch, ProviderInteractionMode, ProviderKind } from "@peakcode/contracts";
 
 export const BUILT_IN_COMPOSER_SLASH_COMMANDS = [
   "clear",
   "compact",
   "model",
   "plan",
+  "goal",
   "default",
   "review",
   "fork",
@@ -12,6 +13,9 @@ export const BUILT_IN_COMPOSER_SLASH_COMMANDS = [
   "status",
   "subagents",
   "fast",
+  "compress",
+  "prompt-review",
+  "review-prs",
 ] as const;
 
 export type ComposerSlashCommand = (typeof BUILT_IN_COMPOSER_SLASH_COMMANDS)[number];
@@ -110,6 +114,12 @@ const COMPOSER_SLASH_COMMAND_DEFINITIONS: Record<
     description: "Switch this thread into plan mode",
     source: "app",
   },
+  goal: {
+    command: "goal",
+    label: "/goal",
+    description: "Switch this thread into goal mode — the agent keeps working across turns",
+    source: "app",
+  },
   default: {
     command: "default",
     label: "/default",
@@ -150,6 +160,25 @@ const COMPOSER_SLASH_COMMAND_DEFINITIONS: Record<
     command: "fast",
     label: "/fast",
     description: "Turn fast mode on or off for this thread",
+    source: "app",
+  },
+  compress: {
+    command: "compress",
+    label: "/compress",
+    description:
+      "Insert a prompt that compresses the given text with the semantic-compression skill",
+    source: "app",
+  },
+  "prompt-review": {
+    command: "prompt-review",
+    label: "/prompt-review",
+    description: "Insert a prompt that reviews a prompt against the system-prompts skill",
+    source: "app",
+  },
+  "review-prs": {
+    command: "review-prs",
+    label: "/review-prs",
+    description: "Insert a prompt that runs the repository's PR review gate",
     source: "app",
   },
 };
@@ -217,7 +246,7 @@ export function canOfferForkSlashCommand(input: {
   terminalContextCount: number;
   selectedSkillCount: number;
   selectedMentionCount: number;
-  interactionMode: "default" | "plan";
+  interactionMode: ProviderInteractionMode;
 }): boolean {
   return (
     !hasMeaningfulComposerText(input.prompt) &&
@@ -235,7 +264,7 @@ export function canOfferSideSlashCommand(input: {
   terminalContextCount: number;
   selectedSkillCount: number;
   selectedMentionCount: number;
-  interactionMode: "default" | "plan";
+  interactionMode: ProviderInteractionMode;
   isSidechat: boolean;
 }): boolean {
   return (
@@ -271,6 +300,60 @@ export function buildSubagentsPrompt(existingPrompt: string): string {
   const trimmedPrompt = existingPrompt.trim();
   return trimmedPrompt.length > 0 ? `${trimmedPrompt}\n\n${cannedPrompt}` : cannedPrompt;
 }
+
+// The three builders below back the ported-skill entry points and the adapted PR-review gate.
+// Like /subagents they only *insert* text, so the user reads the instruction before sending it.
+
+/** `/compress` — drives the ported `semantic-compression` skill. */
+export function buildCompressPrompt(args: string): string {
+  const target = args.trim();
+  return [
+    "Use the `semantic-compression` skill: call `read_skill` for it first, then follow its procedure exactly.",
+    target.length > 0
+      ? `Target: ${target}`
+      : "Target: the text named in this thread; if none is named, ask me which text to compress before starting.",
+    "Report the compressed text together with every declared loss.",
+  ].join("\n");
+}
+
+/** `/prompt-review` — drives the ported `system-prompts` skill. */
+export function buildPromptReviewPrompt(args: string): string {
+  const target = args.trim();
+  return [
+    "Use the `system-prompts` skill: call `read_skill` for it first, then review the target prompt against its house style.",
+    target.length > 0
+      ? `Target: ${target}`
+      : "Target: the prompt named in this thread; if none is named, ask me which prompt to review before starting.",
+    "Findings first — what breaks the house style and why — then the rewritten prompt.",
+  ].join("\n");
+}
+
+/** `/review-prs` — the one oh-my-pi command worth adapting: it lands on this repo's own gate. */
+export function buildReviewPrsPrompt(args: string): string {
+  const invocation = args.trim();
+  return [
+    "Review pull request(s) with this repository's own gate. Use the repository script — do not reach for GitHub MCP tools, an IRC tool, or any issue tracker.",
+    `Run: \`bash scripts/pr-review.sh${invocation.length > 0 ? ` ${invocation}` : ""}\``,
+    "Pass a PR number, `--all` for every open PR, or nothing to auto-detect the PR for the current branch; the script's header documents both and its exit codes (0 approved, 1 changes requested, 2 rejected).",
+    "Report the verdict, then the errors that must be fixed before merging, quoting the script's own output rather than restating it from memory.",
+  ].join("\n");
+}
+
+/**
+ * Commands that work purely by putting instruction text into the composer.
+ *
+ * Both dispatch sites (submit and menu selection) read this one table, so a command only has
+ * to be added here once to work in both — and `buildXPrompt` stays the single place that
+ * decides what the model is told.
+ */
+export const COMPOSER_PROMPT_INJECTION_BUILDERS: Partial<
+  Record<ComposerSlashCommand, (args: string) => string>
+> = {
+  subagents: buildSubagentsPrompt,
+  compress: buildCompressPrompt,
+  "prompt-review": buildPromptReviewPrompt,
+  "review-prs": buildReviewPrsPrompt,
+};
 
 export function buildReviewPrompt(input: { target: "changes" | "base-branch" }): string {
   const baseInstruction =
@@ -353,6 +436,10 @@ export function getAvailableComposerSlashCommands(input: {
     ...(input.canOfferSideCommand ? (["side"] as const) : []),
     "status",
     "subagents",
+    // Always offered: they only shape the prompt text, so no composer state gates them.
+    "compress",
+    "prompt-review",
+    "review-prs",
   ];
   return availableCommands.filter((command) => !collidingNativeCommandNames.has(command));
 }

@@ -1,7 +1,7 @@
 // Test the saved configuration through the same Pi model/auth resolution as sessions.
 import path from "node:path";
-import { AuthStorage, getAgentDir, ModelRegistry } from "@earendil-works/pi-coding-agent";
-import { completeSimple } from "@earendil-works/pi-ai";
+import { getAgentDir, ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 import type {
   ServerTestModelProviderInput,
   ServerTestModelProviderResult,
@@ -21,20 +21,29 @@ export async function testModelProvider(
   const probe = async (): Promise<ServerTestModelProviderResult> => {
     try {
       const agentDir = input.agentDir?.trim() || getAgentDir();
-      const auth = AuthStorage.create(path.join(agentDir, "auth.json"));
-      const registry = ModelRegistry.create(auth, path.join(agentDir, "models.json"));
-      if (registry.getError()) return { status: "invalid-config" };
+      const runtime = await ModelRuntime.create({
+        authPath: path.join(agentDir, "auth.json"),
+        modelsPath: path.join(agentDir, "models.json"),
+      });
+      if (runtime.getError()) return { status: "invalid-config" };
       const model = input.modelId
-        ? registry.find(input.provider, input.modelId)
-        : registry.getAll().find((entry) => entry.provider === input.provider);
+        ? runtime.getModel(input.provider, input.modelId)
+        : runtime.getModels(input.provider)[0];
       if (!model) return { status: "model-not-found" };
-      const requestAuth = await registry.getApiKeyAndHeaders(model);
+      const requestAuth = await runtime.getAuth(model);
       if (controller.signal.aborted) return { status: "timeout" };
-      if (!requestAuth.ok) return { status: "auth-missing" };
+      if (!requestAuth) return { status: "auth-missing" };
       const response = await completeSimple(
         model,
         { messages: [{ role: "user", content: "Reply OK.", timestamp: Date.now() }] },
-        { ...requestAuth, signal: controller.signal, maxTokens: 64, maxRetries: 0 },
+        {
+          ...(requestAuth.auth.apiKey !== undefined ? { apiKey: requestAuth.auth.apiKey } : {}),
+          ...(requestAuth.auth.headers !== undefined ? { headers: requestAuth.auth.headers } : {}),
+          ...(requestAuth.env ? { env: requestAuth.env } : {}),
+          signal: controller.signal,
+          maxTokens: 64,
+          maxRetries: 0,
+        },
       );
       if (controller.signal.aborted) return { status: "timeout" };
       return {

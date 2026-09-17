@@ -67,6 +67,9 @@ import {
   ServerSaveModelProvidersInput,
   ServerListModelProvidersInput,
   ServerTestModelProviderInput,
+  ServerListPiPackagesInput,
+  ServerInstallPiPackageInput,
+  ServerRemovePiPackageInput,
   ServerUpdateSettingsInput,
   ServerGetProviderUsageSnapshotInput,
   ServerProviderStatusesUpdatedPayload,
@@ -151,6 +154,9 @@ export const WS_METHODS = {
   serverListModelProviders: "server.listModelProviders",
   serverSaveModelProviders: "server.saveModelProviders",
   serverTestModelProvider: "server.testModelProvider",
+  serverListPiPackages: "server.listPiPackages",
+  serverInstallPiPackage: "server.installPiPackage",
+  serverRemovePiPackage: "server.removePiPackage",
   serverListWorktrees: "server.listWorktrees",
   serverGetProviderUsageSnapshot: "server.getProviderUsageSnapshot",
   serverGetDiagnostics: "server.getDiagnostics",
@@ -178,6 +184,23 @@ export const WS_METHODS = {
 
   // Local user skills (home-dir scan, independent of provider)
   skillsListLocal: "skills.listLocal",
+  skillsSetEnabled: "skills.setEnabled",
+
+  // Kanban methods
+  agentRuntimeGet: "agentRuntime.get",
+  agentApprovalModeSet: "agentApprovalMode.set",
+  agentGoalGet: "agentGoal.get",
+  agentGoalSetStatus: "agentGoal.setStatus",
+  kanbanListProjects: "kanban.listProjects",
+  kanbanGetBoard: "kanban.getBoard",
+  kanbanCreateTask: "kanban.createTask",
+  kanbanUpdateTask: "kanban.updateTask",
+  kanbanMoveTask: "kanban.moveTask",
+  kanbanDeleteTask: "kanban.deleteTask",
+  kanbanGetTaskDetail: "kanban.getTaskDetail",
+  kanbanAddTaskComment: "kanban.addTaskComment",
+  kanbanGenerateTaskRequirement: "kanban.generateTaskRequirement",
+  kanbanGenerateRequirementDraft: "kanban.generateRequirementDraft",
 
   // Automation methods
   automationList: "automation.list",
@@ -282,6 +305,9 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.serverListModelProviders, ServerListModelProvidersInput),
   tagRequestBody(WS_METHODS.serverSaveModelProviders, ServerSaveModelProvidersInput),
   tagRequestBody(WS_METHODS.serverTestModelProvider, ServerTestModelProviderInput),
+  tagRequestBody(WS_METHODS.serverListPiPackages, ServerListPiPackagesInput),
+  tagRequestBody(WS_METHODS.serverInstallPiPackage, ServerInstallPiPackageInput),
+  tagRequestBody(WS_METHODS.serverRemovePiPackage, ServerRemovePiPackageInput),
   tagRequestBody(WS_METHODS.serverListWorktrees, Schema.Struct({})),
   tagRequestBody(WS_METHODS.serverGetProviderUsageSnapshot, ServerGetProviderUsageSnapshotInput),
   tagRequestBody(WS_METHODS.serverGetDiagnostics, Schema.Struct({})),

@@ -30,6 +30,7 @@ import {
   invalidateGitQueries,
 } from "../lib/gitReactQuery";
 import { readNativeApi } from "../nativeApi";
+import { useMessages } from "../i18n";
 import { parsePullRequestReference } from "../pullRequestReference";
 import {
   dedupeRemoteBranchesWithLocalMatches,
@@ -361,6 +362,7 @@ export function BranchToolbarBranchSelector({
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarBranchSelectorProps) {
+  const messages = useMessages();
   const queryClient = useQueryClient();
   const [isBranchMenuOpen, setIsBranchMenuOpen] = useState(false);
   const [isCreateBranchDialogOpen, setIsCreateBranchDialogOpen] = useState(false);
@@ -739,7 +741,7 @@ export function BranchToolbarBranchSelector({
           }}
         >
           <div className="flex min-w-0 flex-col items-start py-1">
-            <span className="truncate font-medium">Checkout Pull Request</span>
+            <span className="truncate font-medium">{messages.branchToolbar.checkoutPR}</span>
             <span className="truncate text-muted-foreground text-xs">{prReference}</span>
           </div>
         </ComboboxItem>
@@ -832,7 +834,7 @@ export function BranchToolbarBranchSelector({
           <ComboboxInput
             className="rounded-xl border-[color:var(--color-border)] bg-[var(--color-background-control-opaque)] shadow-none before:hidden has-focus-visible:border-[color:var(--color-border-focus)] has-focus-visible:ring-0 [&_input]:font-sans"
             inputClassName="ring-0"
-            placeholder="Search branches..."
+            placeholder={messages.branchToolbar.searchPlaceholder}
             showTrigger={false}
             size="sm"
             value={branchQuery}
@@ -890,7 +892,7 @@ export function BranchToolbarBranchSelector({
       >
         <DialogPopup className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Create Branch</DialogTitle>
+            <DialogTitle>{messages.branchToolbar.createTitle}</DialogTitle>
             <DialogDescription>
               {`Create and switch to a new branch from ${resolvedActiveBranch ?? currentGitBranch ?? "the current HEAD"}.`}
             </DialogDescription>
@@ -959,14 +961,14 @@ export function BranchToolbarBranchSelector({
       >
         <DialogPopup className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Discard saved stash?</DialogTitle>
+            <DialogTitle>{messages.branchToolbar.discardStash}</DialogTitle>
             <DialogDescription>
               This will permanently drop the stash entry that preserved your uncommitted changes.
             </DialogDescription>
           </DialogHeader>
           <DialogPanel className="space-y-4">
             {stashDiscardDialog?.loading ? (
-              <p className="text-muted-foreground text-sm">Loading stash details...</p>
+              <p className="text-muted-foreground text-sm">{messages.branchToolbar.loadingStash}</p>
             ) : stashDiscardDialog?.error ? (
               <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive text-sm">
                 {stashDiscardDialog.error}
@@ -975,25 +977,33 @@ export function BranchToolbarBranchSelector({
               <>
                 <div className="grid gap-2 rounded-lg border border-[color:var(--color-border-light)] bg-[var(--color-background-elevated-secondary)] p-3 text-sm">
                   <div className="flex min-w-0 gap-2">
-                    <span className="w-20 shrink-0 text-muted-foreground">Branch</span>
+                    <span className="w-20 shrink-0 text-muted-foreground">
+                      {messages.branchToolbar.fieldBranch}
+                    </span>
                     <span className="min-w-0 truncate font-medium">
                       {stashDiscardDialog.info.branch ?? currentGitBranch ?? "Detached HEAD"}
                     </span>
                   </div>
                   <div className="flex min-w-0 gap-2">
-                    <span className="w-20 shrink-0 text-muted-foreground">Worktree</span>
+                    <span className="w-20 shrink-0 text-muted-foreground">
+                      {messages.branchToolbar.fieldWorktree}
+                    </span>
                     <span className="min-w-0 truncate font-mono text-xs">
                       {stashDiscardDialog.info.cwd}
                     </span>
                   </div>
                   <div className="flex min-w-0 gap-2">
-                    <span className="w-20 shrink-0 text-muted-foreground">Stash</span>
+                    <span className="w-20 shrink-0 text-muted-foreground">
+                      {messages.branchToolbar.fieldStash}
+                    </span>
                     <span className="min-w-0 truncate font-mono text-xs">
                       {stashDiscardDialog.info.stashRef}
                     </span>
                   </div>
                   <div className="flex min-w-0 gap-2">
-                    <span className="w-20 shrink-0 text-muted-foreground">Name</span>
+                    <span className="w-20 shrink-0 text-muted-foreground">
+                      {messages.branchToolbar.fieldName}
+                    </span>
                     <span className="min-w-0 truncate">{stashDiscardDialog.info.message}</span>
                   </div>
                 </div>

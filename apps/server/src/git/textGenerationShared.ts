@@ -87,6 +87,25 @@ export function sanitizePrTitle(raw: string): string {
   return "Update project changes";
 }
 
+export function sanitizeTaskRequirement(raw: string): string {
+  // Models occasionally wrap prose in a fence; the board renders plain markdown.
+  const withoutFence = raw
+    .trim()
+    .replace(/^```(?:markdown|md)?\n?/i, "")
+    .replace(/\n?```$/, "");
+  const trimmed = withoutFence.trim();
+  if (trimmed.length > 0) {
+    return trimmed;
+  }
+  return [
+    "## Goal",
+    "- Clarify what this task has to achieve.",
+    "",
+    "## Acceptance criteria",
+    "- [ ] Requirement written down and reviewed.",
+  ].join("\n");
+}
+
 export function sanitizeDiffSummary(raw: string): string {
   const trimmed = raw.trim();
   if (trimmed.length > 0) {
@@ -240,6 +259,45 @@ export function buildBranchNamePrompt(input: {
     prompt: promptSections.join("\n"),
     outputSchemaJson: Schema.Struct({
       branch: Schema.String,
+    }),
+  };
+}
+
+/**
+ * Prompt behind the board's "generate requirement" action: a short agile brief
+ * with verifiable acceptance criteria, in the language of the task title.
+ */
+export function buildTaskRequirementPrompt(input: {
+  readonly title: string;
+  readonly notes?: string | undefined;
+}) {
+  const promptSections = [
+    "You turn a short task title into an actionable requirement brief for an engineering agent.",
+    "Return a JSON object with the single key: requirement.",
+    "Rules:",
+    "- requirement must be markdown with exactly three sections, in this order:",
+    "  1. a goal section: 1-2 sentences on why the work exists and what done looks like;",
+    "  2. a scope section: 3-4 short bullets covering the main behaviour and the one edge case that matters;",
+    "  3. an acceptance criteria section: 3-4 checkbox bullets, each starting with '- [ ]'.",
+    "- Translate the section headings into the output language; keep the checkbox syntax literal.",
+    "- Every acceptance criterion must be checkable by a test or by hand. No vague words like fast, better, nice.",
+    "- Keep the whole brief under 160 words. No preamble, no closing summary, no code fences.",
+    "- Write in the same language as the task title.",
+    "- When the title is ambiguous, make the smallest reasonable assumption and say so in the goal section.",
+    "",
+    "Task title:",
+    limitSection(input.title, 2_000),
+  ];
+
+  const notes = input.notes?.trim();
+  if (notes && notes.length > 0) {
+    promptSections.push("", "Notes the requester already wrote:", limitSection(notes, 4_000));
+  }
+
+  return {
+    prompt: promptSections.join("\n"),
+    outputSchemaJson: Schema.Struct({
+      requirement: Schema.String,
     }),
   };
 }

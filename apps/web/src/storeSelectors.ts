@@ -140,6 +140,19 @@ export function createSidebarThreadSummariesSelector(): (
   };
 }
 
+// Threads the sidebar owns. Keep every non-archived conversation, including
+// subagent sessions that carry a `parentThreadId`: `buildProjectThreadTree` nests
+// those under their parent, so dropping them here silently removed a whole slice of
+// a project's threads from the sidebar even though the backend shell snapshot
+// returned them. Archived rows stay out of the sidebar (they belong to
+// Settings → Archived), and an orphaned subagent whose parent is gone falls back to
+// a top-level row so its conversation stays reachable.
+export function selectDisplayableSidebarThreads<T extends Pick<SidebarThreadSummary, "archivedAt">>(
+  summaries: readonly T[],
+): T[] {
+  return summaries.filter((thread) => thread.archivedAt == null);
+}
+
 export function createSidebarDisplayThreadsSelector(): (
   state: AppState,
 ) => readonly SidebarThreadSummary[] {
@@ -154,9 +167,7 @@ export function createSidebarDisplayThreadsSelector(): (
     }
 
     previousSummaries = sidebarSummaries;
-    previousDisplaySummaries = sidebarSummaries.filter(
-      (thread) => !thread.parentThreadId && thread.archivedAt == null,
-    );
+    previousDisplaySummaries = selectDisplayableSidebarThreads(sidebarSummaries);
     return previousDisplaySummaries;
   };
 }

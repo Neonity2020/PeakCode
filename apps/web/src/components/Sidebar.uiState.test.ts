@@ -34,10 +34,8 @@ describe("Sidebar.uiState", () => {
     Reflect.deleteProperty(globalThis, "window");
   });
 
-  it("defaults collapsed sidebar UI state with no expanded project thread lists", () => {
+  it("defaults to an empty sidebar UI state", () => {
     expect(readSidebarUiState()).toEqual({
-      chatSectionExpanded: false,
-      chatThreadListExpanded: false,
       expandedProjectThreadListCwds: [],
       dismissedThreadStatusKeyByThreadId: {},
       lastThreadRoute: null,
@@ -46,8 +44,6 @@ describe("Sidebar.uiState", () => {
 
   it("persists expanded project thread lists by normalized cwd", () => {
     persistSidebarUiState({
-      chatSectionExpanded: true,
-      chatThreadListExpanded: true,
       expandedProjectThreadListCwds: [
         "/Users/tester/Code/demo",
         "/Users/tester/Code/demo/",
@@ -63,8 +59,6 @@ describe("Sidebar.uiState", () => {
     });
 
     expect(readSidebarUiState()).toEqual({
-      chatSectionExpanded: true,
-      chatThreadListExpanded: true,
       expandedProjectThreadListCwds: [
         normalizeSidebarProjectThreadListCwd("/Users/tester/Code/demo"),
         normalizeSidebarProjectThreadListCwd("/Users/tester/Code/other"),
@@ -79,7 +73,7 @@ describe("Sidebar.uiState", () => {
     });
   });
 
-  it("ignores malformed persisted project thread list entries", () => {
+  it("ignores legacy chat section flags and malformed persisted entries", () => {
     window.localStorage.setItem(
       "peakcode:sidebar-ui:v1",
       JSON.stringify({
@@ -99,8 +93,6 @@ describe("Sidebar.uiState", () => {
     );
 
     expect(readSidebarUiState()).toEqual({
-      chatSectionExpanded: true,
-      chatThreadListExpanded: false,
       expandedProjectThreadListCwds: [
         normalizeSidebarProjectThreadListCwd("/Users/tester/Code/demo"),
       ],
@@ -125,8 +117,6 @@ describe("Sidebar.uiState", () => {
     );
 
     expect(readSidebarUiState()).toEqual({
-      chatSectionExpanded: false,
-      chatThreadListExpanded: false,
       expandedProjectThreadListCwds: [],
       dismissedThreadStatusKeyByThreadId: {},
       lastThreadRoute: null,

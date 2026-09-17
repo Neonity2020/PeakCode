@@ -1,6 +1,7 @@
 import type { ResolvedThreadWorkspaceState } from "@peakcode/shared/threadEnvironment";
 import type { ProviderInteractionMode } from "@peakcode/contracts";
 import type { DraftThreadEnvMode } from "../../composerDraftStore";
+import { composerInteractionModeLabel } from "../../lib/composerInteractionMode";
 import {
   type ContextWindowSnapshot,
   formatContextWindowTokens,
@@ -102,7 +103,7 @@ export function ComposerSlashStatusDialog(props: {
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-[0.08em] text-muted-foreground">Mode</p>
               <p className="font-medium text-foreground">
-                {interactionMode === "plan" ? "Plan" : "Default"}
+                {composerInteractionModeLabel(interactionMode)}
               </p>
             </div>
             <div className="space-y-1">

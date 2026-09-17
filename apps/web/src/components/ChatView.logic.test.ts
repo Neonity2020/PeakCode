@@ -22,23 +22,23 @@ import {
 } from "./ChatView.logic";
 
 describe("voice helpers", () => {
-  it("keeps manual titles visible for empty home chats", () => {
+  it("keeps manual titles visible for empty default-workspace chats", () => {
     expect(
       resolveActiveThreadTitle({
         title: "Roadmap scratchpad",
         subagentTitle: null,
-        isHomeChat: true,
+        isDefaultWorkspace: true,
         isEmpty: true,
       }),
     ).toBe("Roadmap scratchpad");
   });
 
-  it("maps untouched empty home chats to the friendly header label", () => {
+  it("maps untouched empty default-workspace chats to the friendly header label", () => {
     expect(
       resolveActiveThreadTitle({
         title: "New thread",
         subagentTitle: null,
-        isHomeChat: true,
+        isDefaultWorkspace: true,
         isEmpty: true,
       }),
     ).toBe("New Chat");
@@ -49,7 +49,7 @@ describe("voice helpers", () => {
       resolveActiveThreadTitle({
         title: "Ignored raw title",
         subagentTitle: "Reviewer / Fix follow-up",
-        isHomeChat: false,
+        isDefaultWorkspace: false,
         isEmpty: false,
       }),
     ).toBe("Reviewer / Fix follow-up");

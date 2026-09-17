@@ -11,6 +11,7 @@ import { EditorId } from "./editor";
 import { ProviderKind } from "./orchestration";
 import { ServerSettings, ServerSettingsPatch } from "./settings";
 import { ModelProvidersFile } from "./modelProviders";
+import { PiPackagesSnapshot } from "./piPackages";
 import { ExecutionEnvironmentDescriptor } from "./environment";
 
 const SERVER_VOICE_TRANSCRIPTION_MAX_AUDIO_BASE64_CHARS = 14_000_000;
@@ -347,3 +348,30 @@ export const ServerTestModelProviderResult = Schema.Struct({
   model: Schema.optional(Schema.String),
 });
 export type ServerTestModelProviderResult = typeof ServerTestModelProviderResult.Type;
+
+export const ServerListPiPackagesInput = Schema.Struct({
+  agentDir: Schema.optional(TrimmedNonEmptyString),
+});
+export type ServerListPiPackagesInput = typeof ServerListPiPackagesInput.Type;
+
+export const ServerListPiPackagesResult = PiPackagesSnapshot;
+export type ServerListPiPackagesResult = typeof ServerListPiPackagesResult.Type;
+
+export const ServerInstallPiPackageInput = Schema.Struct({
+  agentDir: Schema.optional(TrimmedNonEmptyString),
+  /** A pi source: `npm:@scope/pkg`, `git:host/user/repo`, or an absolute/relative path. */
+  source: TrimmedNonEmptyString,
+});
+export type ServerInstallPiPackageInput = typeof ServerInstallPiPackageInput.Type;
+
+export const ServerInstallPiPackageResult = PiPackagesSnapshot;
+export type ServerInstallPiPackageResult = typeof ServerInstallPiPackageResult.Type;
+
+export const ServerRemovePiPackageInput = Schema.Struct({
+  agentDir: Schema.optional(TrimmedNonEmptyString),
+  source: TrimmedNonEmptyString,
+});
+export type ServerRemovePiPackageInput = typeof ServerRemovePiPackageInput.Type;
+
+export const ServerRemovePiPackageResult = PiPackagesSnapshot;
+export type ServerRemovePiPackageResult = typeof ServerRemovePiPackageResult.Type;

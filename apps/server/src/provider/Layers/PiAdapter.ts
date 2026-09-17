@@ -2,25 +2,20 @@ import crypto from "node:crypto";
 import path from "node:path";
 
 import {
-  AuthStorage,
-  ModelRegistry,
+  ModelRuntime,
+  type ExtensionError,
+  type ExtensionFactory,
+  type ToolDefinition,
   SessionManager,
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
   getAgentDir,
-  type AgentSession as PiAgentSession,
   type AgentSessionEvent,
   type CreateAgentSessionRuntimeFactory,
 } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import {
-  getSupportedThinkingLevels,
-  type Api,
-  type ImageContent,
-  type Model,
-  type TextContent,
-} from "@earendil-works/pi-ai";
+import type { ImageContent } from "@earendil-works/pi-ai";
 import {
   type ChatAttachment,
   EventId,
@@ -28,16 +23,35 @@ import {
   type ProviderListCommandsResult,
   type ProviderListModelsResult,
   type ProviderListSkillsResult,
+  type CanonicalRequestType,
+  type ProviderApprovalDecision,
+  type ProviderUserInputAnswers,
   ProviderItemId,
+  type ProviderInteractionMode,
   type ProviderRuntimeEvent,
+  RuntimeRequestId,
   type ProviderSession,
   RuntimeItemId,
   ThreadId,
-  type ThreadTokenUsageSnapshot,
   TurnId,
 } from "@peakcode/contracts";
 import { Effect, FileSystem, Layer, Queue, Stream } from "effect";
 
+import { buildThreadToolkitTools, threadConversationKey } from "../../agentToolkit";
+import { scheduleTaskFromConversation } from "../../automation/automationTool";
+import { commentOnTaskFromConversation } from "../../kanban/kanbanTool";
+import { makeToolkitApprovalExtension } from "../../agentToolkitApprovals";
+import {
+  activeToolNamesForMode,
+  forgetThreadContextWindow,
+  handleGoalTool,
+  handleWritePlan,
+  makeToolkitContextExtension,
+  rememberThreadContextWindow,
+} from "../../agentToolkitMode";
+import type { PermissionReply } from "@peakcode/agent-toolkit/agent-interactions";
+import { rememberPromptTokens } from "@peakcode/agent-toolkit/agent-context";
+import { writeTodos } from "@peakcode/agent-toolkit/agent-todos";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
 import { ServerConfig } from "../../config.ts";
 import {
@@ -49,698 +63,48 @@ import {
 import { PiAdapter, type PiAdapterShape } from "../Services/PiAdapter.ts";
 import type { ProviderThreadSnapshot } from "../Services/ProviderAdapter.ts";
 import { classifyPiTurnFailure } from "../piTurnFailure.ts";
+import { extractProposedPlanMarkdown, withProviderPlanModePrompt } from "../planMode.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
+import {
+  DEFAULT_PI_THINKING_LEVEL,
+  findModelInRegistry,
+  getPiSupportedThinkingOptions,
+  normalizePiThinkingLevel,
+  PROVIDER,
+  toMessage,
+  trimToUndefined,
+  withLocalPiModelAdditions,
+} from "../piModels.ts";
+import {
+  type PiSessionContext,
+  type PiTrackedToolCall,
+  extractResumeSessionFile,
+  getSessionFile,
+  makeSessionSnapshot,
+  normalizeTokenUsage,
+} from "../piSessionSnapshot.ts";
+import {
+  classifyPiRuntimeError,
+  isPiReloadCommand,
+  runtimeErrorDetail,
+} from "../piRuntimeErrors.ts";
+import {
+  textFromToolResult,
+  toolItemType,
+  toolLifecycleData,
+  toolTitle,
+} from "../piToolPresentation.ts";
+import { mapMessageHistory } from "../piMessageHistory.ts";
 
-const PROVIDER = "pi" as const;
-const DEFAULT_PI_THINKING_LEVEL: ThinkingLevel = "medium";
-const LOCAL_PI_MODEL_ADDITIONS: ReadonlyArray<Model<Api>> = [
-  {
-    id: "MiniMax-M3",
-    name: "MiniMax-M3",
-    api: "anthropic-messages",
-    provider: "minimax-cn",
-    baseUrl: "https://api.minimaxi.com/anthropic",
-    reasoning: true,
-    input: ["text", "image"],
-    cost: {
-      input: 0.6,
-      output: 2.4,
-      cacheRead: 0.12,
-      cacheWrite: 0,
-    },
-    contextWindow: 512_000,
-    maxTokens: 128_000,
-  },
-];
-const PI_THINKING_OPTIONS: ReadonlyArray<{
-  readonly value: ThinkingLevel;
-  readonly label: string;
-  readonly description: string;
-  readonly isDefault?: true;
-}> = [
-  { value: "off", label: "Off", description: "No extra reasoning" },
-  { value: "minimal", label: "Minimal", description: "Light reasoning" },
-  { value: "low", label: "Low", description: "Faster reasoning" },
-  { value: "medium", label: "Medium", description: "Balanced reasoning", isDefault: true },
-  { value: "high", label: "High", description: "Deeper reasoning" },
-  { value: "xhigh", label: "Extra High", description: "Maximum reasoning" },
-];
+// Re-exported so existing discovery tests keep importing from the adapter entrypoint.
+export { getPiSupportedThinkingOptions, withLocalPiModelAdditions } from "../piModels.ts";
 
-type PiModelRegistry = Pick<ModelRegistry, "find" | "getAll" | "getAvailable">;
-
-interface PiSessionContext {
-  runtime: Awaited<ReturnType<typeof createAgentSessionRuntime>>;
-  modelRegistry: PiModelRegistry;
-  session: ProviderSession;
-  turns: PiStoredTurn[];
-  activeTurnId: TurnId | undefined;
-  activeAssistantItemId: RuntimeItemId | undefined;
-  activeReasoningItemId: RuntimeItemId | undefined;
-  activeToolItems: Map<string, PiTrackedToolCall>;
-  stopped: boolean;
-  lastKnownTokenUsage: ThreadTokenUsageSnapshot | undefined;
-  unsubscribe: (() => void) | undefined;
-}
-
-interface PiStoredTurn {
-  readonly id: TurnId;
-  readonly items: unknown[];
-  leafId?: string | null;
-}
-
-interface PiTrackedToolCall {
-  readonly toolCallId: string;
-  readonly toolName: string;
-  readonly args: unknown;
-  readonly itemId: RuntimeItemId;
-  readonly itemType: "command_execution" | "file_change" | "dynamic_tool_call" | "web_search";
-}
-
+const APPROVAL_TIMEOUT_MS = 10 * 60_000;
+/** `ask_user` gets the same window: an unanswered question must not block the turn forever. */
+const QUESTION_TIMEOUT_MS = 10 * 60_000;
 export interface PiAdapterLiveOptions {
   readonly nativeEventLogPath?: string;
   readonly nativeEventLogger?: EventNdjsonLogger;
-}
-
-function toMessage(cause: unknown, fallback: string): string {
-  if (cause instanceof Error && cause.message.trim().length > 0) {
-    return cause.message;
-  }
-  return fallback;
-}
-
-function trimToUndefined(value: string | null | undefined): string | undefined {
-  const trimmed = typeof value === "string" ? value.trim() : "";
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function isPiThinkingLevel(value: string | null | undefined): value is ThinkingLevel {
-  return (
-    value === "off" ||
-    value === "minimal" ||
-    value === "low" ||
-    value === "medium" ||
-    value === "high" ||
-    value === "xhigh"
-  );
-}
-
-function normalizePiThinkingLevel(value: string | null | undefined): ThinkingLevel | undefined {
-  return isPiThinkingLevel(value) ? value : undefined;
-}
-
-// Mirrors Pi SDK clamping so model discovery does not advertise levels that will be ignored.
-export function getPiSupportedThinkingOptions(
-  model: Pick<Model<Api>, "reasoning" | "thinkingLevelMap">,
-): ReadonlyArray<(typeof PI_THINKING_OPTIONS)[number]> {
-  if (!model.reasoning) {
-    return [];
-  }
-  const supportedLevels = new Set(getSupportedThinkingLevels(model as Model<Api>));
-  return PI_THINKING_OPTIONS.filter((option) => supportedLevels.has(option.value));
-}
-
-function parseModelReference(
-  modelId: string | null | undefined,
-): { readonly provider?: string; readonly id: string } | undefined {
-  const trimmed = trimToUndefined(modelId);
-  if (!trimmed) {
-    return undefined;
-  }
-  if (trimmed.includes("/")) {
-    const [provider, ...rest] = trimmed.split("/");
-    const id = rest.join("/");
-    if (provider && id) {
-      return { provider, id };
-    }
-  }
-  if (trimmed.includes(":")) {
-    const [provider, ...rest] = trimmed.split(":");
-    const id = rest.join(":");
-    if (provider && id) {
-      return { provider, id };
-    }
-  }
-  return { id: trimmed };
-}
-
-function createProviderModelFallback(
-  registry: PiModelRegistry,
-  parsed: { readonly provider: string; readonly id: string },
-): Model<Api> | undefined {
-  const providerDefault = registry.getAll().find((model) => model.provider === parsed.provider);
-  if (!providerDefault) {
-    return undefined;
-  }
-  return {
-    id: parsed.id,
-    name: parsed.id,
-    api: providerDefault.api,
-    provider: parsed.provider,
-    baseUrl: providerDefault.baseUrl,
-    reasoning: false,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128_000,
-    maxTokens: 16_384,
-    ...(providerDefault.compat ? { compat: providerDefault.compat } : {}),
-  };
-}
-
-function findModelInRegistry(
-  registry: PiModelRegistry,
-  modelId: string | null | undefined,
-): Model<Api> | undefined {
-  const parsed = parseModelReference(modelId);
-  if (!parsed) {
-    return undefined;
-  }
-  if (parsed.provider) {
-    return (
-      registry.find(parsed.provider, parsed.id) ??
-      LOCAL_PI_MODEL_ADDITIONS.find(
-        (model) => model.provider === parsed.provider && model.id === parsed.id,
-      ) ??
-      createProviderModelFallback(registry, { provider: parsed.provider, id: parsed.id })
-    );
-  }
-  return (
-    registry
-      .getAll()
-      .find((model) => model.id === parsed.id || `${model.provider}/${model.id}` === parsed.id) ??
-    LOCAL_PI_MODEL_ADDITIONS.find(
-      (model) => model.id === parsed.id || `${model.provider}/${model.id}` === parsed.id,
-    )
-  );
-}
-
-export function withLocalPiModelAdditions(
-  models: ReadonlyArray<Model<Api>>,
-  availableModels: ReadonlyArray<Model<Api>>,
-): ReadonlyArray<Model<Api>> {
-  const keys = new Set(models.map((model) => `${model.provider}/${model.id}`));
-  const availableProviders = new Set(availableModels.map((model) => model.provider));
-  const additions = LOCAL_PI_MODEL_ADDITIONS.filter(
-    (model) => availableProviders.has(model.provider) && !keys.has(`${model.provider}/${model.id}`),
-  );
-  return additions.length > 0 ? [...models, ...additions] : models;
-}
-
-function extractResumeSessionFile(resumeCursor: unknown): string | undefined {
-  if (typeof resumeCursor === "string" && resumeCursor.trim().length > 0) {
-    return resumeCursor;
-  }
-  if (!resumeCursor || typeof resumeCursor !== "object") {
-    return undefined;
-  }
-  const record = resumeCursor as Record<string, unknown>;
-  for (const key of ["sessionFile", "sessionFilePath", "nativeHandle", "path"]) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-function getSessionFile(session: PiAgentSession): string | undefined {
-  return session.sessionFile ?? session.sessionManager.getSessionFile();
-}
-
-function makeSessionSnapshot(context: PiSessionContext): ProviderSession {
-  const resumeCursor = getSessionFile(context.runtime.session);
-  return {
-    provider: PROVIDER,
-    status: context.stopped ? "closed" : context.activeTurnId ? "running" : "ready",
-    runtimeMode: context.session.runtimeMode,
-    threadId: context.session.threadId,
-    createdAt: context.session.createdAt,
-    updatedAt: new Date().toISOString(),
-    ...(context.session.cwd ? { cwd: context.session.cwd } : {}),
-    ...(context.session.model ? { model: context.session.model } : {}),
-    ...(resumeCursor ? { resumeCursor } : {}),
-    ...(context.activeTurnId ? { activeTurnId: context.activeTurnId } : {}),
-    ...(context.session.lastError ? { lastError: context.session.lastError } : {}),
-  };
-}
-
-function normalizeTokenUsage(
-  stats: ReturnType<PiAgentSession["getSessionStats"]>,
-  contextWindow?: number | null,
-): ThreadTokenUsageSnapshot | undefined {
-  const inputTokens = stats.tokens.input;
-  const cachedInputTokens = stats.tokens.cacheRead;
-  const outputTokens = stats.tokens.output;
-  const totalProcessedTokens = stats.tokens.total;
-  const contextUsage = stats.contextUsage;
-  const contextUsageWindow =
-    typeof contextUsage?.contextWindow === "number" &&
-    Number.isFinite(contextUsage.contextWindow) &&
-    contextUsage.contextWindow > 0
-      ? Math.floor(contextUsage.contextWindow)
-      : undefined;
-  const fallbackWindow =
-    typeof contextWindow === "number" && Number.isFinite(contextWindow) && contextWindow > 0
-      ? Math.floor(contextWindow)
-      : undefined;
-  const maxTokens = contextUsageWindow ?? fallbackWindow;
-  const contextUsageTokens =
-    typeof contextUsage?.tokens === "number" &&
-    Number.isFinite(contextUsage.tokens) &&
-    contextUsage.tokens >= 0
-      ? Math.round(contextUsage.tokens)
-      : undefined;
-  const usedPercent =
-    typeof contextUsage?.percent === "number" && Number.isFinite(contextUsage.percent)
-      ? Math.max(0, Math.min(100, contextUsage.percent))
-      : undefined;
-  const usedTokensFromPercent =
-    contextUsageTokens === undefined && usedPercent !== undefined && maxTokens !== undefined
-      ? Math.round((usedPercent / 100) * maxTokens)
-      : undefined;
-  const usedTokens =
-    contextUsageTokens ??
-    usedTokensFromPercent ??
-    (contextUsage
-      ? 0
-      : maxTokens !== undefined
-        ? Math.min(totalProcessedTokens, maxTokens)
-        : totalProcessedTokens);
-  if (
-    usedTokens <= 0 &&
-    inputTokens <= 0 &&
-    cachedInputTokens <= 0 &&
-    outputTokens <= 0 &&
-    maxTokens === undefined &&
-    usedPercent === undefined
-  ) {
-    return undefined;
-  }
-  return {
-    usedTokens,
-    ...(usedPercent !== undefined ? { usedPercent } : {}),
-    ...(totalProcessedTokens > usedTokens ? { totalProcessedTokens } : {}),
-    inputTokens,
-    cachedInputTokens,
-    outputTokens,
-    ...(maxTokens !== undefined ? { maxTokens } : {}),
-    lastUsedTokens: usedTokens,
-    lastInputTokens: inputTokens,
-    lastCachedInputTokens: cachedInputTokens,
-    lastOutputTokens: outputTokens,
-  };
-}
-
-function isPiReloadCommand(text: string): boolean {
-  return /^\/reload(?:\s|$)/iu.test(text.trim());
-}
-
-function classifyPiRuntimeError(
-  message: string,
-): "provider_error" | "transport_error" | "permission_error" | "validation_error" | "unknown" {
-  const normalized = message.toLowerCase();
-  if (
-    normalized.includes("network") ||
-    normalized.includes("connection") ||
-    normalized.includes("timeout") ||
-    normalized.includes("econn") ||
-    normalized.includes("fetch failed")
-  ) {
-    return "transport_error";
-  }
-  if (
-    normalized.includes("api key") ||
-    normalized.includes("auth") ||
-    normalized.includes("unauthorized") ||
-    normalized.includes("forbidden") ||
-    normalized.includes("permission")
-  ) {
-    return "permission_error";
-  }
-  if (
-    normalized.includes("invalid") ||
-    normalized.includes("validation") ||
-    normalized.includes("not available")
-  ) {
-    return "validation_error";
-  }
-  if (
-    normalized.includes("rate limit") ||
-    normalized.includes("quota") ||
-    normalized.includes("usage limit") ||
-    normalized.includes("overloaded") ||
-    normalized.includes("provider")
-  ) {
-    return "provider_error";
-  }
-  return "unknown";
-}
-
-function runtimeErrorDetail(cause: unknown): unknown {
-  if (cause instanceof Error) {
-    return {
-      name: cause.name,
-      message: cause.message,
-      ...(cause.stack ? { stack: cause.stack } : {}),
-    };
-  }
-  return cause;
-}
-
-function textFromContent(content: string | (TextContent | ImageContent)[]): string {
-  if (typeof content === "string") {
-    return content;
-  }
-  return content
-    .filter((block): block is TextContent => block.type === "text")
-    .map((block) => block.text)
-    .join("\n\n");
-}
-
-function toolRecord(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
-}
-
-function firstStringValue(
-  record: Record<string, unknown> | undefined,
-  keys: readonly string[],
-): string | undefined {
-  if (!record) return undefined;
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-function textFromToolResult(result: unknown): string | undefined {
-  if (typeof result === "string") {
-    return result;
-  }
-  const record = toolRecord(result);
-  if (!record) {
-    return undefined;
-  }
-  const directText = firstStringValue(record, [
-    "output",
-    "stdout",
-    "stderr",
-    "text",
-    "summary",
-    "message",
-    "error",
-  ]);
-  if (directText) {
-    return directText;
-  }
-  const content = Array.isArray(record.content) ? record.content : [];
-  const parts = content.flatMap((block) => {
-    const blockRecord = toolRecord(block);
-    return blockRecord?.type === "text" && typeof blockRecord.text === "string"
-      ? [blockRecord.text]
-      : [];
-  });
-  return parts.length > 0 ? parts.join("\n") : undefined;
-}
-
-function toolExitCode(result: unknown): number | null | undefined {
-  const record = toolRecord(result);
-  if (!record) return undefined;
-  const exitCode = record.exitCode;
-  if (typeof exitCode === "number" && Number.isFinite(exitCode)) return exitCode;
-  const code = record.code;
-  if (typeof code === "number" && Number.isFinite(code)) return code;
-  return null;
-}
-
-function toolRawOutput(result: unknown): Record<string, unknown> | undefined {
-  if (result === undefined) return undefined;
-  const text = textFromToolResult(result);
-  const exitCode = toolExitCode(result);
-  if (typeof result === "string") {
-    return { stdout: result, content: result };
-  }
-  if (result === null) {
-    return {};
-  }
-  const record = toolRecord(result);
-  if (!record) {
-    return text ? { stdout: text, content: text } : undefined;
-  }
-  return {
-    ...record,
-    ...(text ? { stdout: text, content: text } : {}),
-    ...(exitCode !== undefined ? { exitCode } : {}),
-  };
-}
-
-function toolPath(args: unknown): string | undefined {
-  return firstStringValue(toolRecord(args), ["path", "filePath", "file", "relativePath"]);
-}
-
-function toolCommand(args: unknown): string | undefined {
-  return firstStringValue(toolRecord(args), ["command", "cmd"]);
-}
-
-function toolSearchQuery(toolName: string, args: unknown): string | undefined {
-  const record = toolRecord(args);
-  if (!record) return undefined;
-  if (toolName === "grep" || toolName === "find") {
-    return firstStringValue(record, ["pattern", "query"]);
-  }
-  return firstStringValue(record, ["query", "pattern"]);
-}
-
-function toolEditEntries(args: unknown): ReadonlyArray<Record<string, unknown>> | undefined {
-  const record = toolRecord(args);
-  if (!record) return undefined;
-  if (Array.isArray(record.edits)) {
-    return record.edits.flatMap((edit) => {
-      const editRecord = toolRecord(edit);
-      return editRecord ? [editRecord] : [];
-    });
-  }
-  const oldText = firstStringValue(record, ["oldText", "old_string", "oldString"]);
-  const newText = firstStringValue(record, ["newText", "new_string", "newString"]);
-  if (oldText !== undefined || newText !== undefined) {
-    return [
-      {
-        ...(oldText !== undefined ? { oldText } : {}),
-        ...(newText !== undefined ? { newText } : {}),
-      },
-    ];
-  }
-  return undefined;
-}
-
-function toolItemType(toolName: string): PiTrackedToolCall["itemType"] {
-  switch (toolName) {
-    case "bash":
-      return "command_execution";
-    case "edit":
-    case "write":
-      return "file_change";
-    case "grep":
-    case "find":
-      return "web_search";
-    default:
-      return "dynamic_tool_call";
-  }
-}
-
-function toolTitle(toolName: string, args: unknown): string {
-  const command = toolName === "bash" ? toolCommand(args) : undefined;
-  if (command) return command;
-  const filePath = toolPath(args);
-  if (
-    filePath &&
-    (toolName === "read" || toolName === "edit" || toolName === "write" || toolName === "ls")
-  ) {
-    return `${toolName} ${filePath}`;
-  }
-  const query = toolSearchQuery(toolName, args);
-  if (query && (toolName === "find" || toolName === "grep")) {
-    return `${toolName} ${query}`;
-  }
-  return toolName;
-}
-
-function toolLifecycleData(input: {
-  toolCallId: string;
-  toolName: string;
-  args: unknown;
-  result?: unknown;
-  partialResult?: unknown;
-  isError?: boolean;
-}): Record<string, unknown> {
-  const { toolCallId, toolName, args } = input;
-  const rawOutput = toolRawOutput(input.result ?? input.partialResult);
-  const path = toolPath(args);
-  const query = toolSearchQuery(toolName, args);
-  const command = toolCommand(args);
-  const edits = toolEditEntries(args);
-  const content = toolRecord(args)?.content;
-  const outputDetails = toolRecord(rawOutput?.details);
-  const unifiedDiff = firstStringValue(outputDetails, ["diff"]);
-  const base: Record<string, unknown> = {
-    toolCallId,
-    callId: toolCallId,
-    toolName,
-    name: toolName,
-    tool: toolName,
-    kind: toolName,
-    args,
-    input: args,
-    rawInput: args,
-    ...(rawOutput ? { rawOutput } : {}),
-    ...(input.partialResult !== undefined ? { partialResult: input.partialResult } : {}),
-    ...(input.result !== undefined ? { result: input.result } : {}),
-    ...(input.isError !== undefined ? { isError: input.isError } : {}),
-  };
-
-  switch (toolName) {
-    case "bash":
-      return {
-        ...base,
-        kind: "execute",
-        ...(command ? { command } : {}),
-        ...(rawOutput?.exitCode !== undefined ? { exitCode: rawOutput.exitCode } : {}),
-      };
-    case "read":
-      return {
-        ...base,
-        kind: "read",
-        ...(path
-          ? {
-              path,
-              filePath: path,
-              files: [{ path }],
-              commandActions: [{ type: "read", name: "read", path }],
-            }
-          : {}),
-      };
-    case "edit":
-      return {
-        ...base,
-        kind: "edit",
-        ...(path ? { path, filePath: path, files: [{ path }], changes: [{ path }] } : {}),
-        ...(edits ? { edits: edits.map((edit) => ({ ...edit, ...(path ? { path } : {}) })) } : {}),
-        ...(unifiedDiff ? { unifiedDiff } : {}),
-      };
-    case "write":
-      return {
-        ...base,
-        kind: "write",
-        ...(path ? { path, filePath: path, files: [{ path }], changes: [{ path }] } : {}),
-        ...(typeof content === "string" ? { content } : {}),
-      };
-    case "find":
-      return {
-        ...base,
-        kind: "search",
-        searchKind: "find",
-        ...(query ? { query } : {}),
-        ...(path ? { path } : {}),
-        ...(query || path
-          ? { commandActions: [{ type: "search", name: "find", query, path }] }
-          : {}),
-      };
-    case "grep":
-      return {
-        ...base,
-        kind: "search",
-        searchKind: "grep",
-        ...(query ? { query } : {}),
-        ...(path ? { path } : {}),
-        ...(query || path
-          ? { commandActions: [{ type: "search", name: "grep", query, path }] }
-          : {}),
-      };
-    case "ls":
-      return {
-        ...base,
-        kind: "listFiles",
-        ...(path
-          ? {
-              path,
-              query: path,
-              commandActions: [{ type: "listFiles", name: "ls", path }],
-            }
-          : {}),
-      };
-    default:
-      return base;
-  }
-}
-
-function mapMessageHistory(session: PiAgentSession): unknown[] {
-  const items: unknown[] = [];
-  const pendingTools = new Map<string, { toolName: string; args: unknown }>();
-  for (const message of session.messages) {
-    if (message.role === "user") {
-      const text = textFromContent(message.content);
-      if (text) items.push({ type: "user_message", text });
-      continue;
-    }
-    if (message.role === "assistant") {
-      for (const content of message.content) {
-        if (content.type === "text" && content.text) {
-          items.push({ type: "assistant_message", text: content.text });
-          continue;
-        }
-        if (content.type === "thinking" && content.thinking) {
-          items.push({ type: "reasoning", text: content.thinking });
-          continue;
-        }
-        if (content.type === "toolCall") {
-          pendingTools.set(content.id, { toolName: content.name, args: content.arguments });
-          items.push({
-            type: "tool_call",
-            status: "started",
-            callId: content.id,
-            toolName: content.name,
-            itemType: toolItemType(content.name),
-            title: toolTitle(content.name, content.arguments),
-            args: content.arguments,
-            data: toolLifecycleData({
-              toolCallId: content.id,
-              toolName: content.name,
-              args: content.arguments,
-            }),
-          });
-        }
-      }
-      continue;
-    }
-    if (message.role === "toolResult") {
-      const pending = pendingTools.get(message.toolCallId);
-      pendingTools.delete(message.toolCallId);
-      const toolName = pending?.toolName ?? message.toolName;
-      const args = pending?.args;
-      const result = { content: message.content };
-      items.push({
-        type: "tool_call",
-        status: message.isError ? "failed" : "completed",
-        callId: message.toolCallId,
-        toolName,
-        itemType: toolItemType(toolName),
-        title: toolTitle(toolName, args),
-        output: textFromContent(message.content),
-        isError: message.isError,
-        data: toolLifecycleData({
-          toolCallId: message.toolCallId,
-          toolName,
-          args,
-          result,
-          isError: message.isError,
-        }),
-      });
-    }
-  }
-  return items;
 }
 
 function makeAgentDir(agentDir: string | undefined): string {
@@ -763,7 +127,12 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
     const fileSystem = yield* FileSystem.FileSystem;
     const runtimeEventQueue = yield* Queue.unbounded<ProviderRuntimeEvent>();
     const sessions = new Map<ThreadId, PiSessionContext>();
-    const modelRegistries = new Map<string, ModelRegistry>();
+    /**
+     * The mode the current turn is running in. Kept outside `PiSessionContext` because the
+     * context extension and `sendTurn` both read it lazily, and a session outlives any one mode.
+     */
+    const sessionInteractionModes = new Map<ThreadId, ProviderInteractionMode>();
+    const modelRuntimes = new Map<string, Promise<ModelRuntime>>();
     const ownsNativeEventLogger = options?.nativeEventLogger === undefined;
     const nativeEventLogger =
       options?.nativeEventLogger ??
@@ -771,13 +140,65 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         ? yield* makeEventNdjsonLogger(options.nativeEventLogPath, { stream: "native" })
         : undefined);
 
-    const getModelRegistry = (agentDir: string): ModelRegistry => {
-      const existing = modelRegistries.get(agentDir);
+    /**
+     * One model/auth runtime per agent dir, shared by every session bound to it.
+     *
+     * `ModelRuntime.create` is async, so the cache holds the pending promise: two sessions
+     * starting at once must not build (and then disagree over) separate credential stores.
+     */
+    /**
+     * Extension failures are otherwise invisible: a throwing handler only produces pi's own
+     * `extension_error` notification, which has no listener here. Errors raised before the
+     * session context exists (a `session_start` handler throwing while extensions bind) are
+     * buffered per thread and drained once the context is registered.
+     */
+    const pendingExtensionErrors = new Map<ThreadId, ReadonlyArray<ExtensionError>>();
+
+    const reportExtensionError = (threadId: ThreadId, error: ExtensionError) => {
+      const context = sessions.get(threadId);
+      if (!context) {
+        pendingExtensionErrors.set(threadId, [
+          ...(pendingExtensionErrors.get(threadId) ?? []),
+          error,
+        ]);
+        return;
+      }
+      const extensionPath = trimToUndefined(error.extensionPath) ?? "extension";
+      offerRuntimeEvent({
+        ...makeEventBase(context, { includeTurnId: false }),
+        type: "runtime.warning",
+        payload: {
+          message: `Pi extension "${extensionDisplayName({ path: extensionPath })}" failed while handling ${error.event}: ${error.error}`,
+          detail: { extensionPath, event: error.event, error: error.error },
+        },
+        raw: {
+          source: "pi.sdk.event",
+          method: "extension/handler-error",
+          payload: { extensionPath, event: error.event, error: error.error },
+        },
+      } satisfies ProviderRuntimeEvent);
+    };
+
+    const drainExtensionErrors = (threadId: ThreadId) => {
+      const buffered = pendingExtensionErrors.get(threadId);
+      if (!buffered || buffered.length === 0) return;
+      pendingExtensionErrors.delete(threadId);
+      for (const error of buffered) reportExtensionError(threadId, error);
+    };
+
+    const getModelRuntime = (agentDir: string): Promise<ModelRuntime> => {
+      const existing = modelRuntimes.get(agentDir);
       if (existing) return existing;
-      const authStorage = AuthStorage.create(path.join(agentDir, "auth.json"));
-      const registry = ModelRegistry.create(authStorage, path.join(agentDir, "models.json"));
-      modelRegistries.set(agentDir, registry);
-      return registry;
+      const created = ModelRuntime.create({
+        authPath: path.join(agentDir, "auth.json"),
+        modelsPath: path.join(agentDir, "models.json"),
+      }).catch((cause: unknown) => {
+        // A failed build must not be cached, or the dir stays broken until restart.
+        modelRuntimes.delete(agentDir);
+        throw cause;
+      });
+      modelRuntimes.set(agentDir, created);
+      return created;
     };
 
     const makeEventBase = (
@@ -878,6 +299,15 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       context.unsubscribe?.();
       context.unsubscribe = undefined;
       context.stopped = true;
+      // Answer every in-flight prompt with "cancel" before tearing down: the tool-call
+      // handler is awaiting these promises, and the timers would otherwise outlive the
+      // session and fire into a disposed runtime.
+      for (const requestId of [...context.pendingApprovals.keys()]) {
+        settleApproval(context, requestId, "cancel");
+      }
+      context.pendingQuestions.clear();
+      sessionInteractionModes.delete(context.session.threadId);
+      forgetThreadContextWindow(context.session.threadId);
       await context.runtime.dispose();
     };
 
@@ -900,6 +330,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             raw: { source: "pi.sdk.event", messageType: event.type, payload: event },
           } satisfies ProviderRuntimeEvent);
         }
+        context.activeTurnText += update.delta;
         recordItem(context, { type: "assistant_message", delta: update.delta });
         offerRuntimeEvent({
           ...makeEventBase(context),
@@ -1111,6 +542,15 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           const stats = context.runtime.session.getSessionStats();
           const usage = normalizeTokenUsage(stats, context.runtime.session.model?.contextWindow);
           context.lastKnownTokenUsage = usage;
+          // Feed the composer's context ring. The window is per model, so it is reported here
+          // rather than read from a global setting; the used side prefers the provider's own
+          // measurement and only falls back to an estimate when there is none.
+          if (usage?.maxTokens !== undefined) {
+            rememberThreadContextWindow(context.session.threadId, usage.maxTokens);
+          }
+          if (usage?.usedTokens !== undefined && usage.usedTokens > 0) {
+            rememberPromptTokens(threadConversationKey(context.session.threadId), usage.usedTokens);
+          }
           const turnId = context.activeTurnId;
           const errorMessage = context.runtime.session.agent.state.errorMessage;
           const failure = errorMessage ? classifyPiTurnFailure(errorMessage) : undefined;
@@ -1162,10 +602,17 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             });
           }
           const completionBase = makeEventBase(context);
+          // Fallback for a plan written in prose instead of via `write_plan`. Emitted before
+          // the turn is cleared so it still carries the turn id the proposed-plan row is keyed on.
+          if (sessionInteractionModes.get(context.session.threadId) === "plan") {
+            const tagged = extractProposedPlanMarkdown(context.activeTurnText);
+            if (tagged) emitProposedPlan(context.session.threadId, tagged);
+          }
           context.activeTurnId = undefined;
           context.activeAssistantItemId = undefined;
           context.activeReasoningItemId = undefined;
           context.activeToolItems.clear();
+          context.activeTurnText = "";
           context.session = makeSessionSnapshot(context);
           offerRuntimeEvent({
             ...completionBase,
@@ -1194,8 +641,12 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       sessionManager: SessionManager;
       modelId?: string;
       thinkingLevel?: ThinkingLevel;
+      toolkitTools?: ToolDefinition[];
+      approvalExtension?: ExtensionFactory;
+      contextExtension?: ExtensionFactory;
+      onExtensionError?: (error: ExtensionError) => void;
     }) => {
-      const registry = getModelRegistry(input.agentDir);
+      const modelRuntime = await getModelRuntime(input.agentDir);
       const createRuntime: CreateAgentSessionRuntimeFactory = async ({
         cwd,
         agentDir,
@@ -1205,9 +656,21 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         const services = await createAgentSessionServices({
           cwd,
           agentDir,
-          modelRegistry: registry,
+          modelRuntime,
+          // The tool-call gate lives here: pi installs these handlers as
+          // `agent.beforeToolCall`, so a blocked call never reaches the tool.
+          ...(input.approvalExtension
+            ? {
+                resourceLoaderOptions: {
+                  extensionFactories: [
+                    input.approvalExtension,
+                    ...(input.contextExtension ? [input.contextExtension] : []),
+                  ],
+                },
+              }
+            : {}),
         });
-        const model = findModelInRegistry(services.modelRegistry, input.modelId);
+        const model = findModelInRegistry(services.modelRuntime, input.modelId);
         if (input.modelId && !model) {
           throw new Error(
             `Pi model '${input.modelId}' is not available. Use a discovered model or a provider-qualified custom model slug like 'openai/gpt-5.5'.`,
@@ -1220,6 +683,11 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             ...(sessionStartEvent ? { sessionStartEvent } : {}),
             ...(model ? { model } : {}),
             thinkingLevel: input.thinkingLevel ?? DEFAULT_PI_THINKING_LEVEL,
+            // Agent-toolkit tools (read_file/glob/grep/apply_patch/todo_write/read_skill/…)
+            // ride alongside pi's built-ins. Names do not collide with read/write/edit/bash.
+            ...(input.toolkitTools && input.toolkitTools.length > 0
+              ? { customTools: input.toolkitTools }
+              : {}),
           })),
           services,
           diagnostics: services.diagnostics,
@@ -1230,8 +698,173 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         agentDir: input.agentDir,
         sessionManager: input.sessionManager,
       });
-      await runtime.session.bindExtensions({});
-      return { runtime, modelRegistry: runtime.services.modelRegistry };
+      // No UI context is bound on purpose: extensions run against pi's no-op UI (hasUI
+      // false), so `ctx.ui.*` calls are inert instead of failing the turn.
+      await runtime.session.bindExtensions(
+        input.onExtensionError ? { onError: input.onExtensionError } : {},
+      );
+      return { runtime, modelRuntime: runtime.services.modelRuntime };
+    };
+
+    /**
+     * Publish a plan the model just wrote, so PeakCode's existing proposed-plan pipeline
+     * (ingestion → projection → `ProposedPlanCard`) picks it up. Emitted for the active turn,
+     * which is what `proposedPlanIdForTurn` keys the row on — a second write in the same turn
+     * updates that row instead of adding another.
+     */
+    const emitProposedPlan = (threadId: ThreadId, planMarkdown: string) => {
+      const context = sessions.get(threadId);
+      if (!context) return;
+      offerRuntimeEvent({
+        ...makeEventBase(context),
+        itemId: RuntimeItemId.makeUnsafe(`pi-plan-${context.activeTurnId ?? threadId}`),
+        type: "turn.proposed.completed",
+        payload: { planMarkdown },
+      });
+    };
+
+    /**
+     * Wake an in-flight approval prompt. Emits `request.resolved` on the way out so the
+     * UI's panel clears whether the answer came from the user, a timeout, or a restart.
+     */
+    const settleApproval = (
+      context: PiSessionContext,
+      requestId: string,
+      decision: ProviderApprovalDecision,
+    ): boolean => {
+      const pending = context.pendingApprovals.get(requestId);
+      if (!pending) return false;
+      context.pendingApprovals.delete(requestId);
+      clearTimeout(pending.timer);
+      offerRuntimeEvent({
+        ...makeEventBase(context),
+        requestId: RuntimeRequestId.makeUnsafe(requestId),
+        type: "request.resolved",
+        payload: { requestType: pending.requestType, decision },
+      });
+      pending.resolve(decision);
+      return true;
+    };
+
+    /**
+     * Raise one approval in the UI and wait for the answer.
+     *
+     * Runs on the agent loop's thread (the extension handler is awaited by pi before the
+     * tool executes), so it must never hang: the timeout is the same 10 minutes the
+     * toolkit's own interaction layer uses, and it resolves as `cancel` — an unanswered
+     * prompt must not silently become an approval.
+     */
+    const promptForApproval = async (
+      threadId: ThreadId,
+      input: {
+        requestType: CanonicalRequestType;
+        title: string;
+        detail: string;
+        toolName: string;
+      },
+    ): Promise<PermissionReply> => {
+      const context = sessions.get(threadId);
+      if (!context) return "deny";
+
+      const requestId = crypto.randomUUID();
+      const decision = await new Promise<ProviderApprovalDecision>((resolve) => {
+        const timer = setTimeout(() => {
+          settleApproval(context, requestId, "cancel");
+        }, APPROVAL_TIMEOUT_MS);
+        context.pendingApprovals.set(requestId, {
+          requestType: input.requestType,
+          resolve,
+          timer,
+        });
+        offerRuntimeEvent({
+          ...makeEventBase(context),
+          requestId: RuntimeRequestId.makeUnsafe(requestId),
+          type: "request.opened",
+          payload: {
+            requestType: input.requestType,
+            detail: `${input.title}｜${input.detail}`,
+            args: { toolName: input.toolName },
+          },
+        });
+      });
+
+      if (decision === "accept") return "once";
+      if (decision === "acceptForSession") return "session";
+      return "deny";
+    };
+
+    /** Wake an in-flight `ask_user` prompt and clear it from the panel. */
+    const settleQuestion = (
+      context: PiSessionContext,
+      requestId: string,
+      answers: ProviderUserInputAnswers,
+    ): boolean => {
+      const pending = context.pendingQuestions.get(requestId);
+      if (!pending) return false;
+      context.pendingQuestions.delete(requestId);
+      clearTimeout(pending.timer);
+      offerRuntimeEvent({
+        ...makeEventBase(context),
+        requestId: RuntimeRequestId.makeUnsafe(requestId),
+        type: "user-input.resolved",
+        payload: { answers },
+      });
+      pending.resolve(answers);
+      return true;
+    };
+
+    /**
+     * Raise `ask_user` questions and wait for the answers.
+     *
+     * The toolkit hands questions over as a plain array and expects answers back in the same
+     * order; PeakCode's contract keys them by id, so the index is the id and the answers are
+     * re-collapsed afterwards. An unanswered set resolves as "no answers" — the toolkit's
+     * `ask_user` renders that as "user skipped", which is a legitimate outcome.
+     */
+    const promptForQuestions = async (
+      threadId: ThreadId,
+      questions: readonly {
+        question: string;
+        header?: string | undefined;
+        options?: readonly { label: string; description?: string | undefined }[] | undefined;
+        multiple?: boolean | undefined;
+      }[],
+    ): Promise<string[][]> => {
+      const context = sessions.get(threadId);
+      if (!context) return questions.map(() => []);
+
+      const requestId = crypto.randomUUID();
+      const answers = await new Promise<ProviderUserInputAnswers>((resolve) => {
+        const timer = setTimeout(() => {
+          settleQuestion(context, requestId, {});
+        }, QUESTION_TIMEOUT_MS);
+        context.pendingQuestions.set(requestId, { resolve, timer });
+        offerRuntimeEvent({
+          ...makeEventBase(context),
+          requestId: RuntimeRequestId.makeUnsafe(requestId),
+          type: "user-input.requested",
+          payload: {
+            questions: questions.map((question, index) => ({
+              id: String(index),
+              // `header` is required and non-empty in the contract; the toolkit treats it
+              // as optional decoration, so fall back to a positional label.
+              header: question.header?.trim() || `问题 ${index + 1}`,
+              question: question.question,
+              options: (question.options ?? []).map((option) => ({
+                label: option.label,
+                description: option.description?.trim() || option.label,
+              })),
+              multiSelect: question.multiple ?? false,
+            })),
+          },
+        });
+      });
+
+      return questions.map((_, index) => {
+        const answer = answers[String(index)];
+        if (answer === null || answer === undefined) return [];
+        return Array.isArray(answer) ? answer : [answer];
+      });
     };
 
     const startSession: PiAdapterShape["startSession"] = (input) =>
@@ -1262,12 +895,59 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
               }),
           });
         }
-        const { runtime, modelRegistry } = yield* Effect.tryPromise({
+        // The full toolkit catalogue is registered once per session; which subset is live is
+        // decided per turn from `interactionMode` (see `activeToolNamesForMode`). Runtime mode
+        // is no longer part of this decision: write tools stay available under
+        // `approval-required` and every one of them goes through the approval gate below.
+        const toolkitConversationId = threadConversationKey(input.threadId);
+        const toolkitTools = buildThreadToolkitTools({
+          cwd,
+          conversationId: toolkitConversationId,
+          callbacks: {
+            askUser: (questions) => promptForQuestions(input.threadId, questions),
+            // The checklist persists to SQLite; PeakCode has no todo panel yet, but a
+            // stored checklist still beats the tool refusing to run.
+            onTodoWrite: (todos) => {
+              writeTodos(toolkitConversationId, todos as never);
+            },
+            onGoal: (goal) => handleGoalTool(toolkitConversationId, goal),
+            onWritePlan: (content) => {
+              const written = handleWritePlan(toolkitConversationId, cwd, content);
+              if (written.planMarkdown) {
+                emitProposedPlan(input.threadId, written.planMarkdown);
+              }
+              return written.outcome;
+            },
+            // "Every morning, summarise what changed here" is a scheduling request the model
+            // can act on. The host resolves the workspace from this thread, so the task lands
+            // where the user was working unless they name another project.
+            onScheduleTask: (params) =>
+              scheduleTaskFromConversation({ threadId: input.threadId, params }),
+            // Registered in every session: whether this thread has a card to report to is
+            // the host's call, and it answers either way (see kanbanTool.ts).
+            onKanbanComment: (params) =>
+              commentOnTaskFromConversation({ threadId: input.threadId, params }),
+          },
+        });
+        const approvalExtension = makeToolkitApprovalExtension({
+          cwd,
+          conversationId: toolkitConversationId,
+          prompt: (prompt) => promptForApproval(input.threadId, prompt),
+        });
+        const contextExtension = makeToolkitContextExtension({
+          conversationId: toolkitConversationId,
+          currentMode: () => sessionInteractionModes.get(input.threadId) ?? "default",
+        });
+        const { runtime, modelRuntime } = yield* Effect.tryPromise({
           try: () =>
             createSdkRuntime({
               cwd,
               agentDir,
               sessionManager,
+              toolkitTools,
+              approvalExtension,
+              contextExtension,
+              onExtensionError: (error) => reportExtensionError(input.threadId, error),
               ...(modelId ? { modelId } : {}),
               ...(thinkingLevel ? { thinkingLevel } : {}),
             }),
@@ -1297,7 +977,10 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         };
         const context: PiSessionContext = {
           runtime,
-          modelRegistry,
+          modelRuntime,
+          pendingApprovals: new Map(),
+          pendingQuestions: new Map(),
+          activeTurnText: "",
           session,
           turns: [],
           activeTurnId: undefined,
@@ -1312,7 +995,26 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           handleSessionEvent(context, event),
         );
         sessions.set(input.threadId, context);
-        const loadedExtensions = runtime.session.resourceLoader.getExtensions().extensions;
+        drainExtensionErrors(input.threadId);
+        const loadedExtensionsResult = runtime.session.resourceLoader.getExtensions();
+        // A package that fails to load is the difference between "no crew tools" and a
+        // usable session, so each failure is reported by name instead of being dropped.
+        for (const failure of loadedExtensionsResult.errors) {
+          offerRuntimeEvent({
+            ...makeEventBase(context, { includeTurnId: false }),
+            type: "runtime.warning",
+            payload: {
+              message: `Pi extension "${extensionDisplayName({ path: failure.path })}" failed to load: ${failure.error}`,
+              detail: { extensionPath: failure.path, error: failure.error },
+            },
+            raw: {
+              source: "pi.sdk.event",
+              method: "extension/load-failed",
+              payload: { extensionPath: failure.path, error: failure.error },
+            },
+          } satisfies ProviderRuntimeEvent);
+        }
+        const loadedExtensions = loadedExtensionsResult.extensions;
         if (loadedExtensions.length > 0) {
           const extensionNames = loadedExtensions.map(extensionDisplayName);
           offerRuntimeEvent({
@@ -1320,7 +1022,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             type: "runtime.warning",
             payload: {
               message:
-                "Pi extensions are loaded, but Peak Code does not yet support Pi extension UI APIs. Non-UI extension behavior should work, but extensions that call ctx.ui.* for prompts, widgets, confirmations, or status updates may not behave correctly.",
+                "Pi extensions are loaded; their tools, commands, and hooks run normally, but Peak Code supplies no Pi extension UI. Extensions that depend on ctx.ui dialogs, widgets, confirmations, or status updates will find them inert (ctx.hasUI is false).",
               detail: {
                 extensionCount: loadedExtensions.length,
                 extensions: extensionNames,
@@ -1416,7 +1118,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           });
         }
         if (input.modelSelection?.provider === "pi") {
-          const model = findModelInRegistry(context.modelRegistry, input.modelSelection.model);
+          const model = findModelInRegistry(context.modelRuntime, input.modelSelection.model);
           if (!model) {
             return yield* new ProviderAdapterValidationError({
               provider: PROVIDER,
@@ -1441,9 +1143,34 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             context.runtime.session.setThinkingLevel(thinkingLevel);
           }
         }
-        const payload = yield* buildPromptPayload(input);
+        // Switch the tool set before the loop starts. `setActiveToolsByName` also rebuilds
+        // pi's base system prompt, so plan mode stops advertising tools it cannot use.
+        const interactionMode = input.interactionMode ?? "default";
+        sessionInteractionModes.set(input.threadId, interactionMode);
+        yield* Effect.sync(() => {
+          const session = context.runtime.session;
+          session.setActiveToolsByName(
+            activeToolNamesForMode(
+              interactionMode,
+              session.getAllTools().map((tool) => tool.name),
+            ),
+          );
+        });
+
+        const rawPayload = yield* buildPromptPayload(input);
+        // Tells the model it is in plan mode, and how to present the plan if it decides not
+        // to call `write_plan`. Both paths end in the same proposed-plan event, so a model
+        // that ignores the tool still produces a plan the user can act on.
+        const payload = {
+          ...rawPayload,
+          text: withProviderPlanModePrompt({
+            text: rawPayload.text,
+            interactionMode,
+          }),
+        };
         const turnId = TurnId.makeUnsafe(crypto.randomUUID());
         context.activeTurnId = turnId;
+        context.activeTurnText = "";
         context.turns.push({ id: turnId, items: [] });
         context.session = makeSessionSnapshot(context);
         if (payload.images.length === 0 && isPiReloadCommand(payload.text)) {
@@ -1570,15 +1297,6 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         Effect.asVoid,
       );
 
-    const respondUnsupported = (threadId: ThreadId, method: string) =>
-      Effect.fail(
-        new ProviderAdapterRequestError({
-          provider: PROVIDER,
-          method,
-          detail: `Pi does not expose Peak Code approval/user-input requests for thread ${threadId}.`,
-        }),
-      );
-
     const stopSession: PiAdapterShape["stopSession"] = (threadId) =>
       requireSession(threadId).pipe(
         Effect.flatMap((context) =>
@@ -1689,9 +1407,9 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       Effect.tryPromise({
         try: async () => {
           const agentDir = makeAgentDir(input.agentDir);
-          const registry = getModelRegistry(agentDir);
-          registry.refresh();
-          const availableModels = registry.getAvailable();
+          const runtime = await getModelRuntime(agentDir);
+          await runtime.refresh();
+          const availableModels = await runtime.getAvailable();
           const models = withLocalPiModelAdditions(availableModels, availableModels).map(
             (model) => {
               const supportedThinkingOptions = getPiSupportedThinkingOptions(model);
@@ -1699,7 +1417,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
                 slug: `${model.provider}/${model.id}`,
                 name: model.name,
                 upstreamProviderId: model.provider,
-                upstreamProviderName: registry.getProviderDisplayName(model.provider),
+                upstreamProviderName: runtime.getProvider(model.provider)?.name ?? model.provider,
                 ...(supportedThinkingOptions.length > 0
                   ? {
                       supportedReasoningEfforts: supportedThinkingOptions.map((option) => ({
@@ -1879,8 +1597,30 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       sendTurn,
       steerTurn,
       interruptTurn,
-      respondToRequest: (threadId) => respondUnsupported(threadId, "request/respond"),
-      respondToUserInput: (threadId) => respondUnsupported(threadId, "user-input/respond"),
+      respondToRequest: (threadId, requestId, decision) =>
+        Effect.gen(function* () {
+          const context = yield* requireSession(threadId);
+          const settled = settleApproval(context, requestId, decision);
+          if (!settled) {
+            // A stale answer (the prompt timed out, or the session restarted) is not an
+            // error the user can act on; the panel has already cleared itself.
+            yield* Effect.logDebug("pi approval response had no pending request", {
+              threadId,
+              requestId,
+            });
+          }
+        }),
+      respondToUserInput: (threadId, requestId, answers) =>
+        Effect.gen(function* () {
+          const context = yield* requireSession(threadId);
+          const settled = settleQuestion(context, requestId, answers);
+          if (!settled) {
+            yield* Effect.logDebug("pi user-input response had no pending request", {
+              threadId,
+              requestId,
+            });
+          }
+        }),
       stopSession,
       listSessions,
       hasSession,

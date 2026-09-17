@@ -4,11 +4,10 @@
 import type { ThreadId, RuntimeMode } from "@peakcode/contracts";
 import { LuSplit } from "react-icons/lu";
 import { ChevronDownIcon, ChevronRightIcon, HandoffIcon } from "~/lib/icons";
-import { FiThumbsUp } from "react-icons/fi";
-import { HiOutlineHandRaised } from "react-icons/hi2";
 import { PiLaptop } from "react-icons/pi";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useAppSettings } from "~/appSettings";
+import { useMessages } from "../i18n";
 
 import { newCommandId, cn } from "../lib/utils";
 import { readNativeApi } from "../nativeApi";
@@ -44,8 +43,6 @@ interface BranchToolbarProps {
   className?: string;
   onEnvModeChange: (mode: EnvMode) => void;
   envLocked: boolean;
-  runtimeMode?: RuntimeMode;
-  onRuntimeModeChange?: (mode: RuntimeMode) => void;
   onHandoffToWorktree?: () => void;
   onHandoffToLocal?: () => void;
   handoffBusy?: boolean;
@@ -58,8 +55,6 @@ interface BranchToolbarProps {
 }
 
 export interface RuntimeUsageControlsProps {
-  runtimeMode?: RuntimeMode | undefined;
-  onRuntimeModeChange?: ((mode: RuntimeMode) => void) | undefined;
   contextWindow?: ContextWindowSnapshot | null | undefined;
   cumulativeCostUsd?: number | null | undefined;
   activeContextWindowLabel?: string | null | undefined;
@@ -68,8 +63,6 @@ export interface RuntimeUsageControlsProps {
 }
 
 export function RuntimeUsageControls({
-  runtimeMode,
-  onRuntimeModeChange,
   contextWindow,
   cumulativeCostUsd,
   activeContextWindowLabel,
@@ -83,29 +76,9 @@ export function RuntimeUsageControls({
         className,
       )}
     >
-      {runtimeMode && onRuntimeModeChange ? (
-        <button
-          type="button"
-          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[length:var(--app-font-size-ui-xs,10px)] font-normal transition-colors hover:text-[var(--color-text-foreground)]"
-          onClick={() =>
-            onRuntimeModeChange(runtimeMode === "full-access" ? "approval-required" : "full-access")
-          }
-          title={
-            runtimeMode === "full-access"
-              ? "Full access — click to require approvals"
-              : "Ask every action"
-          }
-        >
-          {runtimeMode === "full-access" ? (
-            <FiThumbsUp className="size-3 shrink-0" />
-          ) : (
-            <HiOutlineHandRaised className="size-3 shrink-0" />
-          )}
-          <span className="leading-none">
-            {runtimeMode === "full-access" ? "Full access" : "Default permissions"}
-          </span>
-        </button>
-      ) : null}
+      {/* The approval policy lives in the composer's approval chip now. Keeping a second,
+          two-state permission control here meant the toolbar showed two answers to the same
+          question — and this one could only say "ask about everything" or "ask about nothing". */}
       {contextWindow ? (
         <ContextWindowMeter
           usage={contextWindow}
@@ -127,8 +100,6 @@ export default function BranchToolbar({
   className,
   onEnvModeChange,
   envLocked,
-  runtimeMode,
-  onRuntimeModeChange,
   onHandoffToWorktree,
   onHandoffToLocal,
   handoffBusy = false,
@@ -144,6 +115,7 @@ export default function BranchToolbar({
   const setDraftThreadContext = useComposerDraftStore((store) => store.setDraftThreadContext);
   const threads = useStore(useRef(createAllThreadsSelector()).current);
   const { settings } = useAppSettings();
+  const messages = useMessages();
 
   const serverThread = useStore(useMemo(() => createThreadSelector(threadId), [threadId]));
   const activeProjectId = serverThread?.projectId ?? draftThread?.projectId ?? null;
@@ -342,7 +314,7 @@ export default function BranchToolbar({
                     }}
                   >
                     <WorktreeGlyph className="size-4 text-[var(--color-text-foreground-secondary)]" />
-                    <span>New worktree</span>
+                    <span>{messages.branchToolbar.newWorktree}</span>
                   </button>
                 ) : null}
                 {effectiveEnvMode === "worktree" && !canHandoffToLocal ? (
@@ -373,7 +345,7 @@ export default function BranchToolbar({
                     }}
                   >
                     <WorktreeGlyph className="size-4 text-[var(--color-text-foreground-secondary)]" />
-                    <span>Hand off to new worktree</span>
+                    <span>{messages.branchToolbar.handoffNewWorktree}</span>
                   </button>
                 ) : null}
                 {canHandoffToLocal && onHandoffToLocal ? (
@@ -387,7 +359,7 @@ export default function BranchToolbar({
                     }}
                   >
                     <HandoffIcon className="size-4 text-[var(--color-text-foreground-secondary)]" />
-                    <span>Hand off to local</span>
+                    <span>{messages.branchToolbar.handoffLocal}</span>
                   </button>
                 ) : null}
               </div>
@@ -409,7 +381,7 @@ export default function BranchToolbar({
                       <circle cx="12" cy="12" r="10" />
                       <polyline points="12 6 12 12 16 14" />
                     </svg>
-                    <span>Rate limits remaining</span>
+                    <span>{messages.branchToolbar.rateLimitsRemaining}</span>
                     <ChevronRightIcon
                       className={cn(
                         "ml-auto size-3.5 text-[var(--color-text-foreground-secondary)] transition-transform duration-150",
@@ -453,8 +425,6 @@ export default function BranchToolbar({
       </div>
 
       <RuntimeUsageControls
-        runtimeMode={runtimeMode}
-        onRuntimeModeChange={onRuntimeModeChange}
         contextWindow={contextWindow}
         cumulativeCostUsd={cumulativeCostUsd}
         activeContextWindowLabel={activeContextWindowLabel}

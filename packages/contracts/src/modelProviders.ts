@@ -19,8 +19,21 @@ export const ModelProviderApiKind = Schema.Literals([
 ]);
 export type ModelProviderApiKind = typeof ModelProviderApiKind.Type;
 
+/**
+ * Input kinds pi accepts in a model's `input` array. pi validates `models.json`
+ * against this exact union and rejects the whole file for any other value, so
+ * keep it in sync with pi's `ModelDefinitionSchema`.
+ */
 export const ModelInputKind = Schema.Literals(["text", "image"]);
 export type ModelInputKind = typeof ModelInputKind.Type;
+
+/**
+ * Input kinds the "输入类型" picker offers. `video`/`pdf` are not in pi's
+ * schema, so they are stored in `CustomModelConfig.inputTypes` (a key pi
+ * ignores) instead of `input`, which would invalidate the file.
+ */
+export const ModelInputTypeKind = Schema.Literals(["text", "image", "video", "pdf"]);
+export type ModelInputTypeKind = typeof ModelInputTypeKind.Type;
 
 const ModelConfigCostTier = Schema.Record(Schema.String, Schema.Unknown);
 
@@ -46,6 +59,11 @@ export const CustomModelConfig = Schema.Struct({
   baseUrl: Schema.optional(TrimmedNonEmptyString),
   reasoning: Schema.optional(Schema.Boolean),
   input: Schema.optional(Schema.Array(ModelInputKind)),
+  /**
+   * Full input-kind selection from the settings GUI. Only written when it goes
+   * beyond what `input` can express (see {@link ModelInputTypeKind}).
+   */
+  inputTypes: Schema.optional(Schema.Array(ModelInputTypeKind)),
   contextWindow: Schema.optional(Schema.Number),
   maxTokens: Schema.optional(Schema.Number),
   cost: Schema.optional(ModelConfigCost),

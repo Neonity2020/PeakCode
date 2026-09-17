@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildCompressPrompt,
+  buildPromptReviewPrompt,
+  buildReviewPrsPrompt,
   buildReviewPrompt,
   buildSubagentsPrompt,
   canOfferForkSlashCommand,
   canOfferReviewSlashCommand,
   canOfferSideSlashCommand,
+  COMPOSER_PROMPT_INJECTION_BUILDERS,
   filterComposerSlashCommands,
   getAvailableComposerSlashCommands,
   hasProviderNativeSlashCommand,
@@ -25,7 +29,11 @@ describe("composerSlashCommands", () => {
   });
 
   it("filters slash commands by query", () => {
-    expect(filterComposerSlashCommands("rev").map((entry) => entry.command)).toEqual(["review"]);
+    expect(filterComposerSlashCommands("rev").map((entry) => entry.command)).toEqual([
+      "review",
+      "prompt-review",
+      "review-prs",
+    ]);
     expect(filterComposerSlashCommands("fast").map((entry) => entry.command)).toEqual(["fast"]);
   });
 
@@ -175,6 +183,42 @@ describe("composerSlashCommands", () => {
     expect(buildReviewPrompt({ target: "base-branch" })).toContain("base branch");
   });
 
+  it("points the ported-skill commands at the skill they drive", () => {
+    // These two exist to make the ported skills invocable, so the skill id is the contract:
+    // a rename would silently turn them into "read a skill that isn't installed".
+    expect(buildCompressPrompt("")).toContain("`semantic-compression`");
+    expect(buildCompressPrompt("src/prompt.md")).toContain("Target: src/prompt.md");
+    expect(buildCompressPrompt("")).toContain("ask me which text");
+    expect(buildPromptReviewPrompt("")).toContain("`system-prompts`");
+    expect(buildPromptReviewPrompt("the tool docs")).toContain("Target: the tool docs");
+  });
+
+  it("adapts the PR-review command to this repo's own gate", () => {
+    expect(buildReviewPrsPrompt("")).toContain("bash scripts/pr-review.sh");
+    expect(buildReviewPrsPrompt("")).not.toContain("pr-review.sh ");
+    expect(buildReviewPrsPrompt("123")).toContain("bash scripts/pr-review.sh 123");
+    expect(buildReviewPrsPrompt("--all")).toContain("bash scripts/pr-review.sh --all");
+    // The oh-my-pi original leaned on its own GitHub/IRC tooling; this repo has neither.
+    expect(buildReviewPrsPrompt("")).toContain("do not reach for GitHub MCP tools");
+  });
+
+  it("registers every injectable command in the shared builder table", () => {
+    // Both dispatch sites read this table, so a command missing here would appear in the
+    // menu and then do nothing when picked.
+    expect(Object.keys(COMPOSER_PROMPT_INJECTION_BUILDERS).toSorted()).toEqual([
+      "compress",
+      "prompt-review",
+      "review-prs",
+      "subagents",
+    ]);
+    for (const command of ["compress", "prompt-review", "review-prs"] as const) {
+      expect(isBuiltInComposerSlashCommand(command)).toBe(true);
+      const built = COMPOSER_PROMPT_INJECTION_BUILDERS[command]!("");
+      expect(built.length, command).toBeGreaterThan(0);
+      expect(built, command).not.toContain("/" + command);
+    }
+  });
+
   it("filters app slash commands when a provider exposes the same command natively", () => {
     const availableCommands = getAvailableComposerSlashCommands({
       provider: "pi",
@@ -231,6 +275,9 @@ describe("composerSlashCommands", () => {
       "side",
       "status",
       "subagents",
+      "compress",
+      "prompt-review",
+      "review-prs",
     ]);
   });
 
@@ -278,6 +325,9 @@ describe("composerSlashCommands", () => {
       "side",
       "status",
       "subagents",
+      "compress",
+      "prompt-review",
+      "review-prs",
     ]);
   });
 

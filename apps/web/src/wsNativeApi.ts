@@ -576,6 +576,9 @@ export function createWsNativeApi(): NativeApi {
       listModelProviders: (input) => transport.request(WS_METHODS.serverListModelProviders, input),
       saveModelProviders: (input) => transport.request(WS_METHODS.serverSaveModelProviders, input),
       testModelProvider: (input) => transport.request(WS_METHODS.serverTestModelProvider, input),
+      listPiPackages: (input) => transport.request(WS_METHODS.serverListPiPackages, input),
+      installPiPackage: (input) => transport.request(WS_METHODS.serverInstallPiPackage, input),
+      removePiPackage: (input) => transport.request(WS_METHODS.serverRemovePiPackage, input),
       listWorktrees: () => transport.request(WS_METHODS.serverListWorktrees),
       getProviderUsageSnapshot: (input) =>
         transport.request(WS_METHODS.serverGetProviderUsageSnapshot, input),
@@ -601,6 +604,7 @@ export function createWsNativeApi(): NativeApi {
     },
     skills: {
       listLocal: () => transport.request(WS_METHODS.skillsListLocal, null),
+      setEnabled: (input) => transport.request(WS_METHODS.skillsSetEnabled, input),
     },
     orchestration: {
       getSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getSnapshot),
@@ -808,6 +812,28 @@ export function createWsNativeApi(): NativeApi {
       delete: (input) => transport.request(WS_METHODS.automationDelete, input),
       run: (input) => transport.request(WS_METHODS.automationRun, input),
       listRuns: (input) => transport.request(WS_METHODS.automationListRuns, input),
+    },
+    agentRuntime: {
+      get: (input) => transport.request(WS_METHODS.agentRuntimeGet, input),
+      setApprovalMode: (input) => transport.request(WS_METHODS.agentApprovalModeSet, input),
+    },
+    agentGoal: {
+      get: (input) => transport.request(WS_METHODS.agentGoalGet, input),
+      setStatus: (input) => transport.request(WS_METHODS.agentGoalSetStatus, input),
+    },
+    kanban: {
+      listProjects: (input) => transport.request(WS_METHODS.kanbanListProjects, input),
+      getBoard: (input) => transport.request(WS_METHODS.kanbanGetBoard, input),
+      createTask: (input) => transport.request(WS_METHODS.kanbanCreateTask, input),
+      updateTask: (input) => transport.request(WS_METHODS.kanbanUpdateTask, input),
+      moveTask: (input) => transport.request(WS_METHODS.kanbanMoveTask, input),
+      deleteTask: (input) => transport.request(WS_METHODS.kanbanDeleteTask, input),
+      getTaskDetail: (input) => transport.request(WS_METHODS.kanbanGetTaskDetail, input),
+      addTaskComment: (input) => transport.request(WS_METHODS.kanbanAddTaskComment, input),
+      generateTaskRequirement: (input) =>
+        transport.request(WS_METHODS.kanbanGenerateTaskRequirement, input),
+      generateRequirementDraft: (input) =>
+        transport.request(WS_METHODS.kanbanGenerateRequirementDraft, input),
     },
   };
 

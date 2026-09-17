@@ -9,16 +9,22 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
+import { isSkillEnabled } from "@peakcode/agent-toolkit/skills/enablement";
 import {
   type LocalUserSkillDescriptor,
   type LocalUserSkillSource,
   type ListLocalUserSkillsResult,
 } from "@peakcode/contracts";
 
-type SkillSearchDir = {
+export type SkillSearchDir = {
   readonly source: LocalUserSkillSource;
   readonly path: string;
 };
+
+export interface ListLocalUserSkillsOptions {
+  /** Search roots to scan. Defaults to the well-known home directories. */
+  readonly dirs?: ReadonlyArray<SkillSearchDir>;
+}
 
 const SKILL_FILENAME = "SKILL.md";
 
@@ -124,12 +130,14 @@ async function readSkillDescriptor(
     return null;
   }
   const frontmatter = parseFrontmatter(raw);
-  const name = normalizeFrontmatterValue(frontmatter.name) ?? path.basename(skillDir);
+  const id = path.basename(skillDir);
+  const name = normalizeFrontmatterValue(frontmatter.name) ?? id;
   const description = normalizeFrontmatterValue(frontmatter.description);
   const version = normalizeFrontmatterValue(frontmatter.version);
   const homepage = resolveHomepage(frontmatter);
 
   return {
+    id,
     name,
     ...(description ? { description } : {}),
     ...(version ? { version } : {}),
@@ -137,7 +145,9 @@ async function readSkillDescriptor(
     path: skillPath,
     source: dir.source,
     sourceDir: skillDir,
-    enabled: true,
+    // Keyed on the directory name: that is the id `read_skill` resolves, so the toggle and
+    // the runtime gate agree even when a skill's frontmatter `name` differs.
+    enabled: isSkillEnabled(id),
   };
 }
 
@@ -157,8 +167,11 @@ async function listSkillsInDir(dir: SkillSearchDir): Promise<LocalUserSkillDescr
   );
 }
 
-export async function listLocalUserSkills(): Promise<ListLocalUserSkillsResult> {
-  const lists = await Promise.all(SEARCH_DIRS.map(listSkillsInDir));
+export async function listLocalUserSkills(
+  options: ListLocalUserSkillsOptions = {},
+): Promise<ListLocalUserSkillsResult> {
+  const dirs = options.dirs ?? SEARCH_DIRS;
+  const lists = await Promise.all(dirs.map(listSkillsInDir));
   const seen = new Set<string>();
   const skills: LocalUserSkillDescriptor[] = [];
   for (const list of lists) {
@@ -172,6 +185,6 @@ export async function listLocalUserSkills(): Promise<ListLocalUserSkillsResult> 
   skills.sort((a, b) => a.name.localeCompare(b.name));
   return {
     skills,
-    searchedDirs: SEARCH_DIRS.map((dir) => dir.path),
+    searchedDirs: dirs.map((dir) => dir.path),
   };
 }

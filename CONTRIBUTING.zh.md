@@ -172,15 +172,16 @@ env -u PEAKCODE_AUTH_TOKEN PEAKCODE_PORT_OFFSET=3158 \
 
 ### Monorepo 包结构
 
-| 路径                  | 职责                                                                                                                        |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `apps/server`         | Node.js WebSocket 服务器。包装 Codex app-server（通过 stdio 进行 JSON-RPC 通信），提供 React Web 应用，管理 AI 提供方会话。 |
-| `apps/web`            | React/Vite UI。会话用户体验、对话渲染、客户端状态管理。通过 WebSocket 连接。                                                |
-| `apps/desktop`        | Electron 桌面外壳。将 Web 应用封装为原生桌面应用。                                                                          |
-| `apps/marketing`      | 营销/落地页网站。                                                                                                           |
-| `packages/contracts`  | Effect-TS Schema 定义和 TypeScript 合约。仅包含 Schema——不含运行时逻辑。                                                    |
-| `packages/shared`     | 被服务器和 Web 共同使用的运行时工具库。使用显式子路径导出——不使用 barrel index。                                            |
-| `packages/effect-acp` | Effect-TS ACP（Agents, Context, Policies）集成。                                                                            |
+| 路径                     | 职责                                                                                                                        |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `apps/server`            | Node.js WebSocket 服务器。包装 Codex app-server（通过 stdio 进行 JSON-RPC 通信），提供 React Web 应用，管理 AI 提供方会话。 |
+| `apps/web`               | React/Vite UI。会话用户体验、对话渲染、客户端状态管理。通过 WebSocket 连接。                                                |
+| `apps/desktop`           | Electron 桌面外壳。将 Web 应用封装为原生桌面应用。                                                                          |
+| `apps/marketing`         | 营销/落地页网站。                                                                                                           |
+| `packages/agent-toolkit` | 由服务器承载的代理运行时：工具、计划、目标、审批、技能，以及其底层的 sqlite 存储。                                          |
+| `packages/contracts`     | Effect-TS Schema 定义和 TypeScript 合约。仅包含 Schema——不含运行时逻辑。                                                    |
+| `packages/shared`        | 被服务器和 Web 共同使用的运行时工具库。使用显式子路径导出——不使用 barrel index。                                            |
+| `packages/effect-acp`    | Effect-TS ACP（Agents, Context, Policies）集成。                                                                            |
 
 ### 事件生命周期
 
@@ -225,7 +226,7 @@ Browser ← ServerPushBus ← OrchestrationEngine ← ProviderRuntimeIngestion
 
 - **代码中不加注释。** 代码应通过清晰的命名、短小的函数和 Effect-TS 类型化管道实现自文档化。如果某段代码不加注释就难以理解，请重构它。
 - **提取而非重复。** 添加新功能时，先检查是否有可提取到独立模块的共享逻辑。在多个文件中重复相同逻辑是代码坏味道。
-- **不使用 barrel index 文件。** `packages/shared` 包使用显式子路径导出（例如 `@t3tools/shared/git`）。请勿添加 `index.ts` barrel 文件。
+- **不使用 barrel index 文件。** `packages/shared` 包使用显式子路径导出（例如 `@peakcode/shared/git`）。请勿添加 `index.ts` barrel 文件。
 - **不要害怕重构。** 这是一个早期项目。如果现有代码阻碍了干净的解决方案，请修改它——但要在 PR 中说明重构的理由。
 - **代码和 UI 中不使用 emoji**，除非用户明确要求。
 
@@ -357,8 +358,8 @@ bun run fmt:check  # oxfmt（仅检查）
 此包导出共享的运行时工具。它**不使用** barrel index 文件。请这样导入：
 
 ```typescript
-import { DrainableWorker } from "@t3tools/shared/DrainableWorker";
-// 错误：import { DrainableWorker } from "@t3tools/shared";
+import { DrainableWorker } from "@peakcode/shared/DrainableWorker";
+// 错误：import { DrainableWorker } from "@peakcode/shared";
 ```
 
 在 `packages/shared` 中添加新模块时，请在 `package.json` 中为该包添加对应的 `exports` 字段条目。

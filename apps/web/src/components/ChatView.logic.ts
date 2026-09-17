@@ -73,13 +73,13 @@ export function buildLocalDraftThread(
 export function resolveActiveThreadTitle(input: {
   title: string;
   subagentTitle: string | null;
-  isHomeChat: boolean;
+  isDefaultWorkspace: boolean;
   isEmpty: boolean;
 }): string {
   if (input.subagentTitle) {
     return input.subagentTitle;
   }
-  if (input.isHomeChat && input.isEmpty && isGenericChatThreadTitle(input.title)) {
+  if (input.isDefaultWorkspace && input.isEmpty && isGenericChatThreadTitle(input.title)) {
     return "New Chat";
   }
   return input.title;

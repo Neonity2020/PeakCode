@@ -48,6 +48,8 @@ import { MentionChipIcon } from "./MentionChipIcon";
 import { MessageActionButton } from "./MessageActionButton";
 import { MessageCopyButton } from "./MessageCopyButton";
 import { AssistantSelectionsSummaryChip } from "./AssistantSelectionsSummaryChip";
+import { ActivityStepRow, ACTIVITY_ROW_LIST_CLASS } from "./ActivityStepRow";
+import { deriveActivityRows, type ActivityRow } from "./activityRows";
 import {
   computeStableMessagesTimelineRows,
   deriveMessagesTimelineRows,
@@ -434,27 +436,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
           const groupId = row.id;
           const groupedEntries = row.groupedEntries;
           const isExpanded = expandedWorkGroupsState[groupId] ?? false;
-          const hasOverflow = groupedEntries.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
-          const visibleEntries =
+          const activityRows = deriveActivityRows(groupedEntries);
+          const hasOverflow = activityRows.length > MAX_VISIBLE_WORK_LOG_ENTRIES;
+          const visibleRows =
             hasOverflow && !isExpanded
-              ? groupedEntries.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES)
-              : groupedEntries;
-          const hiddenCount = groupedEntries.length - visibleEntries.length;
+              ? activityRows.slice(-MAX_VISIBLE_WORK_LOG_ENTRIES)
+              : activityRows;
+          const hiddenCount = activityRows.length - visibleRows.length;
           const showOverflowToggle = hasOverflow;
 
           return (
             <div>
-              <div className="space-y-0.5">
-                {visibleEntries.map((workEntry) => (
-                  <SimpleWorkEntryRow
-                    key={`work-row:${workEntry.id}`}
-                    workEntry={workEntry}
-                    chatMetaFontSizePx={appTypographyScale.chatMetaPx}
-                    textFontSizePx={appTypographyScale.uiSmPx}
-                    density={prefersCompactWorkEntryRow(workEntry) ? "compact" : "default"}
-                    {...(onOpenThread ? { onOpenThread } : {})}
-                  />
-                ))}
+              <div className={ACTIVITY_ROW_LIST_CLASS}>
+                {renderActivityRowList(visibleRows, {
+                  chatMetaFontSizePx: appTypographyScale.chatMetaPx,
+                  textFontSizePx: appTypographyScale.uiSmPx,
+                  stepFontSizePx: normalizedChatFontSizePx,
+                  ...(onOpenThread ? { onOpenThread } : {}),
+                })}
               </div>
               {showOverflowToggle && (
                 <div className="mt-1.5 flex items-center justify-start gap-2 px-0.5">
@@ -654,26 +653,26 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         row.message.role === "assistant" &&
         (() => {
           const messageText = row.message.text || (row.message.streaming ? "" : "(empty response)");
-          const inlineToolEntries = hasOnlyToolToneEntries(row.inlineWorkEntries)
-            ? row.inlineWorkEntries
-            : [];
+          // Steps run before the reply they produced, so their trailing
+          // thinking run is measured against the message's own timestamp.
+          const inlineWorkEntries = row.inlineWorkEntries ?? [];
+          const inlineActivityRows = deriveActivityRows(inlineWorkEntries, {
+            endAt: row.message.createdAt,
+          });
           const inlineToolGroupId =
-            inlineToolEntries.length > 0 ? (row.inlineWorkGroupId ?? null) : null;
+            inlineActivityRows.length > 0 ? (row.inlineWorkGroupId ?? null) : null;
           const inlineToolExpanded =
             inlineToolGroupId !== null
               ? (expandedWorkGroupsState[inlineToolGroupId] ?? false)
               : false;
-          const visibleInlineToolEntries =
-            inlineToolExpanded || inlineToolEntries.length <= MAX_VISIBLE_INLINE_TOOL_ENTRIES
-              ? inlineToolEntries
+          const visibleInlineActivityRows =
+            inlineToolExpanded || inlineActivityRows.length <= MAX_VISIBLE_INLINE_TOOL_ENTRIES
+              ? inlineActivityRows
               : activeTurnInProgress
-                ? inlineToolEntries.slice(-MAX_VISIBLE_INLINE_TOOL_ENTRIES)
-                : inlineToolEntries.slice(0, MAX_VISIBLE_INLINE_TOOL_ENTRIES);
-          const hiddenInlineToolCount = inlineToolEntries.length - visibleInlineToolEntries.length;
-          const inlineWorkSummary =
-            inlineToolEntries.length > 0
-              ? null
-              : formatInlineWorkSummary(row.inlineWorkEntries ?? []);
+                ? inlineActivityRows.slice(-MAX_VISIBLE_INLINE_TOOL_ENTRIES)
+                : inlineActivityRows.slice(0, MAX_VISIBLE_INLINE_TOOL_ENTRIES);
+          const hiddenInlineToolCount =
+            inlineActivityRows.length - visibleInlineActivityRows.length;
           const assistantCopyState = resolveAssistantMessageCopyState({
             text: row.message.text ?? null,
             showCopyButton: row.showAssistantCopyButton,
@@ -689,55 +688,61 @@ export const MessagesTimeline = memo(function MessagesTimeline({
               },
             ]),
           );
-          const hasGenericInlineFileChangeEntry = inlineToolEntries.some(
+          // A file-change entry without concrete paths is redundant with the
+          // turn summary card below, so it is dropped from the step list.
+          const hasGenericInlineFileChangeEntry = inlineWorkEntries.some(
             (workEntry) =>
               isFileChangeWorkEntry(workEntry) && (workEntry.changedFiles?.length ?? 0) === 0,
           );
-          const visibleRenderableInlineToolEntries = visibleInlineToolEntries.filter(
-            (workEntry) =>
-              !(
-                hasGenericInlineFileChangeEntry &&
-                isFileChangeWorkEntry(workEntry) &&
-                (workEntry.changedFiles?.length ?? 0) === 0
-              ),
-          );
+          const visibleInlineRows: ActivityRow[] = [];
+          for (const activityRow of visibleInlineActivityRows) {
+            if (activityRow.kind !== "other") {
+              visibleInlineRows.push(activityRow);
+              continue;
+            }
+            const keptEntries = activityRow.entries.filter(
+              (workEntry) =>
+                !(
+                  hasGenericInlineFileChangeEntry &&
+                  isFileChangeWorkEntry(workEntry) &&
+                  (workEntry.changedFiles?.length ?? 0) === 0
+                ),
+            );
+            if (keptEntries.length === activityRow.entries.length) {
+              visibleInlineRows.push(activityRow);
+            } else if (keptEntries.length > 0) {
+              visibleInlineRows.push({
+                kind: "other",
+                id: activityRow.id,
+                createdAt: activityRow.createdAt,
+                entries: keptEntries,
+              });
+            }
+          }
           const inlineEditedFilesFromTurnSummary =
             hasGenericInlineFileChangeEntry && (turnSummary?.files.length ?? 0) > 0
               ? turnSummary!.files
               : [];
           const assistantMeta = row.message.streaming ? (
             nowIso ? (
-              [
-                formatMessageMeta(
-                  row.message.createdAt,
-                  formatElapsed(row.durationStart, nowIso),
-                  timestampFormat,
-                ),
-                inlineWorkSummary,
-              ]
-                .filter((value): value is string => Boolean(value))
-                .join(" • ")
-            ) : (
-              <>
-                <LiveMessageMeta
-                  createdAt={row.message.createdAt}
-                  durationStart={row.durationStart}
-                  timestampFormat={timestampFormat}
-                />
-                {inlineWorkSummary ? <> • {inlineWorkSummary}</> : null}
-              </>
-            )
-          ) : (
-            [
               formatMessageMeta(
                 row.message.createdAt,
-                formatElapsed(row.durationStart, row.message.completedAt),
+                formatElapsed(row.durationStart, nowIso),
                 timestampFormat,
-              ),
-              inlineWorkSummary,
-            ]
-              .filter((value): value is string => Boolean(value))
-              .join(" • ")
+              )
+            ) : (
+              <LiveMessageMeta
+                createdAt={row.message.createdAt}
+                durationStart={row.durationStart}
+                timestampFormat={timestampFormat}
+              />
+            )
+          ) : (
+            formatMessageMeta(
+              row.message.createdAt,
+              formatElapsed(row.durationStart, row.message.completedAt),
+              timestampFormat,
+            )
           );
           return (
             <>
@@ -756,35 +761,22 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                 </div>
               )}
               <div className="min-w-0 px-1 py-0.5">
-                <div data-assistant-message-id={row.message.id}>
-                  <ChatMarkdown
-                    text={messageText}
-                    cwd={markdownCwd}
-                    isStreaming={Boolean(row.message.streaming)}
-                    style={chatTypographyStyle}
-                    onImageExpand={onImageExpand}
-                  />
-                </div>
-                {visibleRenderableInlineToolEntries.length > 0 && (
-                  <div className="mt-2.5">
-                    <div className="space-y-px">
-                      {visibleRenderableInlineToolEntries.map((workEntry) => (
-                        <SimpleWorkEntryRow
-                          key={`inline-tool-row:${row.message.id}:${workEntry.id}`}
-                          workEntry={workEntry}
-                          chatMetaFontSizePx={appTypographyScale.chatMetaPx}
-                          textFontSizePx={normalizedChatFontSizePx}
-                          density="compact"
-                          fileDiffStatByPath={fileDiffStatByPath}
-                          onOpenTurnDiff={onOpenTurnDiff}
-                          {...(onOpenThread ? { onOpenThread } : {})}
-                          {...(turnSummary?.turnId ? { turnId: turnSummary.turnId } : {})}
-                        />
-                      ))}
+                {visibleInlineRows.length > 0 && (
+                  <div className="mb-5">
+                    <div className={ACTIVITY_ROW_LIST_CLASS}>
+                      {renderActivityRowList(visibleInlineRows, {
+                        chatMetaFontSizePx: appTypographyScale.chatMetaPx,
+                        stepFontSizePx: normalizedChatFontSizePx,
+                        textFontSizePx: normalizedChatFontSizePx,
+                        fileDiffStatByPath,
+                        onOpenTurnDiff,
+                        ...(onOpenThread ? { onOpenThread } : {}),
+                        ...(turnSummary?.turnId ? { turnId: turnSummary.turnId } : {}),
+                      })}
                     </div>
                     {inlineToolGroupId &&
-                      inlineToolEntries.length > MAX_VISIBLE_INLINE_TOOL_ENTRIES && (
-                        <div className="py-0.5">
+                      inlineActivityRows.length > MAX_VISIBLE_INLINE_TOOL_ENTRIES && (
+                        <div className="mt-2">
                           <button
                             type="button"
                             className="text-muted-foreground/50 transition-colors duration-150 hover:text-foreground/72"
@@ -799,6 +791,15 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                       )}
                   </div>
                 )}
+                <div data-assistant-message-id={row.message.id}>
+                  <ChatMarkdown
+                    text={messageText}
+                    cwd={markdownCwd}
+                    isStreaming={Boolean(row.message.streaming)}
+                    style={chatTypographyStyle}
+                    onImageExpand={onImageExpand}
+                  />
+                </div>
                 {inlineEditedFilesFromTurnSummary.length > 0 && (
                   <div className="mt-2 space-y-0.5">
                     {inlineEditedFilesFromTurnSummary.map((file) => (
@@ -1174,19 +1175,6 @@ function formatMessageMeta(
 ): string {
   if (!duration) return formatShortTimestamp(createdAt, timestampFormat);
   return `${formatShortTimestamp(createdAt, timestampFormat)} • ${duration}`;
-}
-
-function formatInlineWorkSummary(_groupedEntries: TimelineWorkEntry[]): string | null {
-  return null;
-}
-
-function hasOnlyToolToneEntries<T extends { tone: TimelineWorkEntry["tone"] }>(
-  entries: ReadonlyArray<T> | undefined,
-): entries is ReadonlyArray<T> {
-  if (!entries || entries.length === 0) {
-    return false;
-  }
-  return entries.every((entry) => entry.tone === "tool");
 }
 
 const UserMessageTerminalContextInlineLabel = memo(
@@ -2212,3 +2200,46 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
     </div>
   );
 });
+
+/**
+ * Renders derived activity rows: thinking/read/command steps collapse into one
+ * compact line each, while anything the step summary cannot describe (MCP calls,
+ * subagents, file changes) keeps the richer per-entry row.
+ */
+function renderActivityRowList(
+  rows: ReadonlyArray<ActivityRow>,
+  props: {
+    chatMetaFontSizePx: number;
+    stepFontSizePx: number;
+    textFontSizePx?: number;
+    fileDiffStatByPath?: ReadonlyMap<string, { additions: number; deletions: number }>;
+    turnId?: TurnId;
+    onOpenTurnDiff?: (turnId: TurnId, filePath?: string) => void;
+    onOpenThread?: (threadId: ThreadId) => void;
+  },
+): ReactNode {
+  return rows.map((activityRow) => {
+    if (activityRow.kind !== "other") {
+      return (
+        <ActivityStepRow
+          key={`step-row:${activityRow.id}`}
+          row={activityRow}
+          fontSizePx={props.stepFontSizePx}
+        />
+      );
+    }
+    return activityRow.entries.map((workEntry) => (
+      <SimpleWorkEntryRow
+        key={`work-row:${workEntry.id}`}
+        workEntry={workEntry}
+        chatMetaFontSizePx={props.chatMetaFontSizePx}
+        {...(props.textFontSizePx !== undefined ? { textFontSizePx: props.textFontSizePx } : {})}
+        density={prefersCompactWorkEntryRow(workEntry) ? "compact" : "default"}
+        {...(props.fileDiffStatByPath ? { fileDiffStatByPath: props.fileDiffStatByPath } : {})}
+        {...(props.turnId ? { turnId: props.turnId } : {})}
+        {...(props.onOpenTurnDiff ? { onOpenTurnDiff: props.onOpenTurnDiff } : {})}
+        {...(props.onOpenThread ? { onOpenThread: props.onOpenThread } : {})}
+      />
+    ));
+  });
+}

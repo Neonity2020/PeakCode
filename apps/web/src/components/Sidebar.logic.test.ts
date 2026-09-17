@@ -26,6 +26,7 @@ import {
   resolveProjectEmptyState,
   resolveProjectStatusIndicator,
   resolveSidebarNewThreadEnvMode,
+  resolveSidebarNewThreadTarget,
   resolveThreadRowClassName,
   resolveThreadStatusPill,
   shouldShowDebugFeatureFlagsMenu,
@@ -157,6 +158,44 @@ describe("resolveSidebarNewThreadEnvMode", () => {
         defaultEnvMode: "worktree",
       }),
     ).toBe("local");
+  });
+});
+
+describe("resolveSidebarNewThreadTarget", () => {
+  it("targets the focused project when the focused thread belongs to one", () => {
+    expect(
+      resolveSidebarNewThreadTarget({
+        focusedProjectId: ProjectId.makeUnsafe("project-peakcode"),
+        projects: [{ id: ProjectId.makeUnsafe("project-peakcode"), kind: "project" }],
+      }),
+    ).toEqual({ kind: "project", projectId: ProjectId.makeUnsafe("project-peakcode") });
+  });
+
+  it("falls back to the default workspace for legacy home-rooted chat containers", () => {
+    expect(
+      resolveSidebarNewThreadTarget({
+        focusedProjectId: ProjectId.makeUnsafe("project-home-chat"),
+        projects: [{ id: ProjectId.makeUnsafe("project-home-chat"), kind: "chat" }],
+      }),
+    ).toEqual({ kind: "default-workspace" });
+  });
+
+  it("falls back to the default workspace when no thread is focused", () => {
+    expect(
+      resolveSidebarNewThreadTarget({
+        focusedProjectId: null,
+        projects: [{ id: ProjectId.makeUnsafe("project-peakcode"), kind: "project" }],
+      }),
+    ).toEqual({ kind: "default-workspace" });
+  });
+
+  it("falls back to the default workspace when the focused project is gone", () => {
+    expect(
+      resolveSidebarNewThreadTarget({
+        focusedProjectId: ProjectId.makeUnsafe("project-deleted"),
+        projects: [],
+      }),
+    ).toEqual({ kind: "default-workspace" });
   });
 });
 

@@ -1354,6 +1354,43 @@ describe("composerDraftStore queued follow-ups", () => {
     ]);
   });
 
+  it("hydrates goal interaction mode and falls back on unknown modes", () => {
+    const basePersistedThread = {
+      projectId: ProjectId.makeUnsafe("project-hydrate-mode"),
+      createdAt: "2026-03-13T12:00:00.000Z",
+      runtimeMode: "full-access",
+      entryPoint: "chat",
+      branch: null,
+      worktreePath: null,
+      envMode: "local",
+    };
+    const goalThreadId = ThreadId.makeUnsafe("thread-hydrate-goal");
+    const unknownThreadId = ThreadId.makeUnsafe("thread-hydrate-unknown");
+    const persistApi = useComposerDraftStore.persist as unknown as {
+      getOptions: () => {
+        merge: (
+          persistedState: unknown,
+          currentState: ReturnType<typeof useComposerDraftStore.getState>,
+        ) => ReturnType<typeof useComposerDraftStore.getState>;
+      };
+    };
+
+    const mergedState = persistApi.getOptions().merge(
+      {
+        draftsByThreadId: {},
+        draftThreadsByThreadId: {
+          [goalThreadId]: { ...basePersistedThread, interactionMode: "goal" },
+          [unknownThreadId]: { ...basePersistedThread, interactionMode: "turbo" },
+        },
+        projectDraftThreadIdByProjectId: {},
+      },
+      useComposerDraftStore.getInitialState(),
+    );
+
+    expect(mergedState.draftThreadsByThreadId[goalThreadId]?.interactionMode).toBe("goal");
+    expect(mergedState.draftThreadsByThreadId[unknownThreadId]?.interactionMode).toBe("default");
+  });
+
   it("revokes queued chat image blob URLs when a queued turn is removed", () => {
     const queuedImage = makeImage({
       id: "queued-image-blob",

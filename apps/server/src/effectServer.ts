@@ -15,7 +15,9 @@ import { ServerConfig } from "./config";
 import { patchBunWebSocketCloseEventCompatibility } from "./bunWebSocketCompatibility";
 import { makeEffectHttpRouteLayer } from "./http";
 import { Keybindings } from "./keybindings";
+import { AutomationRunReactor } from "./automation/Services/AutomationRunReactor";
 import { AutomationService } from "./automation/Services/AutomationService";
+import { KanbanRunReactor } from "./kanban/Services/KanbanRunReactor";
 import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReactor";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor";
 import { ProviderSessionReaper } from "./provider/Services/ProviderSessionReaper";
@@ -33,7 +35,9 @@ export interface ServerShape {
     | ServerConfig
     | FileSystem.FileSystem
     | Path.Path
+    | AutomationRunReactor
     | AutomationService
+    | KanbanRunReactor
     | Keybindings
     | ServerLifecycleEvents
     | OrchestrationReactor
@@ -57,7 +61,9 @@ export class ServerLifecycleError extends Schema.TaggedErrorClass<ServerLifecycl
 
 export const createEffectServer = Effect.fn(function* () {
   const config = yield* ServerConfig;
+  const automationRunReactor = yield* AutomationRunReactor;
   const automationService = yield* AutomationService;
+  const kanbanRunReactor = yield* KanbanRunReactor;
   const keybindings = yield* Keybindings;
   const lifecycleEvents = yield* ServerLifecycleEvents;
   const orchestrationReactor = yield* OrchestrationReactor;
@@ -121,6 +127,8 @@ export const createEffectServer = Effect.fn(function* () {
   yield* Effect.addFinalizer(() => Scope.close(subscriptionsScope, Exit.void));
   yield* Scope.provide(orchestrationReactor.start, subscriptionsScope);
   yield* Scope.provide(threadDeletionReactor.start(), subscriptionsScope);
+  yield* Scope.provide(kanbanRunReactor.start(), subscriptionsScope);
+  yield* Scope.provide(automationRunReactor.start(), subscriptionsScope);
   yield* Scope.provide(providerSessionReaper.start(), subscriptionsScope);
   yield* automationService.startScheduler();
   yield* Effect.addFinalizer(() =>

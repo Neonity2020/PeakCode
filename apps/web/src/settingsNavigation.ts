@@ -1,16 +1,16 @@
 // FILE: settingsNavigation.ts
-// Purpose: Share the settings topic taxonomy between the main sidebar and the settings screen.
+// Purpose: Share the settings topic taxonomy between the settings screen and tests.
 // Layer: Route/UI support
-// Exports: section ids, nav items, and search normalization helper
+// Exports: section ids, nav items, nav groups, and search normalization helper
 
 import {
   AdjustmentsIcon,
   ArchiveIcon,
   BellIcon,
-  BrainIcon,
+  BookIcon,
   type LucideIcon,
+  PackageIcon,
   PaletteIcon,
-  PlugIcon,
   Server2Icon,
   SettingsIcon,
   WrenchIcon,
@@ -23,16 +23,16 @@ export const SETTINGS_SECTION_IDS = [
   "appearance",
   "notifications",
   "behavior",
+  "skills",
+  "piPackages",
+  "modelProviders",
   "worktrees",
   "archived",
-  "models",
-  "providers",
-  "modelProviders",
   "advanced",
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
-export type SettingsNavGroupId = "app" | "peakcode";
+export type SettingsNavGroupId = "basics" | "agent" | "data";
 
 export type SettingsNavItem = {
   id: SettingsSectionId;
@@ -40,14 +40,12 @@ export type SettingsNavItem = {
   label: string;
   description: string;
   icon: LucideIcon;
-  eyebrow: string;
 };
 
 type SettingsNavItemSpec = {
   id: SettingsSectionId;
   group: SettingsNavGroupId;
   icon: LucideIcon;
-  eyebrow: string;
   labelKey: keyof Messages["settings"]["nav"];
   descriptionKey: keyof Messages["settings"]["nav"];
 };
@@ -55,85 +53,77 @@ type SettingsNavItemSpec = {
 const SETTINGS_NAV_ITEM_SPECS_INTERNAL: readonly SettingsNavItemSpec[] = [
   {
     id: "general",
-    group: "app",
+    group: "basics",
     icon: SettingsIcon,
-    eyebrow: "Workflow defaults",
     labelKey: "general",
     descriptionKey: "general",
   },
   {
     id: "appearance",
-    group: "app",
+    group: "basics",
     icon: PaletteIcon,
-    eyebrow: "Visual language",
     labelKey: "appearance",
     descriptionKey: "appearance",
   },
   {
     id: "notifications",
-    group: "app",
+    group: "basics",
     icon: BellIcon,
-    eyebrow: "Alerts",
     labelKey: "notifications",
     descriptionKey: "notifications",
   },
   {
     id: "behavior",
-    group: "app",
+    group: "basics",
     icon: AdjustmentsIcon,
-    eyebrow: "Interaction rules",
     labelKey: "behavior",
     descriptionKey: "behavior",
   },
   {
+    id: "modelProviders",
+    group: "basics",
+    icon: Server2Icon,
+    labelKey: "modelProviders",
+    descriptionKey: "modelProviders",
+  },
+  {
+    id: "skills",
+    group: "agent",
+    icon: BookIcon,
+    labelKey: "skills",
+    descriptionKey: "skills",
+  },
+  {
+    id: "piPackages",
+    group: "agent",
+    icon: PackageIcon,
+    labelKey: "piPackages",
+    descriptionKey: "piPackages",
+  },
+  {
     id: "worktrees",
-    group: "app",
+    group: "data",
     icon: WorktreeIcon,
-    eyebrow: "Workspace management",
     labelKey: "worktrees",
     descriptionKey: "worktrees",
   },
   {
     id: "archived",
-    group: "app",
+    group: "data",
     icon: ArchiveIcon,
-    eyebrow: "Thread management",
     labelKey: "archived",
     descriptionKey: "archived",
   },
   {
-    id: "models",
-    group: "peakcode",
-    icon: BrainIcon,
-    eyebrow: "AI configuration",
-    labelKey: "models",
-    descriptionKey: "models",
-  },
-  {
-    id: "providers",
-    group: "peakcode",
-    icon: PlugIcon,
-    eyebrow: "Picker visibility",
-    labelKey: "providers",
-    descriptionKey: "providers",
-  },
-  {
-    id: "modelProviders",
-    group: "peakcode",
-    icon: Server2Icon,
-    eyebrow: "AI endpoints",
-    labelKey: "modelProviders",
-    descriptionKey: "modelProviders",
-  },
-  {
     id: "advanced",
-    group: "peakcode",
+    group: "data",
     icon: WrenchIcon,
-    eyebrow: "System tools",
     labelKey: "advanced",
     descriptionKey: "advanced",
   },
 ] as const;
+
+const SETTINGS_NAV_GROUP_IDS: readonly SettingsNavGroupId[] = ["basics", "agent", "data"] as const;
 
 export function buildSettingsNavItems(messages: Messages): readonly SettingsNavItem[] {
   return SETTINGS_NAV_ITEM_SPECS_INTERNAL.map((spec) => {
@@ -142,7 +132,6 @@ export function buildSettingsNavItems(messages: Messages): readonly SettingsNavI
       id: spec.id,
       group: spec.group,
       icon: spec.icon,
-      eyebrow: spec.eyebrow,
       label: entry.label,
       description: entry.description,
     };
@@ -153,10 +142,7 @@ export function buildSettingsNavGroups(messages: Messages): ReadonlyArray<{
   id: SettingsNavGroupId;
   label: string;
 }> {
-  return [
-    { id: "app", label: messages.settings.groups.app },
-    { id: "peakcode", label: messages.settings.groups.peakcode },
-  ];
+  return SETTINGS_NAV_GROUP_IDS.map((id) => ({ id, label: messages.settings.groups[id] }));
 }
 
 export function useSettingsNavItems(): readonly SettingsNavItem[] {
@@ -171,89 +157,6 @@ export function useSettingsNavGroups(): ReadonlyArray<{
   const messages = useMessages();
   return buildSettingsNavGroups(messages);
 }
-
-export const SETTINGS_NAV_GROUPS: ReadonlyArray<{
-  id: SettingsNavGroupId;
-  label: string;
-}> = [
-  { id: "app", label: "App" },
-  { id: "peakcode", label: "Peak Code" },
-] as const;
-
-export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
-  {
-    id: "general",
-    group: "app",
-    label: "General",
-    description: "Default provider, thread mode, and sidebar organization.",
-    icon: SettingsIcon,
-    eyebrow: "Workflow defaults",
-  },
-  {
-    id: "appearance",
-    group: "app",
-    label: "Appearance",
-    description: "Theme, typography, and timestamp formatting.",
-    icon: PaletteIcon,
-    eyebrow: "Visual language",
-  },
-  {
-    id: "notifications",
-    group: "app",
-    label: "Notifications",
-    description: "In-app toasts and desktop alerts.",
-    icon: BellIcon,
-    eyebrow: "Alerts",
-  },
-  {
-    id: "behavior",
-    group: "app",
-    label: "Behavior",
-    description: "Streaming, diff handling, and destructive confirmations.",
-    icon: AdjustmentsIcon,
-    eyebrow: "Interaction rules",
-  },
-  {
-    id: "worktrees",
-    group: "app",
-    label: "Worktrees",
-    description: "Review and clean up the worktrees created by Peak Code.",
-    icon: WorktreeIcon,
-    eyebrow: "Workspace management",
-  },
-  {
-    id: "archived",
-    group: "app",
-    label: "Archived",
-    description: "View and restore archived threads.",
-    icon: ArchiveIcon,
-    eyebrow: "Thread management",
-  },
-  {
-    id: "models",
-    group: "peakcode",
-    label: "Models",
-    description: "Git writing defaults and custom model slugs.",
-    icon: BrainIcon,
-    eyebrow: "AI configuration",
-  },
-  {
-    id: "providers",
-    group: "peakcode",
-    label: "Providers",
-    description: "Choose visible providers, review CLI installs, and update provider tools.",
-    icon: PlugIcon,
-    eyebrow: "Picker visibility",
-  },
-  {
-    id: "advanced",
-    group: "peakcode",
-    label: "Advanced",
-    description: "Keybindings, recovery, and version info.",
-    icon: WrenchIcon,
-    eyebrow: "System tools",
-  },
-] as const;
 
 export function normalizeSettingsSection(value: unknown): SettingsSectionId {
   if (typeof value !== "string") {

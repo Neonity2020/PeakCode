@@ -71,6 +71,12 @@ import type {
   ServerRefreshProvidersResult,
   ServerTestModelProviderInput,
   ServerTestModelProviderResult,
+  ServerInstallPiPackageInput,
+  ServerInstallPiPackageResult,
+  ServerListPiPackagesInput,
+  ServerListPiPackagesResult,
+  ServerRemovePiPackageInput,
+  ServerRemovePiPackageResult,
   ServerSaveModelProvidersInput,
   ServerSaveModelProvidersResult,
   ServerUpdateSettingsInput,
@@ -123,8 +129,38 @@ import type {
   ProviderReadPluginInput,
   ProviderReadPluginResult,
   ListLocalUserSkillsResult,
+  SetSkillEnabledInput,
+  SetSkillEnabledResult,
 } from "./providerDiscovery";
 import type { ProviderCompactThreadInput } from "./provider";
+import type {
+  AgentApprovalModeSetInput,
+  AgentApprovalModeSetResult,
+  AgentRuntimeGetInput,
+  AgentRuntimeGetResult,
+} from "./agentRuntime";
+import type {
+  AgentGoalGetInput,
+  AgentGoalGetResult,
+  AgentGoalSetStatusInput,
+  AgentGoalSetStatusResult,
+} from "./agentGoal";
+import type {
+  KanbanBoard,
+  KanbanAddTaskCommentInput,
+  KanbanCreateTaskInput,
+  KanbanDeleteTaskInput,
+  KanbanGenerateRequirementDraftInput,
+  KanbanGenerateRequirementDraftResult,
+  KanbanGenerateTaskRequirementInput,
+  KanbanGetBoardInput,
+  KanbanGetTaskDetailInput,
+  KanbanListProjectsInput,
+  KanbanListProjectsResult,
+  KanbanMoveTaskInput,
+  KanbanTaskDetail,
+  KanbanUpdateTaskInput,
+} from "./kanban";
 import type {
   Automation,
   AutomationRun,
@@ -412,6 +448,9 @@ export interface NativeApi {
     testModelProvider: (
       input: ServerTestModelProviderInput,
     ) => Promise<ServerTestModelProviderResult>;
+    listPiPackages: (input: ServerListPiPackagesInput) => Promise<ServerListPiPackagesResult>;
+    installPiPackage: (input: ServerInstallPiPackageInput) => Promise<ServerInstallPiPackageResult>;
+    removePiPackage: (input: ServerRemovePiPackageInput) => Promise<ServerRemovePiPackageResult>;
     getAuthSession: () => Promise<AuthSessionState>;
     bootstrapAuth: (input: AuthBootstrapInput) => Promise<AuthBootstrapResult>;
     bootstrapBearerAuth: (input: AuthBootstrapInput) => Promise<AuthBearerBootstrapResult>;
@@ -459,6 +498,33 @@ export interface NativeApi {
   };
   skills: {
     listLocal: () => Promise<ListLocalUserSkillsResult>;
+    setEnabled: (input: SetSkillEnabledInput) => Promise<SetSkillEnabledResult>;
+  };
+  /** Composer toolbar state: approval policy + context usage for a thread. */
+  agentRuntime: {
+    get: (input: AgentRuntimeGetInput) => Promise<AgentRuntimeGetResult>;
+    setApprovalMode: (input: AgentApprovalModeSetInput) => Promise<AgentApprovalModeSetResult>;
+  };
+  /** Goal-mode state for the composer's goal panel. */
+  agentGoal: {
+    get: (input: AgentGoalGetInput) => Promise<AgentGoalGetResult>;
+    setStatus: (input: AgentGoalSetStatusInput) => Promise<AgentGoalSetStatusResult>;
+  };
+  kanban: {
+    listProjects: (input: KanbanListProjectsInput) => Promise<KanbanListProjectsResult>;
+    getBoard: (input: KanbanGetBoardInput) => Promise<KanbanBoard>;
+    createTask: (input: KanbanCreateTaskInput) => Promise<KanbanBoard>;
+    updateTask: (input: KanbanUpdateTaskInput) => Promise<KanbanBoard>;
+    moveTask: (input: KanbanMoveTaskInput) => Promise<KanbanBoard>;
+    deleteTask: (input: KanbanDeleteTaskInput) => Promise<KanbanBoard>;
+    getTaskDetail: (input: KanbanGetTaskDetailInput) => Promise<KanbanTaskDetail>;
+    addTaskComment: (input: KanbanAddTaskCommentInput) => Promise<KanbanTaskDetail>;
+    generateTaskRequirement: (
+      input: KanbanGenerateTaskRequirementInput,
+    ) => Promise<KanbanTaskDetail>;
+    generateRequirementDraft: (
+      input: KanbanGenerateRequirementDraftInput,
+    ) => Promise<KanbanGenerateRequirementDraftResult>;
   };
   orchestration: {
     getSnapshot: () => Promise<OrchestrationReadModel>;

@@ -1,120 +1,121 @@
-import { Schema, ServiceMap } from "effect";
-import type { Effect } from "effect";
+import { ServiceMap } from "effect";
+import type { Effect, Option } from "effect";
 
 import type { ProjectionRepositoryError } from "../Errors.ts";
 import {
   Automation,
   AutomationId,
+  AutomationMode,
   AutomationRun,
   AutomationRunId,
-  CreateAutomationInput,
-  DeleteAutomationInput,
-  GetAutomationInput,
-  ListAutomationRunsInput,
-  ListAutomationsInput,
-  RunAutomationInput,
+  AutomationRunStatus,
+  AutomationRunTrigger,
+  AutomationSchedule,
+  ProjectId,
   ThreadId,
-  UpdateAutomationInput,
 } from "@peakcode/contracts";
 
-export const GetAutomationInputSchema = GetAutomationInput;
-export type GetAutomationInputSchema = typeof GetAutomationInputSchema.Type;
+/** A whole automation row: the plan plus the state the scheduler reads. */
+export interface AutomationWrite {
+  readonly automationId: AutomationId;
+  readonly projectId: ProjectId;
+  readonly title: string;
+  readonly instructions: string;
+  readonly schedule: AutomationSchedule;
+  readonly timezone: string;
+  readonly mode: AutomationMode;
+  readonly isEnabled: boolean;
+  /** Next planned instant, or null while paused / spent. */
+  readonly nextRunAt: string | null;
+  readonly lastRunAt: string | null;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}
 
-export const ListAutomationsInputSchema = ListAutomationsInput;
-export type ListAutomationsInputSchema = typeof ListAutomationsInputSchema.Type;
+/** Scheduling state written after a run (or when a stale trigger is skipped). */
+export interface AutomationScheduleStateWrite {
+  readonly automationId: AutomationId;
+  readonly nextRunAt: string | null;
+  readonly isEnabled?: boolean;
+  readonly lastRunAt?: string | null;
+  readonly updatedAt: string;
+}
 
-export const CreateAutomationInputSchema = CreateAutomationInput;
-export type CreateAutomationInputSchema = typeof CreateAutomationInputSchema.Type;
-
-export const UpdateAutomationInputSchema = UpdateAutomationInput;
-export type UpdateAutomationInputSchema = typeof UpdateAutomationInputSchema.Type;
-
-export const DeleteAutomationInputSchema = DeleteAutomationInput;
-export type DeleteAutomationInputSchema = typeof DeleteAutomationInputSchema.Type;
-
-export const RunAutomationInputSchema = RunAutomationInput;
-export type RunAutomationInputSchema = typeof RunAutomationInputSchema.Type;
-
-export const ListAutomationRunsInputSchema = ListAutomationRunsInput;
-export type ListAutomationRunsInputSchema = typeof ListAutomationRunsInputSchema.Type;
+export interface FinishAutomationRunWrite {
+  readonly runId: AutomationRunId;
+  readonly status: Exclude<AutomationRunStatus, "running">;
+  readonly summary?: string | null;
+  readonly errorMessage?: string | null;
+}
 
 /**
- * AutomationRepositoryShape - Service API for automation persistence.
+ * AutomationRepositoryShape - persistence for automations and their runs.
  */
 export interface AutomationRepositoryShape {
-  /**
-   * Get an automation by id.
-   */
-  readonly getById: (
-    input: GetAutomationInputSchema,
-  ) => Effect.Effect<Automation, ProjectionRepositoryError>;
+  readonly getById: (input: {
+    readonly automationId: AutomationId;
+  }) => Effect.Effect<Automation, ProjectionRepositoryError>;
 
-  /**
-   * List automations for a project.
-   */
-  readonly listByProjectId: (
-    input: ListAutomationsInputSchema,
+  /** Automations across every workspace, or just one when `projectId` is set. */
+  readonly list: (input: {
+    readonly projectId?: ProjectId | undefined;
+  }) => Effect.Effect<ReadonlyArray<Automation>, ProjectionRepositoryError>;
+
+  /** Enabled automations whose planned instant has arrived. */
+  readonly listDue: (
+    now: string,
   ) => Effect.Effect<ReadonlyArray<Automation>, ProjectionRepositoryError>;
 
-  /**
-   * List enabled cron automations for scheduler evaluation.
-   */
-  readonly listEnabledCron: () => Effect.Effect<
-    ReadonlyArray<Automation>,
-    ProjectionRepositoryError
-  >;
+  readonly create: (input: AutomationWrite) => Effect.Effect<Automation, ProjectionRepositoryError>;
 
-  /**
-   * Create a new automation.
-   */
-  readonly create: (
-    input: CreateAutomationInputSchema,
-  ) => Effect.Effect<Automation, ProjectionRepositoryError>;
+  readonly update: (input: AutomationWrite) => Effect.Effect<Automation, ProjectionRepositoryError>;
 
-  /**
-   * Update an automation.
-   */
-  readonly update: (
-    input: UpdateAutomationInputSchema,
-  ) => Effect.Effect<Automation, ProjectionRepositoryError>;
+  readonly delete: (input: {
+    readonly automationId: AutomationId;
+  }) => Effect.Effect<void, ProjectionRepositoryError>;
 
-  /**
-   * Delete an automation.
-   */
-  readonly delete: (
-    input: DeleteAutomationInputSchema,
+  readonly listRuns: (input: {
+    readonly automationId: AutomationId;
+    readonly limit: number;
+  }) => Effect.Effect<ReadonlyArray<AutomationRun>, ProjectionRepositoryError>;
+
+  /** Open a run row. The thread is attached separately, before dispatch. */
+  readonly createRun: (input: {
+    readonly automationId: AutomationId;
+    readonly trigger: AutomationRunTrigger;
+  }) => Effect.Effect<AutomationRun, ProjectionRepositoryError>;
+
+  /** Record the conversation a run opened, so a crash cannot double-dispatch it. */
+  readonly attachRunThread: (input: {
+    readonly runId: AutomationRunId;
+    readonly threadId: ThreadId;
+  }) => Effect.Effect<void, ProjectionRepositoryError>;
+
+  /** The run still marked running for an automation, if any. */
+  readonly runningRunForAutomation: (
+    automationId: AutomationId,
+  ) => Effect.Effect<Option.Option<AutomationRun>, ProjectionRepositoryError>;
+
+  /** The run still marked running for a conversation — how outcomes find their run. */
+  readonly runningRunForThread: (
+    threadId: ThreadId,
+  ) => Effect.Effect<Option.Option<AutomationRun>, ProjectionRepositoryError>;
+
+  readonly finishRun: (
+    input: FinishAutomationRunWrite,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 
   /**
-   * Get automation runs.
+   * Close every run left open. Called once at startup, when nothing can be running any
+   * more, so a crash mid-run cannot leave a task "in flight" forever.
    */
-  readonly listRuns: (
-    input: ListAutomationRunsInputSchema,
-  ) => Effect.Effect<ReadonlyArray<AutomationRun>, ProjectionRepositoryError>;
+  readonly finishRunningRuns: (input: {
+    readonly status: Exclude<AutomationRunStatus, "running">;
+    readonly errorMessage: string;
+  }) => Effect.Effect<void, ProjectionRepositoryError>;
 
-  /**
-   * Create an automation run.
-   */
-  readonly createRun: (
-    automationId: AutomationId,
-    status: "pending" | "running",
-  ) => Effect.Effect<AutomationRun, ProjectionRepositoryError>;
-
-  /**
-   * Update an automation run status.
-   */
-  readonly updateRun: (
-    runId: AutomationRunId,
-    status: "completed" | "failed" | "cancelled",
-    options?: { errorMessage?: string; threadId?: ThreadId; resultSummary?: string },
-  ) => Effect.Effect<void, ProjectionRepositoryError>;
-
-  /**
-   * Update automation last run timestamp.
-   */
-  readonly updateLastRunAt: (
-    automationId: AutomationId,
-    lastRunAt: string,
+  readonly saveScheduleState: (
+    input: AutomationScheduleStateWrite,
   ) => Effect.Effect<void, ProjectionRepositoryError>;
 }
 

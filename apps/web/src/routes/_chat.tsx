@@ -425,6 +425,9 @@ const SIDEBAR_INNER_CLASS = {
 function ChatRouteLayout() {
   const { settings } = useAppSettings();
   const side = settings.sidebarSide;
+  // Settings is a first-level surface with its own navigation column, so the
+  // workspace sidebar steps aside while it is open.
+  const isOnSettings = useLocation({ select: (location) => location.pathname === "/settings" });
 
   const sidebarElement = (
     <Sidebar
@@ -450,9 +453,9 @@ function ChatRouteLayout() {
     <SidebarProvider defaultOpen>
       <ThreadRetentionMaintenanceToast />
       <ChatRouteGlobalShortcuts />
-      {side === "left" ? sidebarElement : null}
+      {side === "left" && !isOnSettings ? sidebarElement : null}
       <Outlet />
-      {side === "right" ? sidebarElement : null}
+      {side === "right" && !isOnSettings ? sidebarElement : null}
     </SidebarProvider>
   );
 }

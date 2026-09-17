@@ -29,3 +29,32 @@ export function resolveCatalogDependencies(
     }),
   );
 }
+
+export interface StrippedWorkspaceDependencies {
+  /** Dependencies that stay in the staged package.json. */
+  readonly dependencies: Record<string, unknown>;
+  /** Names removed because their spec was `workspace:…`. */
+  readonly dropped: readonly string[];
+}
+
+/**
+ * Drop `workspace:` specs before staging a production install.
+ *
+ * The server bundle inlines every `@peakcode/*` package (`noExternal` in
+ * apps/server/tsdown.config.ts), so a staged app has nothing to install for
+ * them — and a `workspace:` spec cannot resolve outside the monorepo.
+ */
+export function stripWorkspaceDependencies(
+  dependencies: Record<string, unknown>,
+): StrippedWorkspaceDependencies {
+  const kept: Record<string, unknown> = {};
+  const dropped: string[] = [];
+  for (const [name, spec] of Object.entries(dependencies)) {
+    if (typeof spec === "string" && spec.startsWith("workspace:")) {
+      dropped.push(name);
+    } else {
+      kept[name] = spec;
+    }
+  }
+  return { dependencies: kept, dropped };
+}

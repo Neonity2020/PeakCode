@@ -18,7 +18,7 @@ import type { ComposerTrigger } from "../composer-logic";
 import { extendReplacementRangeForTrailingSpace } from "../composerTriggerInsertion";
 import {
   buildSlashReviewComposerPrompt,
-  buildSubagentsPrompt,
+  COMPOSER_PROMPT_INJECTION_BUILDERS,
   getAvailableComposerSlashCommands,
   hasProviderNativeSlashCommand,
   parseComposerSlashInvocationForCommands,
@@ -66,7 +66,7 @@ export function useComposerSlashCommands(input: {
   syncServerShellSnapshot: (snapshot: OrchestrationShellSnapshot) => void;
   navigateToThread: (threadId: ThreadId, options?: { splitViewId?: SplitViewId }) => Promise<void>;
   handleClearConversation: () => Promise<void> | void;
-  handleInteractionModeChange: (mode: "default" | "plan") => Promise<void> | void;
+  handleInteractionModeChange: (mode: ProviderInteractionMode) => Promise<void> | void;
   openForkTargetPicker: () => void;
   openReviewTargetPicker: () => void;
   setComposerDraftProviderModelOptions: (
@@ -527,8 +527,12 @@ export function useComposerSlashCommands(input: {
         await compactProviderThread();
         return true;
       }
-      if (slashInvocation.command === "plan" || slashInvocation.command === "default") {
-        await handleInteractionModeChange(slashInvocation.command === "plan" ? "plan" : "default");
+      if (
+        slashInvocation.command === "plan" ||
+        slashInvocation.command === "goal" ||
+        slashInvocation.command === "default"
+      ) {
+        await handleInteractionModeChange(slashInvocation.command);
         editorActions.clearComposerSlashDraft();
         return true;
       }
@@ -537,8 +541,9 @@ export function useComposerSlashCommands(input: {
         setIsSlashStatusDialogOpen(true);
         return true;
       }
-      if (slashInvocation.command === "subagents") {
-        editorActions.setComposerPromptValue(buildSubagentsPrompt(slashInvocation.args));
+      const injection = COMPOSER_PROMPT_INJECTION_BUILDERS[slashInvocation.command];
+      if (injection) {
+        editorActions.setComposerPromptValue(injection(slashInvocation.args));
         return true;
       }
       if (slashInvocation.command === "review") {
@@ -674,8 +679,8 @@ export function useComposerSlashCommands(input: {
         return;
       }
 
-      if (item.command === "plan" || item.command === "default") {
-        void handleInteractionModeChange(item.command === "plan" ? "plan" : "default");
+      if (item.command === "plan" || item.command === "goal" || item.command === "default") {
+        void handleInteractionModeChange(item.command);
         const applied = clearSlashCommandFromComposer();
         if (wasPromptReplacementApplied(applied)) {
           editorActions.setComposerHighlightedItemId(null);
@@ -683,8 +688,9 @@ export function useComposerSlashCommands(input: {
         return;
       }
 
-      if (item.command === "subagents") {
-        const replacement = buildSubagentsPrompt("");
+      const injection = item.command ? COMPOSER_PROMPT_INJECTION_BUILDERS[item.command] : undefined;
+      if (injection) {
+        const replacement = injection("");
         const applied = editorActions.applyPromptReplacement(
           trigger.rangeStart,
           trigger.rangeEnd,

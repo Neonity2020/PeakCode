@@ -1,5 +1,5 @@
 // FILE: _chat.index.tsx
-// Purpose: Restores the last chat route on app launch, falling back to a fresh home-chat draft.
+// Purpose: Restores the last chat route on app launch, falling back to a fresh default-workspace draft.
 // Layer: Routing
 // Depends on: sidebar UI persistence plus shared new-chat handler for the empty-state fallback.
 

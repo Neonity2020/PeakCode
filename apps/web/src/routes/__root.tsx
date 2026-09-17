@@ -74,7 +74,6 @@ import { invalidateGitQueries, invalidateGitQueriesForCwds } from "../lib/gitRea
 import { hasLiveThreadsWithMissingProjects } from "../lib/desktopProjectRecovery";
 import { parseDiffRouteSearch } from "../diffRouteSearch";
 import { resolveSplitViewThreadIds, selectSplitView, useSplitViewStore } from "../splitViewStore";
-import { providerDiscoveryQueryKeys } from "../lib/providerDiscoveryReactQuery";
 import { useAppSettings } from "../appSettings";
 import { I18nProvider } from "../i18n";
 import {
@@ -319,19 +318,6 @@ function ProviderUpdateNotifications() {
       title,
       description,
       timeout: 0,
-      actionProps: {
-        children: messages.notification.providerUpdate.actionReview,
-        onClick: () => {
-          if (updateToastIdRef.current) {
-            toastManager.close(updateToastIdRef.current);
-            updateToastIdRef.current = null;
-          }
-          void navigate({
-            to: "/settings",
-            search: { section: "providers", target: "provider-updates" },
-          });
-        },
-      },
       data: {
         secondaryActionProps: {
           children: messages.notification.providerUpdate.actionUpdateAll,

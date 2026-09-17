@@ -4,1916 +4,92 @@
 // Depends on: contracts schemas, app model resolution helpers, and zustand persistence.
 
 import {
-  type ModelSlug,
-  type PiThinkingLevel,
   ModelSelection,
-  OrchestrationThreadPullRequest,
-  ProjectId,
-  ProviderMentionReference,
   ProviderInteractionMode,
   ProviderKind,
-  ProviderModelOptions,
-  ProviderSkillReference,
-  ProviderStartOptions,
-  RuntimeMode,
   ThreadId,
 } from "@peakcode/contracts";
 import * as Schema from "effect/Schema";
 import * as Equal from "effect/Equal";
-import { DeepMutable } from "effect/Types";
-import {
-  getDefaultModel,
-  normalizeModelSlug,
-  resolveSelectableModel,
-  resolveModelSlugForProvider,
-} from "@peakcode/shared/model";
+
+import { getDefaultModel, normalizeModelSlug } from "@peakcode/shared/model";
 import { useMemo } from "react";
-import { getLocalStorageItem } from "./hooks/useLocalStorage";
-import { resolveAppModelSelection } from "./appSettings";
-import {
-  DEFAULT_INTERACTION_MODE,
-  DEFAULT_RUNTIME_MODE,
-  type ChatAssistantSelectionAttachment,
-  type ChatImageAttachment,
-  type ThreadPrimarySurface,
-} from "./types";
-import {
-  type TerminalContextDraft,
-  ensureInlineTerminalContextPlaceholders,
-  normalizeTerminalContextText,
-} from "./lib/terminalContext";
-import { normalizeAssistantSelectionAttachment } from "./lib/assistantSelections";
+
+import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE } from "./types";
+import { ensureInlineTerminalContextPlaceholders } from "./lib/terminalContext";
+
 import { buildModelSelection } from "./providerModelOptions";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { createDebouncedStorage, createMemoryStorage } from "./lib/storage";
 
-export const COMPOSER_DRAFT_STORAGE_KEY = "peakcode:composer-drafts:v1";
-const COMPOSER_DRAFT_STORAGE_VERSION = 4;
-const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
-export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
-const DraftThreadEntryPointSchema = Schema.Literals(["chat", "terminal"]);
-const COMPOSER_PROVIDER_KINDS = ["pi"] as const satisfies readonly ProviderKind[];
-const isProviderKind = Schema.is(ProviderKind);
-
-const COMPOSER_PERSIST_DEBOUNCE_MS = 300;
-const TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX = "::terminal";
-
-const composerDebouncedStorage = createDebouncedStorage(
-  typeof localStorage !== "undefined" ? localStorage : createMemoryStorage(),
-  COMPOSER_PERSIST_DEBOUNCE_MS,
-);
-
-// Flush pending composer draft writes before page unload to prevent data loss.
-if (typeof window !== "undefined") {
-  window.addEventListener("beforeunload", () => {
-    composerDebouncedStorage.flush();
-  });
-}
-
-export const PersistedComposerImageAttachment = Schema.Struct({
-  id: Schema.String,
-  name: Schema.String,
-  mimeType: Schema.String,
-  sizeBytes: Schema.Number,
-  dataUrl: Schema.String,
-});
-export type PersistedComposerImageAttachment = typeof PersistedComposerImageAttachment.Type;
-
-export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "previewUrl"> {
-  previewUrl: string;
-  file: File;
-}
-
-export type ComposerAssistantSelectionAttachment = ChatAssistantSelectionAttachment;
-
-export interface QueuedComposerChatTurn {
-  id: string;
-  kind: "chat";
-  createdAt: string;
-  previewText: string;
-  prompt: string;
-  images: ComposerImageAttachment[];
-  assistantSelections: ComposerAssistantSelectionAttachment[];
-  terminalContexts: TerminalContextDraft[];
-  skills: ProviderSkillReference[];
-  mentions: ProviderMentionReference[];
-  selectedProvider: ProviderKind;
-  selectedModel: string | null;
-  selectedPromptEffort: string | null;
-  modelSelection: ModelSelection;
-  providerOptionsForDispatch?: ProviderStartOptions | undefined;
-  runtimeMode: RuntimeMode;
-  interactionMode: ProviderInteractionMode;
-  envMode: DraftThreadEnvMode;
-}
-
-export interface QueuedComposerPlanFollowUp {
-  id: string;
-  kind: "plan-follow-up";
-  createdAt: string;
-  previewText: string;
-  text: string;
-  interactionMode: "default" | "plan";
-  selectedProvider: ProviderKind;
-  selectedModel: string | null;
-  selectedPromptEffort: string | null;
-  modelSelection: ModelSelection;
-  providerOptionsForDispatch?: ProviderStartOptions | undefined;
-  runtimeMode: RuntimeMode;
-}
-
-export type QueuedComposerTurn = QueuedComposerChatTurn | QueuedComposerPlanFollowUp;
-
-const PersistedTerminalContextDraft = Schema.Struct({
-  id: Schema.String,
-  threadId: ThreadId,
-  createdAt: Schema.String,
-  terminalId: Schema.String,
-  terminalLabel: Schema.String,
-  lineStart: Schema.Number,
-  lineEnd: Schema.Number,
-});
-type PersistedTerminalContextDraft = typeof PersistedTerminalContextDraft.Type;
-
-const PersistedQueuedTerminalContextDraft = Schema.Struct({
-  id: Schema.String,
-  threadId: ThreadId,
-  createdAt: Schema.String,
-  terminalId: Schema.String,
-  terminalLabel: Schema.String,
-  lineStart: Schema.Number,
-  lineEnd: Schema.Number,
-  text: Schema.String,
-});
-type PersistedQueuedTerminalContextDraft = typeof PersistedQueuedTerminalContextDraft.Type;
-
-const PersistedQueuedComposerChatTurn = Schema.Struct({
-  id: Schema.String,
-  kind: Schema.Literal("chat"),
-  createdAt: Schema.String,
-  previewText: Schema.String,
-  prompt: Schema.String,
-  images: Schema.Array(PersistedComposerImageAttachment),
-  assistantSelections: Schema.optionalKey(
-    Schema.Array(
-      Schema.Struct({
-        id: Schema.String,
-        assistantMessageId: Schema.String,
-        text: Schema.String,
-      }),
-    ),
-  ),
-  terminalContexts: Schema.Array(PersistedQueuedTerminalContextDraft),
-  skills: Schema.Array(ProviderSkillReference),
-  mentions: Schema.Array(ProviderMentionReference),
-  selectedProvider: ProviderKind,
-  selectedModel: Schema.NullOr(Schema.String),
-  selectedPromptEffort: Schema.NullOr(Schema.String),
-  modelSelection: ModelSelection,
-  providerOptionsForDispatch: Schema.optionalKey(ProviderStartOptions),
-  runtimeMode: RuntimeMode,
-  interactionMode: ProviderInteractionMode,
-  envMode: DraftThreadEnvModeSchema,
-});
-type PersistedQueuedComposerChatTurn = typeof PersistedQueuedComposerChatTurn.Type;
-
-const PersistedQueuedComposerPlanFollowUp = Schema.Struct({
-  id: Schema.String,
-  kind: Schema.Literal("plan-follow-up"),
-  createdAt: Schema.String,
-  previewText: Schema.String,
-  text: Schema.String,
-  interactionMode: ProviderInteractionMode,
-  selectedProvider: ProviderKind,
-  selectedModel: Schema.NullOr(Schema.String),
-  selectedPromptEffort: Schema.NullOr(Schema.String),
-  modelSelection: ModelSelection,
-  providerOptionsForDispatch: Schema.optionalKey(ProviderStartOptions),
-  runtimeMode: RuntimeMode,
-});
-type PersistedQueuedComposerPlanFollowUp = typeof PersistedQueuedComposerPlanFollowUp.Type;
-
-const PersistedQueuedComposerTurn = Schema.Union([
-  PersistedQueuedComposerChatTurn,
-  PersistedQueuedComposerPlanFollowUp,
-]);
-type PersistedQueuedComposerTurn = typeof PersistedQueuedComposerTurn.Type;
-
-const PersistedComposerThreadDraftState = Schema.Struct({
-  prompt: Schema.String,
-  attachments: Schema.Array(PersistedComposerImageAttachment),
-  assistantSelections: Schema.optionalKey(
-    Schema.Array(
-      Schema.Struct({
-        id: Schema.String,
-        assistantMessageId: Schema.String,
-        text: Schema.String,
-      }),
-    ),
-  ),
-  terminalContexts: Schema.optionalKey(Schema.Array(PersistedTerminalContextDraft)),
-  queuedTurns: Schema.optionalKey(Schema.Array(PersistedQueuedComposerTurn)),
-  modelSelectionByProvider: Schema.optionalKey(
-    Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
-  ),
-  activeProvider: Schema.optionalKey(Schema.NullOr(ProviderKind)),
-  runtimeMode: Schema.optionalKey(RuntimeMode),
-  interactionMode: Schema.optionalKey(ProviderInteractionMode),
-});
-type PersistedComposerThreadDraftState = typeof PersistedComposerThreadDraftState.Type;
-
-const LegacyCodexFields = Schema.Struct({
-  effort: Schema.optionalKey(Schema.String),
-  codexFastMode: Schema.optionalKey(Schema.Boolean),
-  serviceTier: Schema.optionalKey(Schema.String),
-});
-type LegacyCodexFields = typeof LegacyCodexFields.Type;
-
-const LegacyThreadModelFields = Schema.Struct({
-  provider: Schema.optionalKey(ProviderKind),
-  model: Schema.optionalKey(Schema.String),
-  modelOptions: Schema.optionalKey(Schema.NullOr(ProviderModelOptions)),
-});
-type LegacyThreadModelFields = typeof LegacyThreadModelFields.Type;
-
-type LegacyV2ThreadDraftFields = {
-  modelSelection?: ModelSelection | null;
-  modelOptions?: ProviderModelOptions | null;
-};
-
-type LegacyPersistedComposerThreadDraftState = PersistedComposerThreadDraftState &
-  LegacyCodexFields &
-  LegacyThreadModelFields &
-  LegacyV2ThreadDraftFields;
-
-const LegacyStickyModelFields = Schema.Struct({
-  stickyProvider: Schema.optionalKey(ProviderKind),
-  stickyModel: Schema.optionalKey(Schema.String),
-  stickyModelOptions: Schema.optionalKey(Schema.NullOr(ProviderModelOptions)),
-});
-type LegacyStickyModelFields = typeof LegacyStickyModelFields.Type;
-
-type LegacyV2StoreFields = {
-  stickyModelSelection?: ModelSelection | null;
-  stickyModelOptions?: ProviderModelOptions | null;
-};
-
-type LegacyPersistedComposerDraftStoreState = PersistedComposerDraftStoreState &
-  LegacyStickyModelFields &
-  LegacyV2StoreFields;
-
-const PersistedDraftThreadState = Schema.Struct({
-  projectId: ProjectId,
-  createdAt: Schema.String,
-  runtimeMode: RuntimeMode,
-  interactionMode: ProviderInteractionMode,
-  entryPoint: DraftThreadEntryPointSchema.pipe(Schema.withDecodingDefault(() => "chat")),
-  branch: Schema.NullOr(Schema.String),
-  worktreePath: Schema.NullOr(Schema.String),
-  lastKnownPr: Schema.optionalKey(Schema.NullOr(OrchestrationThreadPullRequest)),
-  envMode: DraftThreadEnvModeSchema,
-  isTemporary: Schema.optionalKey(Schema.Boolean),
-  promotedTo: Schema.optionalKey(ThreadId),
-});
-type PersistedDraftThreadState = typeof PersistedDraftThreadState.Type;
-
-const PersistedComposerDraftStoreState = Schema.Struct({
-  draftsByThreadId: Schema.Record(ThreadId, PersistedComposerThreadDraftState),
-  draftThreadsByThreadId: Schema.Record(ThreadId, PersistedDraftThreadState),
-  projectDraftThreadIdByProjectId: Schema.Record(ProjectId, ThreadId),
-  stickyModelSelectionByProvider: Schema.optionalKey(
-    Schema.Record(ProviderKind, Schema.optionalKey(ModelSelection)),
-  ),
-  stickyActiveProvider: Schema.optionalKey(Schema.NullOr(ProviderKind)),
-});
-type PersistedComposerDraftStoreState = typeof PersistedComposerDraftStoreState.Type;
-
-const PersistedComposerDraftStoreStorage = Schema.Struct({
-  version: Schema.Number,
-  state: PersistedComposerDraftStoreState,
-});
-
-export interface ComposerThreadDraftState {
-  prompt: string;
-  images: ComposerImageAttachment[];
-  nonPersistedImageIds: string[];
-  persistedAttachments: PersistedComposerImageAttachment[];
-  assistantSelections: ComposerAssistantSelectionAttachment[];
-  terminalContexts: TerminalContextDraft[];
-  queuedTurns: QueuedComposerTurn[];
-  modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
-  activeProvider: ProviderKind | null;
-  runtimeMode: RuntimeMode | null;
-  interactionMode: ProviderInteractionMode | null;
-}
-
-export interface DraftThreadState {
-  projectId: ProjectId;
-  createdAt: string;
-  runtimeMode: RuntimeMode;
-  interactionMode: ProviderInteractionMode;
-  entryPoint: ThreadPrimarySurface;
-  branch: string | null;
-  worktreePath: string | null;
-  lastKnownPr?: OrchestrationThreadPullRequest | null;
-  envMode: DraftThreadEnvMode;
-  isTemporary?: boolean;
-  promotedTo?: ThreadId;
-}
-
-interface ProjectDraftThread extends DraftThreadState {
-  threadId: ThreadId;
-}
-
-export interface ComposerDraftStoreState {
-  draftsByThreadId: Record<ThreadId, ComposerThreadDraftState>;
-  draftThreadsByThreadId: Record<ThreadId, DraftThreadState>;
-  projectDraftThreadIdByProjectId: Record<string, ThreadId>;
-  stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>>;
-  stickyActiveProvider: ProviderKind | null;
-  getDraftThreadByProjectId: (
-    projectId: ProjectId,
-    entryPoint?: ThreadPrimarySurface,
-  ) => ProjectDraftThread | null;
-  getDraftThread: (threadId: ThreadId) => DraftThreadState | null;
-  setProjectDraftThreadId: (
-    projectId: ProjectId,
-    threadId: ThreadId,
-    options?: {
-      branch?: string | null;
-      worktreePath?: string | null;
-      lastKnownPr?: OrchestrationThreadPullRequest | null;
-      createdAt?: string;
-      envMode?: DraftThreadEnvMode;
-      runtimeMode?: RuntimeMode;
-      interactionMode?: ProviderInteractionMode;
-      entryPoint?: ThreadPrimarySurface;
-      isTemporary?: boolean;
-    },
-  ) => void;
-  setDraftThreadContext: (
-    threadId: ThreadId,
-    options: {
-      branch?: string | null;
-      worktreePath?: string | null;
-      lastKnownPr?: OrchestrationThreadPullRequest | null;
-      projectId?: ProjectId;
-      createdAt?: string;
-      envMode?: DraftThreadEnvMode;
-      runtimeMode?: RuntimeMode;
-      interactionMode?: ProviderInteractionMode;
-      entryPoint?: ThreadPrimarySurface;
-      isTemporary?: boolean;
-    },
-  ) => void;
-  clearProjectDraftThreadId: (projectId: ProjectId, entryPoint?: ThreadPrimarySurface) => void;
-  clearProjectDraftThreads: (projectId: ProjectId) => void;
-  clearProjectDraftThreadById: (projectId: ProjectId, threadId: ThreadId) => void;
-  markDraftThreadPromoting: (threadId: ThreadId, promotedTo?: ThreadId) => void;
-  finalizePromotedDraftThread: (threadId: ThreadId) => void;
-  clearDraftThread: (threadId: ThreadId) => void;
-  setStickyModelSelection: (modelSelection: ModelSelection | null | undefined) => void;
-  setPrompt: (threadId: ThreadId, prompt: string) => void;
-  setTerminalContexts: (threadId: ThreadId, contexts: TerminalContextDraft[]) => void;
-  setModelSelection: (
-    threadId: ThreadId,
-    modelSelection: ModelSelection | null | undefined,
-  ) => void;
-  setModelOptions: (
-    threadId: ThreadId,
-    modelOptions: ProviderModelOptions | null | undefined,
-  ) => void;
-  applyStickyState: (threadId: ThreadId) => void;
-  setProviderModelOptions: (
-    threadId: ThreadId,
-    provider: ProviderKind,
-    nextProviderOptions: ProviderModelOptions[ProviderKind] | null | undefined,
-    options?: {
-      model?: string | null;
-      persistSticky?: boolean;
-    },
-  ) => void;
-  setRuntimeMode: (threadId: ThreadId, runtimeMode: RuntimeMode | null | undefined) => void;
-  setInteractionMode: (
-    threadId: ThreadId,
-    interactionMode: ProviderInteractionMode | null | undefined,
-  ) => void;
-  enqueueQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn) => void;
-  insertQueuedTurn: (threadId: ThreadId, queuedTurn: QueuedComposerTurn, index: number) => void;
-  removeQueuedTurn: (threadId: ThreadId, queuedTurnId: string) => void;
-  addImage: (threadId: ThreadId, image: ComposerImageAttachment) => void;
-  addImages: (threadId: ThreadId, images: ComposerImageAttachment[]) => void;
-  removeImage: (threadId: ThreadId, imageId: string) => void;
-  addAssistantSelection: (
-    threadId: ThreadId,
-    selection: ComposerAssistantSelectionAttachment,
-  ) => boolean;
-  removeAssistantSelection: (threadId: ThreadId, selectionId: string) => void;
-  clearAssistantSelections: (threadId: ThreadId) => void;
-  insertTerminalContext: (
-    threadId: ThreadId,
-    prompt: string,
-    context: TerminalContextDraft,
-    index: number,
-  ) => boolean;
-  addTerminalContext: (threadId: ThreadId, context: TerminalContextDraft) => void;
-  addTerminalContexts: (threadId: ThreadId, contexts: TerminalContextDraft[]) => void;
-  removeTerminalContext: (threadId: ThreadId, contextId: string) => void;
-  clearTerminalContexts: (threadId: ThreadId) => void;
-  clearPersistedAttachments: (threadId: ThreadId) => void;
-  syncPersistedAttachments: (
-    threadId: ThreadId,
-    attachments: PersistedComposerImageAttachment[],
-  ) => void;
-  copyTransferableComposerState: (sourceThreadId: ThreadId, targetThreadId: ThreadId) => void;
-  clearComposerContent: (threadId: ThreadId) => void;
-}
-
-export interface EffectiveComposerModelState {
-  selectedModel: ModelSlug;
-  modelOptions: ProviderModelOptions | null;
-}
-
-function mergeProviderModelOptionsFromSelections(
-  ...selections: ReadonlyArray<ModelSelection | null | undefined>
-): ProviderModelOptions | null {
-  const result: Partial<Record<ProviderKind, ProviderModelOptions[ProviderKind]>> = {};
-  for (const selection of selections) {
-    if (!selection) continue;
-    if (selection.options) {
-      result[selection.provider] = selection.options;
-    } else {
-      delete result[selection.provider];
-    }
-  }
-  return Object.keys(result).length > 0 ? (result as ProviderModelOptions) : null;
-}
-
-function deriveEffectiveComposerModelOptions(input: {
-  draft:
-    | Pick<ComposerThreadDraftState, "modelSelectionByProvider" | "activeProvider">
-    | null
-    | undefined;
-  threadModelSelection: ModelSelection | null | undefined;
-  projectModelSelection: ModelSelection | null | undefined;
-}): ProviderModelOptions | null {
-  const baseOptions = mergeProviderModelOptionsFromSelections(
-    input.projectModelSelection,
-    input.threadModelSelection,
-  );
-  const draftSelections = input.draft?.modelSelectionByProvider;
-  if (!draftSelections) {
-    return baseOptions;
-  }
-
-  const result: Partial<Record<ProviderKind, ProviderModelOptions[ProviderKind]>> = {
-    ...(baseOptions ?? {}),
-  };
-  for (const [provider, selection] of Object.entries(draftSelections) as Array<
-    [ProviderKind, ModelSelection | undefined]
-  >) {
-    if (!selection) continue;
-    if (selection.options) {
-      result[provider] = selection.options;
-    } else {
-      delete result[provider];
-    }
-  }
-  return Object.keys(result).length > 0 ? (result as ProviderModelOptions) : null;
-}
-
-const EMPTY_PERSISTED_DRAFT_STORE_STATE = Object.freeze<PersistedComposerDraftStoreState>({
-  draftsByThreadId: {},
-  draftThreadsByThreadId: {},
-  projectDraftThreadIdByProjectId: {},
-  stickyModelSelectionByProvider: {},
-  stickyActiveProvider: null,
-});
-
-function projectDraftThreadMappingKey(
-  projectId: ProjectId,
-  entryPoint: ThreadPrimarySurface = "chat",
-): string {
-  return entryPoint === "terminal"
-    ? `${projectId}${TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX}`
-    : projectId;
-}
-
-function projectDraftThreadEntryPointFromKey(key: string): ThreadPrimarySurface {
-  return key.endsWith(TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX) ? "terminal" : "chat";
-}
-
-function projectIdFromDraftThreadMappingKey(key: string): ProjectId {
-  return (
-    key.endsWith(TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX)
-      ? key.slice(0, -TERMINAL_DRAFT_THREAD_MAPPING_SUFFIX.length)
-      : key
-  ) as ProjectId;
-}
-
-const EMPTY_IMAGES: ComposerImageAttachment[] = [];
-const EMPTY_IDS: string[] = [];
-const EMPTY_PERSISTED_ATTACHMENTS: PersistedComposerImageAttachment[] = [];
-const EMPTY_TERMINAL_CONTEXTS: TerminalContextDraft[] = [];
-const EMPTY_QUEUED_TURNS: QueuedComposerTurn[] = [];
-Object.freeze(EMPTY_IMAGES);
-Object.freeze(EMPTY_IDS);
-Object.freeze(EMPTY_PERSISTED_ATTACHMENTS);
-Object.freeze(EMPTY_QUEUED_TURNS);
-const EMPTY_MODEL_SELECTION_BY_PROVIDER: Partial<Record<ProviderKind, ModelSelection>> =
-  Object.freeze({});
-
-const EMPTY_THREAD_DRAFT = Object.freeze<ComposerThreadDraftState>({
-  prompt: "",
-  images: EMPTY_IMAGES,
-  nonPersistedImageIds: EMPTY_IDS,
-  persistedAttachments: EMPTY_PERSISTED_ATTACHMENTS,
-  assistantSelections: [],
-  terminalContexts: EMPTY_TERMINAL_CONTEXTS,
-  queuedTurns: EMPTY_QUEUED_TURNS,
-  modelSelectionByProvider: EMPTY_MODEL_SELECTION_BY_PROVIDER,
-  activeProvider: null,
-  runtimeMode: null,
-  interactionMode: null,
-});
-
-function createEmptyThreadDraft(): ComposerThreadDraftState {
-  return {
-    prompt: "",
-    images: [],
-    nonPersistedImageIds: [],
-    persistedAttachments: [],
-    assistantSelections: [],
-    terminalContexts: [],
-    queuedTurns: [],
-    modelSelectionByProvider: {},
-    activeProvider: null,
-    runtimeMode: null,
-    interactionMode: null,
-  };
-}
-
-function composerImageDedupKey(image: ComposerImageAttachment): string {
-  // Keep this independent from File.lastModified so dedupe is stable for hydrated
-  // images reconstructed from localStorage (which get a fresh lastModified value).
-  return `${image.mimeType}\u0000${image.sizeBytes}\u0000${image.name}`;
-}
-
-function terminalContextDedupKey(context: TerminalContextDraft): string {
-  return `${context.terminalId}\u0000${context.lineStart}\u0000${context.lineEnd}`;
-}
-
-function assistantSelectionDedupKey(
-  selection: Pick<ComposerAssistantSelectionAttachment, "assistantMessageId" | "text">,
-): string {
-  return `${selection.assistantMessageId}\u0000${selection.text}`;
-}
-
-function normalizeAssistantSelection(
-  selection: Pick<ComposerAssistantSelectionAttachment, "id" | "assistantMessageId" | "text">,
-): ComposerAssistantSelectionAttachment | null {
-  const normalized = normalizeAssistantSelectionAttachment(selection);
-  if (!normalized) {
-    return null;
-  }
-  return {
-    type: "assistant-selection",
-    ...selection,
-    assistantMessageId: normalized.assistantMessageId,
-    text: normalized.text,
-  };
-}
-
-function normalizeAssistantSelections(
-  selections: ReadonlyArray<
-    Pick<ComposerAssistantSelectionAttachment, "id" | "assistantMessageId" | "text">
-  >,
-): ComposerAssistantSelectionAttachment[] {
-  const normalizedSelections: ComposerAssistantSelectionAttachment[] = [];
-  const existingIds = new Set<string>();
-  const existingDedupKeys = new Set<string>();
-
-  for (const selection of selections) {
-    const normalizedSelection = normalizeAssistantSelection(selection);
-    if (!normalizedSelection) {
-      continue;
-    }
-    const dedupKey = assistantSelectionDedupKey(normalizedSelection);
-    if (existingIds.has(normalizedSelection.id) || existingDedupKeys.has(dedupKey)) {
-      continue;
-    }
-    normalizedSelections.push(normalizedSelection);
-    existingIds.add(normalizedSelection.id);
-    existingDedupKeys.add(dedupKey);
-  }
-
-  return normalizedSelections;
-}
-
-function normalizeTerminalContextForThread(
-  threadId: ThreadId,
-  context: TerminalContextDraft,
-): TerminalContextDraft | null {
-  const terminalId = context.terminalId.trim();
-  const terminalLabel = context.terminalLabel.trim();
-  if (terminalId.length === 0 || terminalLabel.length === 0) {
-    return null;
-  }
-  const lineStart = Math.max(1, Math.floor(context.lineStart));
-  const lineEnd = Math.max(lineStart, Math.floor(context.lineEnd));
-  return {
-    ...context,
-    threadId,
-    terminalId,
-    terminalLabel,
-    lineStart,
-    lineEnd,
-    text: normalizeTerminalContextText(context.text),
-  };
-}
-
-function normalizeTerminalContextsForThread(
-  threadId: ThreadId,
-  contexts: ReadonlyArray<TerminalContextDraft>,
-): TerminalContextDraft[] {
-  const existingIds = new Set<string>();
-  const existingDedupKeys = new Set<string>();
-  const normalizedContexts: TerminalContextDraft[] = [];
-
-  for (const context of contexts) {
-    const normalizedContext = normalizeTerminalContextForThread(threadId, context);
-    if (!normalizedContext) {
-      continue;
-    }
-    const dedupKey = terminalContextDedupKey(normalizedContext);
-    if (existingIds.has(normalizedContext.id) || existingDedupKeys.has(dedupKey)) {
-      continue;
-    }
-    normalizedContexts.push(normalizedContext);
-    existingIds.add(normalizedContext.id);
-    existingDedupKeys.add(dedupKey);
-  }
-
-  return normalizedContexts;
-}
-
-function buildTransferredComposerDraft(input: {
-  sourceDraft: ComposerThreadDraftState;
-  targetDraft: ComposerThreadDraftState | undefined;
-  targetThreadId: ThreadId;
-}): ComposerThreadDraftState {
-  const { sourceDraft, targetDraft, targetThreadId } = input;
-  const base = targetDraft ?? createEmptyThreadDraft();
-  return {
-    ...base,
-    prompt: sourceDraft.prompt,
-    assistantSelections: normalizeAssistantSelections(sourceDraft.assistantSelections),
-    terminalContexts: normalizeTerminalContextsForThread(
-      targetThreadId,
-      sourceDraft.terminalContexts,
-    ),
-  };
-}
-
-function shouldRemoveDraft(draft: ComposerThreadDraftState): boolean {
-  return (
-    draft.prompt.length === 0 &&
-    draft.images.length === 0 &&
-    draft.persistedAttachments.length === 0 &&
-    draft.assistantSelections.length === 0 &&
-    draft.terminalContexts.length === 0 &&
-    draft.queuedTurns.length === 0 &&
-    Object.keys(draft.modelSelectionByProvider).length === 0 &&
-    draft.activeProvider === null &&
-    draft.runtimeMode === null &&
-    draft.interactionMode === null
-  );
-}
-
-function normalizeProviderKind(value: unknown): ProviderKind | null {
-  return isProviderKind(value) ? value : null;
-}
-
-function trimStringOrUndefined(value: unknown): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function makeModelSelection(
-  provider: ProviderKind,
-  model: string,
-  options?: ProviderModelOptions[ProviderKind],
-): ModelSelection {
-  switch (provider) {
-    case "pi":
-      return {
-        provider,
-        model,
-        ...(options
-          ? { options: options as Extract<ModelSelection, { provider: "pi" }>["options"] }
-          : {}),
-      };
-  }
-}
-
-function normalizeProviderModelOptions(
-  value: unknown,
-  provider?: ProviderKind | null,
-  legacy?: LegacyCodexFields,
-): ProviderModelOptions | null {
-  const candidate = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-  const piCandidate =
-    candidate?.pi && typeof candidate.pi === "object"
-      ? (candidate.pi as Record<string, unknown>)
-      : null;
-  const piThinkingLevel: PiThinkingLevel | undefined =
-    piCandidate?.thinkingLevel === "off" ||
-    piCandidate?.thinkingLevel === "minimal" ||
-    piCandidate?.thinkingLevel === "low" ||
-    piCandidate?.thinkingLevel === "medium" ||
-    piCandidate?.thinkingLevel === "high" ||
-    piCandidate?.thinkingLevel === "xhigh"
-      ? piCandidate.thinkingLevel
-      : undefined;
-  const pi = piThinkingLevel !== undefined ? { thinkingLevel: piThinkingLevel } : undefined;
-  if (!pi) {
-    return null;
-  }
-  return {
-    ...(pi ? { pi } : {}),
-  };
-}
-
-function normalizeModelSelection(
-  value: unknown,
-  legacy?: {
-    provider?: unknown;
-    model?: unknown;
-    modelOptions?: unknown;
-    legacyCodex?: LegacyCodexFields;
-  },
-): ModelSelection | null {
-  const candidate = value && typeof value === "object" ? (value as Record<string, unknown>) : null;
-  const provider = normalizeProviderKind(candidate?.provider ?? legacy?.provider);
-  if (provider === null) {
-    return null;
-  }
-  const rawModel = candidate?.model ?? legacy?.model;
-  if (typeof rawModel !== "string") {
-    return null;
-  }
-  const model = normalizeModelSlug(rawModel, provider);
-  if (!model) {
-    return null;
-  }
-  const modelOptions = normalizeProviderModelOptions(
-    candidate?.options ? { [provider]: candidate.options } : legacy?.modelOptions,
-  );
-  const options = modelOptions?.pi;
-  return makeModelSelection(provider, model, options);
-}
-
-// ── Legacy sync helpers (used only during migration from v2 storage) ──
-
-function legacySyncModelSelectionOptions(
-  modelSelection: ModelSelection | null,
-  modelOptions: ProviderModelOptions | null | undefined,
-): ModelSelection | null {
-  if (modelSelection === null) {
-    return null;
-  }
-  const options = modelOptions?.[modelSelection.provider];
-  return makeModelSelection(modelSelection.provider, modelSelection.model, options);
-}
-
-function legacyMergeModelSelectionIntoProviderModelOptions(
-  modelSelection: ModelSelection | null,
-  currentModelOptions: ProviderModelOptions | null | undefined,
-): ProviderModelOptions | null {
-  if (modelSelection?.options === undefined) {
-    return normalizeProviderModelOptions(currentModelOptions);
-  }
-  return legacyReplaceProviderModelOptions(
-    normalizeProviderModelOptions(currentModelOptions),
-    modelSelection.provider,
-    modelSelection.options,
-  );
-}
-
-function legacyReplaceProviderModelOptions(
-  currentModelOptions: ProviderModelOptions | null | undefined,
-  provider: ProviderKind,
-  nextProviderOptions: ProviderModelOptions[ProviderKind] | null | undefined,
-): ProviderModelOptions | null {
-  const { [provider]: _discardedProviderModelOptions, ...otherProviderModelOptions } =
-    currentModelOptions ?? {};
-  const normalizedNextProviderOptions = normalizeProviderModelOptions(
-    { [provider]: nextProviderOptions },
-    provider,
-  );
-
-  return normalizeProviderModelOptions({
-    ...otherProviderModelOptions,
-    ...(normalizedNextProviderOptions ? normalizedNextProviderOptions : {}),
-  });
-}
-
-// ── New helpers for the consolidated representation ────────────────────
-
-function legacyToModelSelectionByProvider(
-  modelSelection: ModelSelection | null,
-  modelOptions: ProviderModelOptions | null | undefined,
-): Partial<Record<ProviderKind, ModelSelection>> {
-  const result: Partial<Record<ProviderKind, ModelSelection>> = {};
-  // Add entries from the options bag (for non-active providers)
-  if (modelOptions) {
-    for (const provider of COMPOSER_PROVIDER_KINDS) {
-      const options = modelOptions[provider];
-      if (options && Object.keys(options).length > 0) {
-        const model =
-          modelSelection?.provider === provider ? modelSelection.model : getDefaultModel(provider);
-        if (model) {
-          result[provider] = makeModelSelection(provider, model, options);
-        }
-      }
-    }
-  }
-  // Add/overwrite the active selection (it's authoritative for its provider)
-  if (modelSelection) {
-    result[modelSelection.provider] = modelSelection;
-  }
-  return result;
-}
-
-export function deriveEffectiveComposerModelState(input: {
-  draft:
-    | Pick<ComposerThreadDraftState, "modelSelectionByProvider" | "activeProvider">
-    | null
-    | undefined;
-  selectedProvider: ProviderKind;
-  threadModelSelection: ModelSelection | null | undefined;
-  projectModelSelection: ModelSelection | null | undefined;
-  customModelsByProvider: Record<ProviderKind, readonly string[]>;
-  availableModelOptionsByProvider?: Partial<
-    Record<ProviderKind, ReadonlyArray<{ slug: string; name: string }>>
-  >;
-}): EffectiveComposerModelState {
-  const resolveAvailableModel = (candidate: string | null | undefined): ModelSlug | null => {
-    const availableOptions = input.availableModelOptionsByProvider?.[input.selectedProvider];
-    if (!availableOptions || availableOptions.length === 0) {
-      return null;
-    }
-    return resolveSelectableModel(input.selectedProvider, candidate, availableOptions);
-  };
-  const baseModel = resolveModelSlugForProvider(
-    input.selectedProvider,
-    (input.threadModelSelection?.provider === input.selectedProvider
-      ? input.threadModelSelection.model
-      : null) ??
-      (input.projectModelSelection?.provider === input.selectedProvider
-        ? input.projectModelSelection.model
-        : null) ??
-      getDefaultModel(input.selectedProvider),
-  );
-  const persistedThreadModel =
-    input.threadModelSelection?.provider === input.selectedProvider
-      ? (normalizeModelSlug(input.threadModelSelection.model, input.selectedProvider) ??
-        input.threadModelSelection.model)
-      : null;
-  const persistedProjectModel =
-    input.projectModelSelection?.provider === input.selectedProvider
-      ? (normalizeModelSlug(input.projectModelSelection.model, input.selectedProvider) ??
-        input.projectModelSelection.model)
-      : null;
-  const activeSelection = input.draft?.modelSelectionByProvider?.[input.selectedProvider];
-  const selectedDraftModel = activeSelection?.model
-    ? resolveAppModelSelection(
-        input.selectedProvider,
-        input.customModelsByProvider,
-        activeSelection.model,
-      )
-    : null;
-  const unlistedDraftModel = input.selectedProvider === "pi" ? selectedDraftModel : null;
-  const selectedModel =
-    resolveAvailableModel(activeSelection?.model) ??
-    resolveAvailableModel(
-      input.threadModelSelection?.provider === input.selectedProvider
-        ? input.threadModelSelection.model
-        : null,
-    ) ??
-    resolveAvailableModel(
-      input.projectModelSelection?.provider === input.selectedProvider
-        ? input.projectModelSelection.model
-        : null,
-    ) ??
-    resolveAvailableModel(selectedDraftModel) ??
-    persistedThreadModel ??
-    persistedProjectModel ??
-    unlistedDraftModel ??
-    input.availableModelOptionsByProvider?.[input.selectedProvider]?.[0]?.slug ??
-    selectedDraftModel ??
-    baseModel ??
-    getDefaultModel("pi") ??
-    "";
-  const modelOptions = deriveEffectiveComposerModelOptions(input);
-
-  return {
-    selectedModel,
-    modelOptions,
-  };
-}
-
-// Resolve the model we should persist for a draft-backed thread promotion.
-// This keeps terminal-first thread creation aligned with the composer precedence.
-export function resolvePreferredComposerModelSelection(input: {
-  draft:
-    | Pick<ComposerThreadDraftState, "modelSelectionByProvider" | "activeProvider">
-    | null
-    | undefined;
-  threadModelSelection: ModelSelection | null | undefined;
-  projectModelSelection: ModelSelection | null | undefined;
-  defaultProvider?: ProviderKind | null | undefined;
-}): ModelSelection {
-  const draftProviderWithSelection =
-    COMPOSER_PROVIDER_KINDS.find(
-      (provider) => input.draft?.modelSelectionByProvider?.[provider] !== undefined,
-    ) ?? null;
-  const preferredProvider =
-    input.draft?.activeProvider ??
-    draftProviderWithSelection ??
-    input.threadModelSelection?.provider ??
-    input.projectModelSelection?.provider ??
-    input.defaultProvider ??
-    "pi";
-
-  return (
-    input.draft?.modelSelectionByProvider?.[preferredProvider] ??
-    (input.threadModelSelection?.provider === preferredProvider
-      ? input.threadModelSelection
-      : null) ??
-    (input.projectModelSelection?.provider === preferredProvider
-      ? input.projectModelSelection
-      : null) ?? {
-      provider: preferredProvider,
-      model: getDefaultModel(preferredProvider) ?? "",
-    }
-  );
-}
-
-function revokeObjectPreviewUrl(previewUrl: string): void {
-  if (typeof URL === "undefined") {
-    return;
-  }
-  if (!previewUrl.startsWith("blob:")) {
-    return;
-  }
-  URL.revokeObjectURL(previewUrl);
-}
-
-function revokeQueuedTurnPreviewUrls(queuedTurn: QueuedComposerTurn): void {
-  if (queuedTurn.kind !== "chat") {
-    return;
-  }
-  for (const image of queuedTurn.images) {
-    revokeObjectPreviewUrl(image.previewUrl);
-  }
-}
-
-// Release any preview URLs still owned by this draft before we drop it from the store.
-function revokeDraftPreviewUrls(draft: ComposerThreadDraftState | undefined): void {
-  if (!draft) {
-    return;
-  }
-  for (const image of draft.images) {
-    revokeObjectPreviewUrl(image.previewUrl);
-  }
-  for (const queuedTurn of draft.queuedTurns) {
-    revokeQueuedTurnPreviewUrls(queuedTurn);
-  }
-}
-
-function normalizePersistedAttachment(value: unknown): PersistedComposerImageAttachment | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const candidate = value as Record<string, unknown>;
-  const id = candidate.id;
-  const name = candidate.name;
-  const mimeType = candidate.mimeType;
-  const sizeBytes = candidate.sizeBytes;
-  const dataUrl = candidate.dataUrl;
-  if (
-    typeof id !== "string" ||
-    typeof name !== "string" ||
-    typeof mimeType !== "string" ||
-    typeof sizeBytes !== "number" ||
-    !Number.isFinite(sizeBytes) ||
-    typeof dataUrl !== "string" ||
-    id.length === 0 ||
-    dataUrl.length === 0
-  ) {
-    return null;
-  }
-  return {
-    id,
-    name,
-    mimeType,
-    sizeBytes,
-    dataUrl,
-  };
-}
-
-function normalizePersistedTerminalContextDraft(
-  value: unknown,
-): PersistedTerminalContextDraft | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const candidate = value as Record<string, unknown>;
-  const id = candidate.id;
-  const threadId = candidate.threadId;
-  const createdAt = candidate.createdAt;
-  const lineStart = candidate.lineStart;
-  const lineEnd = candidate.lineEnd;
-  if (
-    typeof id !== "string" ||
-    id.length === 0 ||
-    typeof threadId !== "string" ||
-    threadId.length === 0 ||
-    typeof createdAt !== "string" ||
-    createdAt.length === 0 ||
-    typeof lineStart !== "number" ||
-    !Number.isFinite(lineStart) ||
-    typeof lineEnd !== "number" ||
-    !Number.isFinite(lineEnd)
-  ) {
-    return null;
-  }
-  const terminalId = typeof candidate.terminalId === "string" ? candidate.terminalId.trim() : "";
-  const terminalLabel =
-    typeof candidate.terminalLabel === "string" ? candidate.terminalLabel.trim() : "";
-  if (terminalId.length === 0 || terminalLabel.length === 0) {
-    return null;
-  }
-  const normalizedLineStart = Math.max(1, Math.floor(lineStart));
-  const normalizedLineEnd = Math.max(normalizedLineStart, Math.floor(lineEnd));
-  return {
-    id,
-    threadId: threadId as ThreadId,
-    createdAt,
-    terminalId,
-    terminalLabel,
-    lineStart: normalizedLineStart,
-    lineEnd: normalizedLineEnd,
-  };
-}
-
-function normalizePersistedQueuedTerminalContextDraft(
-  value: unknown,
-): PersistedQueuedTerminalContextDraft | null {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  const candidate = value as Record<string, unknown>;
-  const base = normalizePersistedTerminalContextDraft(candidate);
-  if (!base) {
-    return null;
-  }
-  const text =
-    typeof candidate.text === "string" ? normalizeTerminalContextText(candidate.text) : "";
-  return {
-    ...base,
-    text,
-  };
-}
-
-function persistImageAttachmentFromDataUrl(input: {
-  id: string;
-  name: string;
-  mimeType: string;
-  sizeBytes: number;
-  dataUrl: string;
-}): PersistedComposerImageAttachment | null {
-  return normalizePersistedAttachment(input);
-}
-
-function persistQueuedComposerImages(
-  images: ReadonlyArray<ComposerImageAttachment>,
-): PersistedComposerImageAttachment[] {
-  return images.flatMap((image) => {
-    if (!image.previewUrl.startsWith("data:")) {
-      return [];
-    }
-    const normalized = persistImageAttachmentFromDataUrl({
-      id: image.id,
-      name: image.name,
-      mimeType: image.mimeType,
-      sizeBytes: image.sizeBytes,
-      dataUrl: image.previewUrl,
-    });
-    return normalized ? [normalized] : [];
-  });
-}
-
-function normalizePersistedQueuedTurns(
-  rawQueuedTurns: unknown,
-): DeepMutable<NonNullable<PersistedComposerThreadDraftState["queuedTurns"]>> | undefined {
-  if (!Array.isArray(rawQueuedTurns)) {
-    return undefined;
-  }
-  const normalizedTurns: DeepMutable<
-    NonNullable<PersistedComposerThreadDraftState["queuedTurns"]>
-  > = [];
-  const seenIds = new Set<string>();
-  for (const entry of rawQueuedTurns) {
-    if (!entry || typeof entry !== "object") {
-      continue;
-    }
-    const candidate = entry as Record<string, unknown>;
-    const id = typeof candidate.id === "string" ? candidate.id : "";
-    const kind = candidate.kind;
-    const createdAt = typeof candidate.createdAt === "string" ? candidate.createdAt : "";
-    const previewText = typeof candidate.previewText === "string" ? candidate.previewText : "";
-    const selectedProvider = normalizeProviderKind(candidate.selectedProvider);
-    const selectedModel =
-      candidate.selectedModel === null
-        ? null
-        : typeof candidate.selectedModel === "string"
-          ? candidate.selectedModel
-          : null;
-    const selectedPromptEffort =
-      candidate.selectedPromptEffort === null
-        ? null
-        : typeof candidate.selectedPromptEffort === "string"
-          ? candidate.selectedPromptEffort
-          : null;
-    const modelSelection = normalizeModelSelection(candidate.modelSelection);
-    const providerOptionsForDispatch = Schema.is(ProviderStartOptions)(
-      candidate.providerOptionsForDispatch,
-    )
-      ? candidate.providerOptionsForDispatch
-      : undefined;
-    const runtimeMode =
-      candidate.runtimeMode === "approval-required" || candidate.runtimeMode === "full-access"
-        ? candidate.runtimeMode
-        : null;
-    if (
-      id.length === 0 ||
-      createdAt.length === 0 ||
-      previewText.length === 0 ||
-      selectedProvider === null ||
-      modelSelection === null ||
-      runtimeMode === null ||
-      seenIds.has(id)
-    ) {
-      continue;
-    }
-    if (kind === "chat") {
-      const prompt = typeof candidate.prompt === "string" ? candidate.prompt : "";
-      const images = Array.isArray(candidate.images)
-        ? candidate.images.flatMap((image) => {
-            const normalized = normalizePersistedAttachment(image);
-            return normalized ? [normalized] : [];
-          })
-        : [];
-      const terminalContexts = Array.isArray(candidate.terminalContexts)
-        ? candidate.terminalContexts.flatMap((context) => {
-            const normalized = normalizePersistedQueuedTerminalContextDraft(context);
-            return normalized ? [normalized] : [];
-          })
-        : [];
-      const skills = Array.isArray(candidate.skills)
-        ? candidate.skills.filter(Schema.is(ProviderSkillReference))
-        : [];
-      const mentions = Array.isArray(candidate.mentions)
-        ? candidate.mentions.filter(Schema.is(ProviderMentionReference))
-        : [];
-      const interactionMode =
-        candidate.interactionMode === "default" || candidate.interactionMode === "plan"
-          ? candidate.interactionMode
-          : null;
-      const envMode =
-        candidate.envMode === "local" || candidate.envMode === "worktree"
-          ? candidate.envMode
-          : null;
-      if (interactionMode === null || envMode === null) {
-        continue;
-      }
-      normalizedTurns.push({
-        id,
-        kind: "chat",
-        createdAt,
-        previewText,
-        prompt,
-        images,
-        terminalContexts,
-        skills: [...skills],
-        mentions: [...mentions],
-        selectedProvider,
-        selectedModel,
-        selectedPromptEffort,
-        modelSelection,
-        ...(providerOptionsForDispatch ? { providerOptionsForDispatch } : {}),
-        runtimeMode,
-        interactionMode,
-        envMode,
-      });
-      seenIds.add(id);
-      continue;
-    }
-    if (kind === "plan-follow-up") {
-      const text = typeof candidate.text === "string" ? candidate.text : "";
-      const interactionMode =
-        candidate.interactionMode === "default" || candidate.interactionMode === "plan"
-          ? candidate.interactionMode
-          : null;
-      if (interactionMode === null) {
-        continue;
-      }
-      normalizedTurns.push({
-        id,
-        kind: "plan-follow-up",
-        createdAt,
-        previewText,
-        text,
-        interactionMode,
-        selectedProvider,
-        selectedModel,
-        selectedPromptEffort,
-        modelSelection,
-        ...(providerOptionsForDispatch ? { providerOptionsForDispatch } : {}),
-        runtimeMode,
-      });
-      seenIds.add(id);
-    }
-  }
-  return normalizedTurns.length > 0 ? normalizedTurns : undefined;
-}
-
-function normalizeDraftThreadEnvMode(
-  value: unknown,
-  fallbackWorktreePath: string | null,
-): DraftThreadEnvMode {
-  if (value === "local" || value === "worktree") {
-    return value;
-  }
-  return fallbackWorktreePath ? "worktree" : "local";
-}
-
-function normalizeDraftThreadEntryPoint(value: unknown, fallback: ThreadPrimarySurface = "chat") {
-  return value === "terminal" || value === "chat" ? value : fallback;
-}
-
-function normalizePersistedDraftThreads(
-  rawDraftThreadsByThreadId: unknown,
-  rawProjectDraftThreadIdByProjectId: unknown,
-): Pick<
-  PersistedComposerDraftStoreState,
-  "draftThreadsByThreadId" | "projectDraftThreadIdByProjectId"
-> {
-  const draftThreadsByThreadId: Record<ThreadId, PersistedDraftThreadState> = {};
-  if (rawDraftThreadsByThreadId && typeof rawDraftThreadsByThreadId === "object") {
-    for (const [threadId, rawDraftThread] of Object.entries(
-      rawDraftThreadsByThreadId as Record<string, unknown>,
-    )) {
-      if (typeof threadId !== "string" || threadId.length === 0) {
-        continue;
-      }
-      if (!rawDraftThread || typeof rawDraftThread !== "object") {
-        continue;
-      }
-      const candidateDraftThread = rawDraftThread as Record<string, unknown>;
-      const projectId = candidateDraftThread.projectId;
-      const createdAt = candidateDraftThread.createdAt;
-      const branch = candidateDraftThread.branch;
-      const worktreePath = candidateDraftThread.worktreePath;
-      let lastKnownPr: OrchestrationThreadPullRequest | null = null;
-      if (
-        candidateDraftThread.lastKnownPr &&
-        typeof candidateDraftThread.lastKnownPr === "object"
-      ) {
-        try {
-          lastKnownPr = Schema.decodeUnknownSync(OrchestrationThreadPullRequest)(
-            candidateDraftThread.lastKnownPr,
-          );
-        } catch {
-          lastKnownPr = null;
-        }
-      }
-      const normalizedWorktreePath = typeof worktreePath === "string" ? worktreePath : null;
-      const isTemporary = candidateDraftThread.isTemporary === true ? true : undefined;
-      const promotedTo =
-        typeof candidateDraftThread.promotedTo === "string" &&
-        candidateDraftThread.promotedTo.length > 0
-          ? (candidateDraftThread.promotedTo as ThreadId)
-          : undefined;
-      if (typeof projectId !== "string" || projectId.length === 0) {
-        continue;
-      }
-      draftThreadsByThreadId[threadId as ThreadId] = {
-        projectId: projectId as ProjectId,
-        createdAt:
-          typeof createdAt === "string" && createdAt.length > 0
-            ? createdAt
-            : new Date().toISOString(),
-        runtimeMode:
-          candidateDraftThread.runtimeMode === "approval-required" ||
-          candidateDraftThread.runtimeMode === "full-access"
-            ? candidateDraftThread.runtimeMode
-            : DEFAULT_RUNTIME_MODE,
-        interactionMode:
-          candidateDraftThread.interactionMode === "plan" ||
-          candidateDraftThread.interactionMode === "default"
-            ? candidateDraftThread.interactionMode
-            : DEFAULT_INTERACTION_MODE,
-        entryPoint: normalizeDraftThreadEntryPoint(candidateDraftThread.entryPoint),
-        branch: typeof branch === "string" ? branch : null,
-        worktreePath: normalizedWorktreePath,
-        ...(lastKnownPr ? { lastKnownPr } : {}),
-        envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
-        ...(isTemporary ? { isTemporary: true } : {}),
-        ...(promotedTo ? { promotedTo } : {}),
-      };
-    }
-  }
-
-  const projectDraftThreadIdByProjectId: Record<string, ThreadId> = {};
-  if (
-    rawProjectDraftThreadIdByProjectId &&
-    typeof rawProjectDraftThreadIdByProjectId === "object"
-  ) {
-    for (const [mappingKey, threadId] of Object.entries(
-      rawProjectDraftThreadIdByProjectId as Record<string, unknown>,
-    )) {
-      const projectId = projectIdFromDraftThreadMappingKey(mappingKey);
-      const entryPoint = projectDraftThreadEntryPointFromKey(mappingKey);
-      if (
-        typeof projectId === "string" &&
-        projectId.length > 0 &&
-        typeof threadId === "string" &&
-        threadId.length > 0
-      ) {
-        projectDraftThreadIdByProjectId[mappingKey] = threadId as ThreadId;
-        if (!draftThreadsByThreadId[threadId as ThreadId]) {
-          draftThreadsByThreadId[threadId as ThreadId] = {
-            projectId: projectId as ProjectId,
-            createdAt: new Date().toISOString(),
-            runtimeMode: DEFAULT_RUNTIME_MODE,
-            interactionMode: DEFAULT_INTERACTION_MODE,
-            entryPoint,
-            branch: null,
-            worktreePath: null,
-            envMode: "local",
-          };
-        } else if (draftThreadsByThreadId[threadId as ThreadId]?.projectId !== projectId) {
-          draftThreadsByThreadId[threadId as ThreadId] = {
-            ...draftThreadsByThreadId[threadId as ThreadId]!,
-            projectId: projectId as ProjectId,
-          };
-        } else if (draftThreadsByThreadId[threadId as ThreadId]?.entryPoint !== entryPoint) {
-          draftThreadsByThreadId[threadId as ThreadId] = {
-            ...draftThreadsByThreadId[threadId as ThreadId]!,
-            entryPoint,
-          };
-        }
-      }
-    }
-  }
-
-  return { draftThreadsByThreadId, projectDraftThreadIdByProjectId };
-}
-
-function normalizePersistedDraftsByThreadId(
-  rawDraftMap: unknown,
-): PersistedComposerDraftStoreState["draftsByThreadId"] {
-  if (!rawDraftMap || typeof rawDraftMap !== "object") {
-    return {};
-  }
-
-  const nextDraftsByThreadId: DeepMutable<PersistedComposerDraftStoreState["draftsByThreadId"]> =
-    {};
-  for (const [threadId, draftValue] of Object.entries(rawDraftMap as Record<string, unknown>)) {
-    if (typeof threadId !== "string" || threadId.length === 0) {
-      continue;
-    }
-    if (!draftValue || typeof draftValue !== "object") {
-      continue;
-    }
-    const draftCandidate = draftValue as PersistedComposerThreadDraftState;
-    const promptCandidate = typeof draftCandidate.prompt === "string" ? draftCandidate.prompt : "";
-    const attachments = Array.isArray(draftCandidate.attachments)
-      ? draftCandidate.attachments.flatMap((entry) => {
-          const normalized = normalizePersistedAttachment(entry);
-          return normalized ? [normalized] : [];
-        })
-      : [];
-    const terminalContexts = Array.isArray(draftCandidate.terminalContexts)
-      ? draftCandidate.terminalContexts.flatMap((entry) => {
-          const normalized = normalizePersistedTerminalContextDraft(entry);
-          return normalized ? [normalized] : [];
-        })
-      : [];
-    const queuedTurns = normalizePersistedQueuedTurns(draftCandidate.queuedTurns);
-    const runtimeMode =
-      draftCandidate.runtimeMode === "approval-required" ||
-      draftCandidate.runtimeMode === "full-access"
-        ? draftCandidate.runtimeMode
-        : null;
-    const interactionMode =
-      draftCandidate.interactionMode === "plan" || draftCandidate.interactionMode === "default"
-        ? draftCandidate.interactionMode
-        : null;
-    const prompt = ensureInlineTerminalContextPlaceholders(
-      promptCandidate,
-      terminalContexts.length,
-    );
-    // If the draft already has the v3 shape, use it directly
-    const legacyDraftCandidate = draftValue as LegacyPersistedComposerThreadDraftState;
-    let modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>> = {};
-    let activeProvider: ProviderKind | null = null;
-
-    if (
-      draftCandidate.modelSelectionByProvider &&
-      typeof draftCandidate.modelSelectionByProvider === "object"
-    ) {
-      // v3 format
-      modelSelectionByProvider = draftCandidate.modelSelectionByProvider as Partial<
-        Record<ProviderKind, ModelSelection>
-      >;
-      activeProvider = normalizeProviderKind(draftCandidate.activeProvider);
-    } else {
-      // v2 or legacy format: migrate
-      const normalizedModelOptions =
-        normalizeProviderModelOptions(
-          legacyDraftCandidate.modelOptions,
-          undefined,
-          legacyDraftCandidate,
-        ) ?? null;
-      const normalizedModelSelection = normalizeModelSelection(
-        legacyDraftCandidate.modelSelection,
-        {
-          provider: legacyDraftCandidate.provider,
-          model: legacyDraftCandidate.model,
-          modelOptions: normalizedModelOptions ?? legacyDraftCandidate.modelOptions,
-          legacyCodex: legacyDraftCandidate,
-        },
-      );
-      const mergedModelOptions = legacyMergeModelSelectionIntoProviderModelOptions(
-        normalizedModelSelection,
-        normalizedModelOptions,
-      );
-      const modelSelection = legacySyncModelSelectionOptions(
-        normalizedModelSelection,
-        mergedModelOptions,
-      );
-      modelSelectionByProvider = legacyToModelSelectionByProvider(
-        modelSelection,
-        mergedModelOptions,
-      );
-      activeProvider = modelSelection?.provider ?? null;
-    }
-
-    const normalizedQueuedTurns = queuedTurns ?? [];
-    const hasModelData =
-      Object.keys(modelSelectionByProvider).length > 0 || activeProvider !== null;
-    const hasQueuedTurns = normalizedQueuedTurns.length > 0;
-    if (
-      promptCandidate.length === 0 &&
-      attachments.length === 0 &&
-      terminalContexts.length === 0 &&
-      !hasQueuedTurns &&
-      !hasModelData &&
-      !runtimeMode &&
-      !interactionMode
-    ) {
-      continue;
-    }
-    nextDraftsByThreadId[threadId as ThreadId] = {
-      prompt,
-      attachments,
-      ...(terminalContexts.length > 0 ? { terminalContexts } : {}),
-      ...(hasQueuedTurns ? { queuedTurns: normalizedQueuedTurns } : {}),
-      ...(hasModelData ? { modelSelectionByProvider, activeProvider } : {}),
-      ...(runtimeMode ? { runtimeMode } : {}),
-      ...(interactionMode ? { interactionMode } : {}),
-    };
-  }
-
-  return nextDraftsByThreadId;
-}
-
-function migratePersistedComposerDraftStoreState(
-  persistedState: unknown,
-): PersistedComposerDraftStoreState {
-  if (!persistedState || typeof persistedState !== "object") {
-    return EMPTY_PERSISTED_DRAFT_STORE_STATE;
-  }
-  const candidate = persistedState as LegacyPersistedComposerDraftStoreState;
-  const rawDraftMap = candidate.draftsByThreadId;
-  const rawDraftThreadsByThreadId = candidate.draftThreadsByThreadId;
-  const rawProjectDraftThreadIdByProjectId = candidate.projectDraftThreadIdByProjectId;
-
-  // Migrate sticky state from v2 (dual) to v3 (consolidated)
-  const stickyModelOptions = normalizeProviderModelOptions(candidate.stickyModelOptions) ?? {};
-  const normalizedStickyModelSelection = normalizeModelSelection(candidate.stickyModelSelection, {
-    provider: candidate.stickyProvider ?? "pi",
-    model: candidate.stickyModel,
-    modelOptions: stickyModelOptions,
-  });
-  const nextStickyModelOptions = legacyMergeModelSelectionIntoProviderModelOptions(
-    normalizedStickyModelSelection,
-    stickyModelOptions,
-  );
-  const stickyModelSelection = legacySyncModelSelectionOptions(
-    normalizedStickyModelSelection,
-    nextStickyModelOptions,
-  );
-  const stickyModelSelectionByProvider = legacyToModelSelectionByProvider(
-    stickyModelSelection,
-    nextStickyModelOptions,
-  );
-  const stickyActiveProvider = normalizeProviderKind(candidate.stickyProvider) ?? null;
-
-  const { draftThreadsByThreadId, projectDraftThreadIdByProjectId } =
-    normalizePersistedDraftThreads(rawDraftThreadsByThreadId, rawProjectDraftThreadIdByProjectId);
-  const draftsByThreadId = normalizePersistedDraftsByThreadId(rawDraftMap);
-  return {
-    draftsByThreadId,
-    draftThreadsByThreadId,
-    projectDraftThreadIdByProjectId,
-    stickyModelSelectionByProvider,
-    stickyActiveProvider,
-  };
-}
-
-function partializeComposerDraftStoreState(
-  state: ComposerDraftStoreState,
-): PersistedComposerDraftStoreState {
-  const persistedDraftsByThreadId: DeepMutable<
-    PersistedComposerDraftStoreState["draftsByThreadId"]
-  > = {};
-  for (const [threadId, draft] of Object.entries(state.draftsByThreadId)) {
-    if (typeof threadId !== "string" || threadId.length === 0) {
-      continue;
-    }
-    const persistedQueuedTurns: DeepMutable<
-      NonNullable<PersistedComposerThreadDraftState["queuedTurns"]>
-    > = [];
-    for (const queuedTurn of draft.queuedTurns) {
-      if (queuedTurn.kind === "chat") {
-        const images = persistQueuedComposerImages(queuedTurn.images);
-        if (images.length !== queuedTurn.images.length) {
-          continue;
-        }
-        persistedQueuedTurns.push({
-          id: queuedTurn.id,
-          kind: "chat",
-          createdAt: queuedTurn.createdAt,
-          previewText: queuedTurn.previewText,
-          prompt: queuedTurn.prompt,
-          images,
-          assistantSelections: queuedTurn.assistantSelections.map((selection) => ({
-            id: selection.id,
-            assistantMessageId: selection.assistantMessageId,
-            text: selection.text,
-          })),
-          terminalContexts: queuedTurn.terminalContexts.map((context) => ({
-            id: context.id,
-            threadId: context.threadId,
-            createdAt: context.createdAt,
-            terminalId: context.terminalId,
-            terminalLabel: context.terminalLabel,
-            lineStart: context.lineStart,
-            lineEnd: context.lineEnd,
-            text: context.text,
-          })),
-          skills: [...queuedTurn.skills],
-          mentions: [...queuedTurn.mentions],
-          selectedProvider: queuedTurn.selectedProvider,
-          selectedModel: queuedTurn.selectedModel,
-          selectedPromptEffort: queuedTurn.selectedPromptEffort,
-          modelSelection: queuedTurn.modelSelection,
-          ...(queuedTurn.providerOptionsForDispatch
-            ? { providerOptionsForDispatch: queuedTurn.providerOptionsForDispatch }
-            : {}),
-          runtimeMode: queuedTurn.runtimeMode,
-          interactionMode: queuedTurn.interactionMode,
-          envMode: queuedTurn.envMode,
-        });
-        continue;
-      }
-      persistedQueuedTurns.push({
-        id: queuedTurn.id,
-        kind: "plan-follow-up",
-        createdAt: queuedTurn.createdAt,
-        previewText: queuedTurn.previewText,
-        text: queuedTurn.text,
-        interactionMode: queuedTurn.interactionMode,
-        selectedProvider: queuedTurn.selectedProvider,
-        selectedModel: queuedTurn.selectedModel,
-        selectedPromptEffort: queuedTurn.selectedPromptEffort,
-        modelSelection: queuedTurn.modelSelection,
-        ...(queuedTurn.providerOptionsForDispatch
-          ? { providerOptionsForDispatch: queuedTurn.providerOptionsForDispatch }
-          : {}),
-        runtimeMode: queuedTurn.runtimeMode,
-      });
-    }
-    const hasModelData =
-      Object.keys(draft.modelSelectionByProvider).length > 0 || draft.activeProvider !== null;
-    const hasQueuedTurns = persistedQueuedTurns.length > 0;
-    if (
-      draft.prompt.length === 0 &&
-      draft.persistedAttachments.length === 0 &&
-      draft.assistantSelections.length === 0 &&
-      draft.terminalContexts.length === 0 &&
-      !hasQueuedTurns &&
-      !hasModelData &&
-      draft.runtimeMode === null &&
-      draft.interactionMode === null
-    ) {
-      continue;
-    }
-    const persistedDraft: DeepMutable<PersistedComposerThreadDraftState> = {
-      prompt: draft.prompt,
-      attachments: draft.persistedAttachments,
-      ...(draft.assistantSelections.length > 0
-        ? {
-            assistantSelections: draft.assistantSelections.map((selection) => ({
-              id: selection.id,
-              assistantMessageId: selection.assistantMessageId,
-              text: selection.text,
-            })),
-          }
-        : {}),
-      ...(draft.terminalContexts.length > 0
-        ? {
-            terminalContexts: draft.terminalContexts.map((context) => ({
-              id: context.id,
-              threadId: context.threadId,
-              createdAt: context.createdAt,
-              terminalId: context.terminalId,
-              terminalLabel: context.terminalLabel,
-              lineStart: context.lineStart,
-              lineEnd: context.lineEnd,
-            })),
-          }
-        : {}),
-      ...(hasQueuedTurns ? { queuedTurns: persistedQueuedTurns } : {}),
-      ...(hasModelData
-        ? {
-            modelSelectionByProvider: draft.modelSelectionByProvider,
-            activeProvider: draft.activeProvider,
-          }
-        : {}),
-      ...(draft.runtimeMode ? { runtimeMode: draft.runtimeMode } : {}),
-      ...(draft.interactionMode ? { interactionMode: draft.interactionMode } : {}),
-    };
-    persistedDraftsByThreadId[threadId as ThreadId] = persistedDraft;
-  }
-  return {
-    draftsByThreadId: persistedDraftsByThreadId,
-    draftThreadsByThreadId: state.draftThreadsByThreadId,
-    projectDraftThreadIdByProjectId: state.projectDraftThreadIdByProjectId,
-    stickyModelSelectionByProvider: state.stickyModelSelectionByProvider,
-    stickyActiveProvider: state.stickyActiveProvider,
-  };
-}
-
-function normalizeCurrentPersistedComposerDraftStoreState(
-  persistedState: unknown,
-): PersistedComposerDraftStoreState {
-  if (!persistedState || typeof persistedState !== "object") {
-    return EMPTY_PERSISTED_DRAFT_STORE_STATE;
-  }
-  const normalizedPersistedState = persistedState as LegacyPersistedComposerDraftStoreState;
-  const { draftThreadsByThreadId, projectDraftThreadIdByProjectId } =
-    normalizePersistedDraftThreads(
-      normalizedPersistedState.draftThreadsByThreadId,
-      normalizedPersistedState.projectDraftThreadIdByProjectId,
-    );
-
-  // Handle both v3 (modelSelectionByProvider) and v2/legacy formats
-  let stickyModelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>> = {};
-  let stickyActiveProvider: ProviderKind | null = null;
-  if (
-    normalizedPersistedState.stickyModelSelectionByProvider &&
-    typeof normalizedPersistedState.stickyModelSelectionByProvider === "object"
-  ) {
-    stickyModelSelectionByProvider =
-      normalizedPersistedState.stickyModelSelectionByProvider as Partial<
-        Record<ProviderKind, ModelSelection>
-      >;
-    stickyActiveProvider = normalizeProviderKind(normalizedPersistedState.stickyActiveProvider);
-  } else {
-    // Legacy migration path
-    const stickyModelOptions =
-      normalizeProviderModelOptions(normalizedPersistedState.stickyModelOptions) ?? {};
-    const normalizedStickyModelSelection = normalizeModelSelection(
-      normalizedPersistedState.stickyModelSelection,
-      {
-        provider: normalizedPersistedState.stickyProvider,
-        model: normalizedPersistedState.stickyModel,
-        modelOptions: stickyModelOptions,
-      },
-    );
-    const nextStickyModelOptions = legacyMergeModelSelectionIntoProviderModelOptions(
-      normalizedStickyModelSelection,
-      stickyModelOptions,
-    );
-    const stickyModelSelection = legacySyncModelSelectionOptions(
-      normalizedStickyModelSelection,
-      nextStickyModelOptions,
-    );
-    stickyModelSelectionByProvider = legacyToModelSelectionByProvider(
-      stickyModelSelection,
-      nextStickyModelOptions,
-    );
-    stickyActiveProvider = normalizeProviderKind(normalizedPersistedState.stickyProvider);
-  }
-
-  return {
-    draftsByThreadId: normalizePersistedDraftsByThreadId(normalizedPersistedState.draftsByThreadId),
-    draftThreadsByThreadId,
-    projectDraftThreadIdByProjectId,
-    stickyModelSelectionByProvider,
-    stickyActiveProvider,
-  };
-}
-
-function readPersistedAttachmentIdsFromStorage(threadId: ThreadId): string[] {
-  if (threadId.length === 0) {
-    return [];
-  }
-  try {
-    const persisted = getLocalStorageItem(
-      COMPOSER_DRAFT_STORAGE_KEY,
-      PersistedComposerDraftStoreStorage,
-    );
-    if (!persisted || persisted.version !== COMPOSER_DRAFT_STORAGE_VERSION) {
-      return [];
-    }
-    return (persisted.state.draftsByThreadId[threadId]?.attachments ?? []).map(
-      (attachment) => attachment.id,
-    );
-  } catch {
-    return [];
-  }
-}
-
-function verifyPersistedAttachments(
-  threadId: ThreadId,
-  attachments: PersistedComposerImageAttachment[],
-  set: (
-    partial:
-      | ComposerDraftStoreState
-      | Partial<ComposerDraftStoreState>
-      | ((
-          state: ComposerDraftStoreState,
-        ) => ComposerDraftStoreState | Partial<ComposerDraftStoreState>),
-    replace?: false,
-  ) => void,
-): void {
-  let persistedIdSet = new Set<string>();
-  try {
-    composerDebouncedStorage.flush();
-    persistedIdSet = new Set(readPersistedAttachmentIdsFromStorage(threadId));
-  } catch {
-    persistedIdSet = new Set();
-  }
-  set((state) => {
-    const current = state.draftsByThreadId[threadId];
-    if (!current) {
-      return state;
-    }
-    const imageIdSet = new Set(current.images.map((image) => image.id));
-    const persistedAttachments = attachments.filter(
-      (attachment) => imageIdSet.has(attachment.id) && persistedIdSet.has(attachment.id),
-    );
-    const nonPersistedImageIds = current.images
-      .map((image) => image.id)
-      .filter((imageId) => !persistedIdSet.has(imageId));
-    const nextDraft: ComposerThreadDraftState = {
-      ...current,
-      persistedAttachments,
-      nonPersistedImageIds,
-    };
-    const nextDraftsByThreadId = { ...state.draftsByThreadId };
-    if (shouldRemoveDraft(nextDraft)) {
-      delete nextDraftsByThreadId[threadId];
-    } else {
-      nextDraftsByThreadId[threadId] = nextDraft;
-    }
-    return { draftsByThreadId: nextDraftsByThreadId };
-  });
-}
-
-function hydreatePersistedComposerImageAttachment(
-  attachment: PersistedComposerImageAttachment,
-): File | null {
-  const commaIndex = attachment.dataUrl.indexOf(",");
-  const header = commaIndex === -1 ? attachment.dataUrl : attachment.dataUrl.slice(0, commaIndex);
-  const payload = commaIndex === -1 ? "" : attachment.dataUrl.slice(commaIndex + 1);
-  if (payload.length === 0) {
-    return null;
-  }
-  try {
-    const isBase64 = header.includes(";base64");
-    if (!isBase64) {
-      const decodedText = decodeURIComponent(payload);
-      const inferredMimeType =
-        header.startsWith("data:") && header.includes(";")
-          ? header.slice("data:".length, header.indexOf(";"))
-          : attachment.mimeType;
-      return new File([decodedText], attachment.name, {
-        type: inferredMimeType || attachment.mimeType,
-      });
-    }
-    const binary = atob(payload);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-    return new File([bytes], attachment.name, { type: attachment.mimeType });
-  } catch {
-    return null;
-  }
-}
-
-function hydrateImagesFromPersisted(
-  attachments: ReadonlyArray<PersistedComposerImageAttachment>,
-): ComposerImageAttachment[] {
-  return attachments.flatMap((attachment) => {
-    const file = hydreatePersistedComposerImageAttachment(attachment);
-    if (!file) return [];
-
-    return [
-      {
-        type: "image" as const,
-        id: attachment.id,
-        name: attachment.name,
-        mimeType: attachment.mimeType,
-        sizeBytes: attachment.sizeBytes,
-        previewUrl: attachment.dataUrl,
-        file,
-      } satisfies ComposerImageAttachment,
-    ];
-  });
-}
-
-function hydrateQueuedTurnsFromPersisted(
-  threadId: ThreadId,
-  queuedTurns: ReadonlyArray<PersistedQueuedComposerTurn> | undefined,
-): QueuedComposerTurn[] {
-  if (!queuedTurns || queuedTurns.length === 0) {
-    return [];
-  }
-  return queuedTurns.map((queuedTurn) => {
-    if (queuedTurn.kind === "chat") {
-      return {
-        ...queuedTurn,
-        images: hydrateImagesFromPersisted(queuedTurn.images),
-        assistantSelections: normalizeAssistantSelections(queuedTurn.assistantSelections ?? []),
-        terminalContexts: normalizeTerminalContextsForThread(threadId, queuedTurn.terminalContexts),
-        skills: [...queuedTurn.skills],
-        mentions: [...queuedTurn.mentions],
-      };
-    }
-    return { ...queuedTurn };
-  });
-}
-
-function toHydratedThreadDraft(
-  threadId: ThreadId,
-  persistedDraft: PersistedComposerThreadDraftState,
-): ComposerThreadDraftState {
-  // The persisted draft is already in v3 shape (migration handles older formats)
-  const modelSelectionByProvider: Partial<Record<ProviderKind, ModelSelection>> =
-    persistedDraft.modelSelectionByProvider ?? {};
-  const activeProvider = normalizeProviderKind(persistedDraft.activeProvider) ?? null;
-
-  return {
-    prompt: persistedDraft.prompt,
-    images: hydrateImagesFromPersisted(persistedDraft.attachments),
-    nonPersistedImageIds: [],
-    persistedAttachments: [...persistedDraft.attachments],
-    assistantSelections: normalizeAssistantSelections(persistedDraft.assistantSelections ?? []),
-    terminalContexts:
-      persistedDraft.terminalContexts?.map((context) => ({
-        ...context,
-        text: "",
-      })) ?? [],
-    queuedTurns: hydrateQueuedTurnsFromPersisted(threadId, persistedDraft.queuedTurns),
-    modelSelectionByProvider,
-    activeProvider,
-    runtimeMode: persistedDraft.runtimeMode ?? null,
-    interactionMode: persistedDraft.interactionMode ?? null,
-  };
-}
+import {
+  COMPOSER_DRAFT_STORAGE_KEY,
+  COMPOSER_DRAFT_STORAGE_VERSION,
+  COMPOSER_PROVIDER_KINDS,
+  ComposerImageAttachment,
+} from "./composerDraftStore.schemas";
+import {
+  ComposerDraftStoreState,
+  ComposerThreadDraftState,
+  DraftThreadState,
+  EffectiveComposerModelState,
+} from "./composerDraftStore.types";
+import {
+  deriveEffectiveComposerModelState,
+  makeModelSelection,
+  normalizeModelSelection,
+  normalizeProviderKind,
+  normalizeProviderModelOptions,
+} from "./composerDraftStore.modelSelection";
+import {
+  EMPTY_THREAD_DRAFT,
+  assistantSelectionDedupKey,
+  buildTransferredComposerDraft,
+  composerImageDedupKey,
+  createEmptyThreadDraft,
+  normalizeAssistantSelection,
+  normalizeTerminalContextForThread,
+  normalizeTerminalContextsForThread,
+  projectDraftThreadMappingKey,
+  projectIdFromDraftThreadMappingKey,
+  shouldRemoveDraft,
+  writeDraftEntry,
+  terminalContextDedupKey,
+} from "./composerDraftStore.draft";
+import {
+  composerDebouncedStorage,
+  migratePersistedComposerDraftStoreState,
+  normalizeCurrentPersistedComposerDraftStoreState,
+  normalizeDraftThreadEntryPoint,
+  partializeComposerDraftStoreState,
+  revokeDraftPreviewUrls,
+  revokeObjectPreviewUrl,
+  revokeQueuedTurnPreviewUrls,
+  toHydratedThreadDraft,
+  verifyPersistedAttachments,
+} from "./composerDraftStore.persistence";
+
+// Re-exported so existing consumers of this module keep their import path.
+export {
+  COMPOSER_DRAFT_STORAGE_KEY,
+  type ComposerAssistantSelectionAttachment,
+  type ComposerImageAttachment,
+  type DraftThreadEnvMode,
+  type PersistedComposerImageAttachment,
+  type QueuedComposerChatTurn,
+  type QueuedComposerPlanFollowUp,
+  type QueuedComposerTurn,
+} from "./composerDraftStore.schemas";
+export {
+  type ComposerDraftStoreState,
+  type ComposerThreadDraftState,
+  type DraftThreadState,
+  type EffectiveComposerModelState,
+} from "./composerDraftStore.types";
+export {
+  deriveEffectiveComposerModelState,
+  resolvePreferredComposerModelSelection,
+} from "./composerDraftStore.modelSelection";
 
 export const useComposerDraftStore = create<ComposerDraftStoreState>()(
   persist(
@@ -2356,13 +532,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             modelSelectionByProvider: nextMap,
             activeProvider: stickyActiveProvider,
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       setPrompt: (threadId, prompt) => {
@@ -2375,13 +545,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             ...existing,
             prompt,
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       setTerminalContexts: (threadId, contexts) => {
@@ -2399,13 +563,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             ),
             terminalContexts: normalizedContexts,
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       setModelSelection: (threadId, modelSelection) => {
@@ -2446,13 +604,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             modelSelectionByProvider: nextMap,
             activeProvider: nextActiveProvider,
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       setModelOptions: (threadId, modelOptions) => {
@@ -2488,13 +640,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             ...base,
             modelSelectionByProvider: nextMap,
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       setProviderModelOptions: (threadId, provider, nextProviderOptions, options) => {
@@ -2615,21 +761,16 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             ...base,
             runtimeMode: nextRuntimeMode,
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       setInteractionMode: (threadId, interactionMode) => {
         if (threadId.length === 0) {
           return;
         }
-        const nextInteractionMode =
-          interactionMode === "plan" || interactionMode === "default" ? interactionMode : null;
+        const nextInteractionMode = Schema.is(ProviderInteractionMode)(interactionMode)
+          ? interactionMode
+          : null;
         set((state) => {
           const existing = state.draftsByThreadId[threadId];
           if (!existing && nextInteractionMode === null) {
@@ -2643,13 +784,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             ...base,
             interactionMode: nextInteractionMode,
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       // Keep queued follow-ups with the thread draft so route changes do not hide them.
@@ -2711,13 +846,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             ...current,
             queuedTurns: current.queuedTurns.filter((entry) => entry.id !== queuedTurnId),
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       addImage: (threadId, image) => {
@@ -2791,13 +920,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               (attachment) => attachment.id !== imageId,
             ),
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       addAssistantSelection: (threadId, selection) => {
@@ -2848,13 +971,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               (selection) => selection.id !== selectionId,
             ),
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       clearAssistantSelections: (threadId) => {
@@ -2870,13 +987,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             ...current,
             assistantSelections: [],
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       insertTerminalContext: (threadId, prompt, context, index) => {
@@ -2966,13 +1077,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               (context) => context.id !== contextId,
             ),
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       clearTerminalContexts: (threadId) => {
@@ -2988,13 +1093,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             ...current,
             terminalContexts: [],
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       clearPersistedAttachments: (threadId) => {
@@ -3011,13 +1110,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             persistedAttachments: [],
             nonPersistedImageIds: [],
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
       syncPersistedAttachments: (threadId, attachments) => {
@@ -3038,13 +1131,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
               (id) => !attachmentIdSet.has(id),
             ),
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
         Promise.resolve().then(() => {
           verifyPersistedAttachments(threadId, attachments, set);
@@ -3068,13 +1155,9 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
           if (Equal.equals(currentTargetDraft, nextDraft)) {
             return state;
           }
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[targetThreadId];
-          } else {
-            nextDraftsByThreadId[targetThreadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return {
+            draftsByThreadId: writeDraftEntry(state.draftsByThreadId, targetThreadId, nextDraft),
+          };
         });
       },
       clearComposerContent: (threadId) => {
@@ -3095,13 +1178,7 @@ export const useComposerDraftStore = create<ComposerDraftStoreState>()(
             assistantSelections: [],
             terminalContexts: [],
           };
-          const nextDraftsByThreadId = { ...state.draftsByThreadId };
-          if (shouldRemoveDraft(nextDraft)) {
-            delete nextDraftsByThreadId[threadId];
-          } else {
-            nextDraftsByThreadId[threadId] = nextDraft;
-          }
-          return { draftsByThreadId: nextDraftsByThreadId };
+          return { draftsByThreadId: writeDraftEntry(state.draftsByThreadId, threadId, nextDraft) };
         });
       },
     }),

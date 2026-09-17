@@ -4,28 +4,49 @@
 // Depends on: update-release-package-versions.ts and merge-mac-update-manifests.ts.
 
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const workspaceFiles = [
-  "package.json",
-  "bun.lock",
-  "apps/server/package.json",
-  "apps/desktop/package.json",
-  "apps/web/package.json",
-  "apps/marketing/package.json",
-  "packages/contracts/package.json",
-  "packages/effect-acp/package.json",
-  "packages/shared/package.json",
-  "scripts/package.json",
-] as const;
+const rootPackageJson = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8")) as {
+  workspaces: { packages: ReadonlyArray<string> };
+};
+
+/** Roots copied for the version-alignment fixture: the repo manifest, the lockfile, and every workspace member's manifest. */
+function workspaceFixturePaths(): ReadonlyArray<string> {
+  const relativePaths = new Set<string>(["package.json", "bun.lock"]);
+
+  for (const pattern of rootPackageJson.workspaces.packages) {
+    if (!pattern.endsWith("/*")) {
+      relativePaths.add(join(pattern, "package.json"));
+      continue;
+    }
+
+    const memberRoot = pattern.slice(0, -2);
+    for (const entry of readdirSync(resolve(repoRoot, memberRoot), { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        relativePaths.add(join(memberRoot, entry.name, "package.json"));
+      }
+    }
+  }
+
+  return [...relativePaths].filter((relativePath) => existsSync(resolve(repoRoot, relativePath)));
+}
 
 function copyWorkspaceManifestFixture(targetRoot: string): void {
-  for (const relativePath of workspaceFiles) {
+  for (const relativePath of workspaceFixturePaths()) {
     const sourcePath = resolve(repoRoot, relativePath);
     const destinationPath = resolve(targetRoot, relativePath);
     mkdirSync(dirname(destinationPath), { recursive: true });

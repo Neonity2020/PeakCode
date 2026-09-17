@@ -47,6 +47,7 @@ import {
   IconGitPullRequest,
   IconEdit,
   IconInfoCircle,
+  IconLayoutKanban,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconLayoutSidebarRightCollapse,
@@ -63,8 +64,10 @@ import {
   IconMicrophone,
   IconMoon,
   IconPalette,
+  IconPackage,
   IconPaperclip,
   IconPinnedFilled,
+  IconPlayerPause,
   IconPlayerPlay,
   IconPlayerStop,
   IconPlus,
@@ -147,6 +150,7 @@ export const DownloadIcon = adaptIcon(IconDownload);
 export const EllipsisIcon = adaptIcon(IconDots);
 export const ExternalLinkIcon = adaptIcon(IconExternalLink);
 export const EyeIcon = adaptIcon(IconEye);
+export const PackageIcon = adaptIcon(IconPackage);
 export const PaletteIcon = adaptIcon(IconPalette);
 export const PaperclipIcon = adaptIcon(IconPaperclip);
 export const AdjustmentsIcon = adaptIcon(IconAdjustments);
@@ -194,6 +198,7 @@ export const HandoffIcon: LucideIcon = (props) => (
   <TbArrowsRightLeft className={props.className} style={props.style} />
 );
 export const InfoIcon = adaptIcon(IconInfoCircle);
+export const KanbanIcon = adaptIcon(IconLayoutKanban);
 export const ListChecksIcon = adaptIcon(IconListCheck);
 export const ListTodoIcon = adaptIcon(IconListDetails);
 export const Loader2Icon = adaptIcon(IconLoader2);
@@ -226,6 +231,7 @@ export const PinIcon: LucideIcon = (props) => (
   </svg>
 );
 export const PinnedFilledIcon = adaptIcon(IconPinnedFilled);
+export const PauseIcon = adaptIcon(IconPlayerPause);
 export const PlayIcon = adaptIcon(IconPlayerPlay);
 export const Plus = adaptIcon(IconPlus);
 export const PlusIcon = adaptIcon(IconPlus);

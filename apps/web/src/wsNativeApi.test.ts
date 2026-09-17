@@ -144,6 +144,34 @@ describe("wsNativeApi", () => {
     });
   });
 
+  it("forwards pi package sources for both install routes", async () => {
+    const { createWsNativeApi } = await import("./wsNativeApi");
+    const api = createWsNativeApi();
+    await api.server.listPiPackages({ agentDir: "/custom" });
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverListPiPackages, {
+      agentDir: "/custom",
+    });
+    await api.server.installPiPackage({
+      agentDir: "/custom",
+      source: "npm:@melihmucuk/pi-crew",
+    });
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverInstallPiPackage, {
+      agentDir: "/custom",
+      source: "npm:@melihmucuk/pi-crew",
+    });
+    await api.server.installPiPackage({
+      source: "git:github.com/melihmucuk/pi-crew",
+    });
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverInstallPiPackage, {
+      source: "git:github.com/melihmucuk/pi-crew",
+    });
+    await api.server.removePiPackage({ agentDir: "/custom", source: "git:github.com/x/y" });
+    expect(requestMock).toHaveBeenLastCalledWith(WS_METHODS.serverRemovePiPackage, {
+      agentDir: "/custom",
+      source: "git:github.com/x/y",
+    });
+  });
+
   it("delivers and caches valid server.welcome payloads", async () => {
     const { createWsNativeApi, onServerWelcome } = await import("./wsNativeApi");
 

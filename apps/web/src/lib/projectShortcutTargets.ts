@@ -2,8 +2,10 @@ import type { ProjectId } from "@peakcode/contracts";
 
 import type { Project } from "../types";
 
+type ProjectTargetCandidate = Pick<Project, "id" | "kind">;
+
 function resolveUsableProjectId(
-  projects: readonly Project[],
+  projects: readonly ProjectTargetCandidate[],
   projectId: ProjectId | null,
 ): ProjectId | null {
   if (!projectId) {
@@ -17,14 +19,14 @@ function resolveUsableProjectId(
 }
 
 export function resolveCurrentProjectTargetId(
-  projects: readonly Project[],
+  projects: readonly ProjectTargetCandidate[],
   focusedProjectId: ProjectId | null,
 ): ProjectId | null {
   return resolveUsableProjectId(projects, focusedProjectId);
 }
 
 export function resolveLatestProjectTargetId(
-  projects: readonly Project[],
+  projects: readonly ProjectTargetCandidate[],
   latestProjectId: ProjectId | null,
 ): ProjectId | null {
   return resolveUsableProjectId(projects, latestProjectId);

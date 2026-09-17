@@ -7,7 +7,7 @@
 
 export const SUPPORTED_LANGUAGES = ["en", "zh"] as const;
 export type Language = (typeof SUPPORTED_LANGUAGES)[number];
-export const DEFAULT_LANGUAGE: Language = "en";
+export const DEFAULT_LANGUAGE: Language = "zh";
 
 export function isLanguage(value: unknown): value is Language {
   return typeof value === "string" && (SUPPORTED_LANGUAGES as readonly string[]).includes(value);

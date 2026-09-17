@@ -3,32 +3,24 @@
 // Layer: Route screen
 // Exports: Settings route component for `/settings`
 
-import {
-  PROVIDER_DISPLAY_NAMES,
-  type ProviderKind,
-  type ServerProviderStatus,
-  type ThreadId,
-  DEFAULT_GIT_TEXT_GENERATION_MODEL,
-} from "@peakcode/contracts";
-import { createFileRoute, useSearch } from "@tanstack/react-router";
+import { type ThreadId, DEFAULT_GIT_TEXT_GENERATION_MODEL } from "@peakcode/contracts";
+import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import {
   MAX_CHAT_FONT_SIZE_PX,
-  getGitTextGenerationModelOptions,
   MIN_CHAT_FONT_SIZE_PX,
   normalizeChatFontSizePx,
-  SidebarProjectSortOrder,
-  SidebarThreadSortOrder,
   type LanguageSetting,
   useAppSettings,
 } from "../appSettings";
 import { APP_VERSION } from "../branding";
 import { ModelProvidersSettingsPanel } from "../components/ModelProvidersSettingsPanel";
+import { PiPackagesSettingsPanel } from "../components/PiPackagesSettingsPanel";
+import { SettingsNav } from "../components/SettingsNav";
+import { SkillsPanel } from "../components/SkillsPanel";
 import { SidebarHeaderNavigationControls } from "../components/SidebarHeaderNavigationControls";
-import { useDesktopTopBarTrafficLightGutterClassName } from "../hooks/useDesktopTopBarGutter";
 import { Button } from "../components/ui/button";
-import { Collapsible, CollapsibleContent } from "../components/ui/collapsible";
 import { Input } from "../components/ui/input";
 import {
   Select,
@@ -46,17 +38,7 @@ import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { isElectron } from "../env";
 import { useTheme } from "../hooks/useTheme";
 import { gitRemoveWorktreeMutationOptions } from "../lib/gitReactQuery";
-import {
-  ArchiveIcon,
-  ChevronDownIcon,
-  DownloadIcon,
-  ChevronRightIcon,
-  ExternalLinkIcon,
-  Loader2Icon,
-  RotateCcwIcon,
-  Undo2Icon,
-  XIcon,
-} from "../lib/icons";
+import { ArchiveIcon, ChevronDownIcon, RotateCcwIcon, Undo2Icon } from "../lib/icons";
 import {
   serverConfigQueryOptions,
   serverQueryKeys,
@@ -70,7 +52,11 @@ import {
   readBrowserNotificationPermissionState,
   requestBrowserNotificationPermission,
 } from "../notifications/taskCompletion";
-import { normalizeSettingsSection, useSettingsNavItems } from "../settingsNavigation";
+import {
+  normalizeSettingsSection,
+  useSettingsNavGroups,
+  useSettingsNavItems,
+} from "../settingsNavigation";
 import { NATIVE_LANGUAGE_LABELS, SUPPORTED_LANGUAGES, useMessages } from "../i18n";
 import { useStore } from "../store";
 import ReleaseHistoryDialog from "../components/ReleaseHistoryDialog";
@@ -80,74 +66,43 @@ import { formatWorktreePathForDisplay } from "../worktreeCleanup";
 
 // ── Settings taxonomy ──────────────────────────────────────────────────────
 
-type InstallBinarySettingsKey = "piBinaryPath";
-type InstallProviderSettings = {
-  provider: ProviderKind;
-  title: string;
-  docs: ReadonlyArray<{
-    label: string;
-    href: string;
-  }>;
-  binaryPathKey: InstallBinarySettingsKey;
-  binaryPlaceholder: string;
-  binaryDescription: string;
-  binaryCommand: string;
-  agentDirKey?: "piAgentDir";
-  agentDirPlaceholder?: string;
-  agentDirDescription?: ReactNode;
-};
-
-const INSTALL_PROVIDER_DOCS: ReadonlyArray<{
-  provider: ProviderKind;
-  docs: ReadonlyArray<{ docKey: "install" | "update" | "config" | "headless"; href: string }>;
-  command: string;
-  title: string;
-}> = [
-  {
-    provider: "pi",
-    title: "Pi",
-    command: "pi",
-    docs: [
-      { docKey: "install", href: "https://pi.dev/docs/latest" },
-      { docKey: "update", href: "https://pi.dev/docs/latest/settings" },
-      { docKey: "config", href: "https://pi.dev/docs/latest/settings" },
-    ],
-  },
-];
-
-function buildInstallProviderSettings(
-  messages: ReturnType<typeof useMessages>,
-): readonly InstallProviderSettings[] {
-  const docsLabel = (key: "install" | "update" | "config" | "headless"): string => {
-    if (key === "install") return messages.settings.providers.docs.install;
-    if (key === "update") return messages.settings.providers.docs.update;
-    if (key === "config") return messages.settings.providers.docs.config;
-    return messages.settings.providers.docs.headless;
-  };
-  return INSTALL_PROVIDER_DOCS.map((entry) => ({
-    provider: entry.provider,
-    title: entry.title,
-    docs: entry.docs.map((doc) => ({ label: docsLabel(doc.docKey), href: doc.href })),
-    binaryPathKey: "piBinaryPath",
-    binaryPlaceholder: messages.settings.providers.tools.binaryPathPlaceholder(entry.title),
-    binaryDescription: messages.settings.providers.tools.binaryPathDescription(entry.command),
-    binaryCommand: entry.command,
-    agentDirKey: "piAgentDir",
-    agentDirPlaceholder: messages.settings.providers.tools.agentDirPlaceholder,
-    agentDirDescription: messages.settings.providers.tools.agentDirDescription,
-  }));
-}
-
 // ── Settings UI primitives ────────────────────────────────────────────────
 
-function SettingsSection({ title, children }: { title: string; children: ReactNode }) {
+/**
+ * A titled group of settings: bold heading, optional description, then the
+ * card that holds the rows.
+ */
+function SettingsSection({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
   return (
-    <section className="space-y-2">
-      <h2 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground px-1">
-        {title}
-      </h2>
+    <section className="space-y-3">
+      <header className="px-0.5">
+        <h2 className="text-[14px] leading-5 font-semibold text-foreground">{title}</h2>
+        {description ? (
+          <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{description}</p>
+        ) : null}
+      </header>
       {children}
     </section>
+  );
+}
+
+/** White card that groups rows; rows draw their own separators. */
+function SettingsCard({ children }: { children: ReactNode }) {
+  return (
+    <div
+      className="overflow-hidden rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-panel)]"
+      data-slot="settings-card"
+    >
+      {children}
+    </div>
   );
 }
 
@@ -170,7 +125,7 @@ function SettingsRow({
 }) {
   return (
     <div
-      className="rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-panel)] px-4 py-3.5 transition-colors hover:bg-[var(--sidebar-accent)]"
+      className="group/settings-row border-b border-[color:var(--color-border-light)] px-5 py-4 transition-colors last:border-b-0 hover:bg-[var(--sidebar-accent)]"
       data-slot="settings-row"
     >
       <div
@@ -183,7 +138,7 @@ function SettingsRow({
         <div className="min-w-0 flex-1 space-y-0.5">
           <div className="flex min-h-5 items-center gap-1.5">
             <h3 className="text-sm font-medium text-foreground">{title}</h3>
-            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center">
+            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/settings-row:opacity-100 group-focus-within/settings-row:opacity-100">
               {resetAction}
             </span>
           </div>
@@ -237,82 +192,9 @@ function SettingResetButton({
   );
 }
 
-function ProviderDocsLinks({
-  docs,
-  label,
-}: {
-  docs: InstallProviderSettings["docs"];
-  label: string;
-}) {
-  return (
-    <div className="rounded-lg border border-border/60 bg-[var(--color-background-elevated-secondary)]/35 px-3 py-2.5">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <span className="text-xs font-medium text-foreground">{label}</span>
-        <div className="flex flex-wrap gap-2">
-          {docs.map((doc) => (
-            <a
-              key={`${doc.label}:${doc.href}`}
-              href={doc.href}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/70 px-2.5 text-xs text-muted-foreground transition-colors hover:border-border hover:bg-[var(--color-background-panel)] hover:text-foreground"
-            >
-              <span>{doc.label}</span>
-              <ExternalLinkIcon className="size-3" />
-            </a>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function normalizeManagedWorktreePath(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : null;
-}
-
-function formatProviderVersion(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  if (!trimmed) {
-    return null;
-  }
-  return trimmed.startsWith("v") ? trimmed : `v${trimmed}`;
-}
-
-function providerUpdateStatusLabel(provider: ServerProviderStatus): string | null {
-  const state = provider.updateState?.status;
-  if (state === "queued") {
-    return "Update queued";
-  }
-  if (state === "running") {
-    return "Updating";
-  }
-  if (state === "succeeded") {
-    return "Updated";
-  }
-  if (state === "failed") {
-    return "Update failed";
-  }
-  if (state === "unchanged") {
-    return "Still outdated";
-  }
-  const advisory = provider.versionAdvisory;
-  if (advisory?.status === "behind_latest" && advisory.latestVersion) {
-    const currentVersion = formatProviderVersion(advisory.currentVersion);
-    const latestVersion = formatProviderVersion(advisory.latestVersion);
-    return currentVersion ? `${currentVersion} -> ${latestVersion}` : `Latest ${latestVersion}`;
-  }
-  const currentVersion = formatProviderVersion(provider.version);
-  return currentVersion ? `Current ${currentVersion}` : null;
-}
-
-function providerUpdateFailureMessage(provider: ServerProviderStatus | undefined): string | null {
-  const state = provider?.updateState;
-  if (!state || (state.status !== "failed" && state.status !== "unchanged")) {
-    return null;
-  }
-  return state.output?.trim() || state.message || "The provider update did not complete.";
 }
 
 // ── Route screen ───────────────────────────────────────────────────────────
@@ -320,15 +202,15 @@ function providerUpdateFailureMessage(provider: ServerProviderStatus | undefined
 function SettingsRouteView() {
   const routeSearch = useSearch({ strict: false }) as Record<string, unknown>;
   const activeSection = normalizeSettingsSection(routeSearch.section);
-  const settingsTarget = typeof routeSearch.target === "string" ? routeSearch.target : null;
   const messages = useMessages();
   const localizedNavItems = useSettingsNavItems();
+  const localizedNavGroups = useSettingsNavGroups();
+  const navigate = useNavigate();
   const activeSectionItem =
     localizedNavItems.find((item) => item.id === activeSection) ?? localizedNavItems[0]!;
 
   const { isDefaultActiveTheme, resetAllThemes, resolvedTheme, theme, setTheme } = useTheme();
   const { settings, defaults, updateSettings, resetSettings } = useAppSettings();
-  const desktopTopBarTrafficLightGutterClassName = useDesktopTopBarTrafficLightGutterClassName();
   const queryClient = useQueryClient();
   const serverConfigQuery = useQuery(serverConfigQueryOptions());
   const serverWorktreesQuery = useQuery(serverWorktreesQueryOptions());
@@ -350,14 +232,6 @@ function SettingsRouteView() {
   const [showRecoveryTools, setShowRecoveryTools] = useState(false);
   const [releaseHistoryOpen, setReleaseHistoryOpen] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
-  const providerUpdatesRef = useRef<HTMLDivElement | null>(null);
-  const providerInstallsRef = useRef<HTMLDivElement | null>(null);
-  const [openInstallProviders, setOpenInstallProviders] = useState<Record<ProviderKind, boolean>>({
-    pi: Boolean(settings.piBinaryPath || settings.piAgentDir),
-  });
-  const [updatingProviders, setUpdatingProviders] = useState<ReadonlySet<ProviderKind>>(
-    () => new Set(),
-  );
   const [browserNotificationPermission, setBrowserNotificationPermission] = useState(
     readBrowserNotificationPermissionState(),
   );
@@ -365,42 +239,8 @@ function SettingsRouteView() {
     typeof navigator === "undefined" ? "" : navigator.platform,
   );
 
-  const piBinaryPath = settings.piBinaryPath;
-  const piAgentDir = settings.piAgentDir;
   const keybindingsConfigPath = serverConfigQuery.data?.keybindingsConfigPath ?? null;
   const availableEditors = serverConfigQuery.data?.availableEditors;
-  const providerStatusByProvider = useMemo(
-    () =>
-      new Map((serverConfigQuery.data?.providers ?? []).map((status) => [status.provider, status])),
-    [serverConfigQuery.data?.providers],
-  );
-  const outdatedProviderCount = useMemo(
-    () =>
-      (serverConfigQuery.data?.providers ?? []).filter(
-        (status) => status.versionAdvisory?.status === "behind_latest",
-      ).length,
-    [serverConfigQuery.data?.providers],
-  );
-  const outdatedProviderStatuses = useMemo(
-    () =>
-      (serverConfigQuery.data?.providers ?? []).filter(
-        (status) => status.versionAdvisory?.status === "behind_latest",
-      ),
-    [serverConfigQuery.data?.providers],
-  );
-  const shouldFocusProviderUpdates =
-    activeSection === "providers" && settingsTarget === "provider-updates";
-
-  useEffect(() => {
-    if (!shouldFocusProviderUpdates) {
-      return;
-    }
-
-    const frame = window.requestAnimationFrame(() => {
-      providerUpdatesRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [serverConfigQuery.data?.providers, shouldFocusProviderUpdates]);
   const managedWorktrees = serverWorktreesQuery.data?.worktrees ?? [];
   const worktreesByWorkspaceRoot = managedWorktrees.reduce<
     Array<{
@@ -434,23 +274,16 @@ function SettingsRouteView() {
     return groups;
   }, []);
 
-  const gitTextGenerationModelOptions = getGitTextGenerationModelOptions(settings);
   const currentGitTextGenerationProvider = settings.textGenerationProvider ?? "pi";
   const currentGitTextGenerationModel =
     settings.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
-  const currentGitTextGenerationValue = `${currentGitTextGenerationProvider}:${currentGitTextGenerationModel}`;
   const defaultGitTextGenerationProvider = defaults.textGenerationProvider ?? "pi";
   const defaultGitTextGenerationModel =
     defaults.textGenerationModel ?? DEFAULT_GIT_TEXT_GENERATION_MODEL;
   const isGitTextGenerationModelDirty =
     currentGitTextGenerationProvider !== defaultGitTextGenerationProvider ||
     currentGitTextGenerationModel !== defaultGitTextGenerationModel;
-  const selectedGitTextGenerationModelLabel =
-    gitTextGenerationModelOptions.find(
-      (option) =>
-        option.provider === currentGitTextGenerationProvider &&
-        option.slug === currentGitTextGenerationModel,
-    )?.name ?? currentGitTextGenerationModel;
+
   const isInstallSettingsDirty =
     settings.piBinaryPath !== defaults.piBinaryPath || settings.piAgentDir !== defaults.piAgentDir;
 
@@ -545,53 +378,6 @@ function SettingsRouteView() {
       });
   }, [availableEditors, keybindingsConfigPath]);
 
-  useEffect(() => {
-    setBrowserNotificationPermission(readBrowserNotificationPermissionState());
-  }, []);
-
-  const runProviderUpdate = useCallback(
-    async (provider: ProviderKind) => {
-      if (updatingProviders.has(provider)) {
-        return;
-      }
-      setUpdatingProviders((current) => new Set(current).add(provider));
-      try {
-        const result = await ensureNativeApi().server.updateProvider({ provider });
-        const refreshedProvider = result.providers.find((status) => status.provider === provider);
-        const failureMessage = providerUpdateFailureMessage(refreshedProvider);
-        if (failureMessage) {
-          toastManager.add({
-            type: "error",
-            title: `Could not update ${PROVIDER_DISPLAY_NAMES[provider]}`,
-            description: failureMessage,
-          });
-          return;
-        }
-        toastManager.add({
-          type: "success",
-          title: `${PROVIDER_DISPLAY_NAMES[provider]} update finished`,
-          description: "New sessions will use the refreshed provider.",
-        });
-      } catch (error) {
-        toastManager.add({
-          type: "error",
-          title: `Could not update ${PROVIDER_DISPLAY_NAMES[provider]}`,
-          description: error instanceof Error ? error.message : "The provider update failed.",
-        });
-      } finally {
-        await queryClient
-          .invalidateQueries({ queryKey: serverQueryKeys.config() })
-          .catch(() => undefined);
-        setUpdatingProviders((current) => {
-          const next = new Set(current);
-          next.delete(provider);
-          return next;
-        });
-      }
-    },
-    [queryClient, updatingProviders],
-  );
-
   async function restoreDefaults() {
     if (changedSettingLabels.length === 0) return;
 
@@ -606,9 +392,6 @@ function SettingsRouteView() {
     setTheme("system");
     resetAllThemes();
     resetSettings();
-    setOpenInstallProviders({
-      pi: false,
-    });
     setShowRecoveryTools(false);
     setOpenKeybindingsError(null);
   }
@@ -880,7 +663,7 @@ function SettingsRouteView() {
   const renderGeneralPanel = () => (
     <div className="space-y-6">
       <SettingsSection title={messages.settings.general.coreDefaults}>
-        <div className="space-y-2">
+        <SettingsCard>
           <SettingsRow
             title={messages.settings.general.language.title}
             description={messages.settings.general.language.description}
@@ -965,11 +748,11 @@ function SettingsRouteView() {
               </Select>
             }
           />
-        </div>
+        </SettingsCard>
       </SettingsSection>
 
       <SettingsSection title={messages.settings.general.sidebarOrganization}>
-        <div className="space-y-2">
+        <SettingsCard>
           <SettingsRow
             title={messages.settings.general.sidebarPosition.title}
             description={messages.settings.general.sidebarPosition.description}
@@ -1115,7 +898,7 @@ function SettingsRouteView() {
               </Select>
             }
           />
-        </div>
+        </SettingsCard>
       </SettingsSection>
     </div>
   );
@@ -1156,7 +939,7 @@ function SettingsRouteView() {
     return (
       <div className="space-y-6">
         <SettingsSection title={messages.settings.appearance.themeAndTypographySection}>
-          <div className="space-y-2">
+          <SettingsCard>
             <SettingsRow
               title={messages.settings.appearance.theme.title}
               description={messages.settings.appearance.theme.description}
@@ -1198,21 +981,23 @@ function SettingsRouteView() {
                 </Select>
               }
             />
+          </SettingsCard>
 
-            <div className="space-y-3 pt-1">
-              {(resolvedTheme === "dark"
-                ? (["dark", "light"] as const)
-                : (["light", "dark"] as const)
-              ).map((variant) => (
-                <ThemePackEditor
-                  key={variant}
-                  variant={variant}
-                  isActive={resolvedTheme === variant}
-                  mode={theme}
-                />
-              ))}
-            </div>
+          <div className="space-y-3">
+            {(resolvedTheme === "dark"
+              ? (["dark", "light"] as const)
+              : (["light", "dark"] as const)
+            ).map((variant) => (
+              <ThemePackEditor
+                key={variant}
+                variant={variant}
+                isActive={resolvedTheme === variant}
+                mode={theme}
+              />
+            ))}
+          </div>
 
+          <SettingsCard>
             <SettingsRow
               title={messages.settings.appearance.typography.uiFont}
               description={messages.settings.appearance.typography.uiFontDescription}
@@ -1224,17 +1009,19 @@ function SettingsRouteView() {
                   />
                 ) : null
               }
-              control={
+              control={null}
+            >
+              <div className="mt-3">
                 <Input
-                  className="w-full text-right sm:w-48"
+                  className="w-full font-mono text-xs"
                   value={settings.uiFontFamily}
                   onChange={(event) => updateSettings({ uiFontFamily: event.target.value })}
                   placeholder="-apple-system, BlinkM…"
                   spellCheck={false}
                   aria-label={messages.settings.appearance.typography.uiFontAria}
                 />
-              }
-            />
+              </div>
+            </SettingsRow>
 
             <SettingsRow
               title={messages.settings.appearance.typography.codeFont}
@@ -1249,17 +1036,19 @@ function SettingsRouteView() {
                   />
                 ) : null
               }
-              control={
+              control={null}
+            >
+              <div className="mt-3">
                 <Input
-                  className="w-full text-right sm:w-48"
+                  className="w-full font-mono text-xs"
                   value={settings.chatCodeFontFamily}
                   onChange={(event) => updateSettings({ chatCodeFontFamily: event.target.value })}
                   placeholder={'"JetBrains Mono"'}
                   spellCheck={false}
                   aria-label={messages.settings.appearance.typography.codeFontAria}
                 />
-              }
-            />
+              </div>
+            </SettingsRow>
 
             <SettingsRow
               title={messages.settings.appearance.typography.baseFontSize}
@@ -1329,11 +1118,11 @@ function SettingsRouteView() {
                 }
               />
             ) : null}
-          </div>
+          </SettingsCard>
         </SettingsSection>
 
         <SettingsSection title={messages.settings.appearance.timeAndReadingSection}>
-          <div className="space-y-2">
+          <SettingsCard>
             <SettingsRow
               title={messages.settings.appearance.timestamp.title}
               description={messages.settings.appearance.timestamp.description}
@@ -1387,7 +1176,7 @@ function SettingsRouteView() {
                 </Select>
               }
             />
-          </div>
+          </SettingsCard>
         </SettingsSection>
       </div>
     );
@@ -1396,7 +1185,7 @@ function SettingsRouteView() {
   const renderNotificationsPanel = () => (
     <div className="space-y-6">
       <SettingsSection title={messages.settings.notifications.activityAlertsSection}>
-        <div className="space-y-2">
+        <SettingsCard>
           <SettingsRow
             title={messages.settings.notifications.activityToasts.title}
             description={messages.settings.notifications.activityToasts.description}
@@ -1456,7 +1245,7 @@ function SettingsRouteView() {
               </div>
             }
           />
-        </div>
+        </SettingsCard>
       </SettingsSection>
     </div>
   );
@@ -1464,7 +1253,7 @@ function SettingsRouteView() {
   const renderBehaviorPanel = () => (
     <div className="space-y-6">
       <SettingsSection title={messages.settings.behavior.runtimeSection}>
-        <div className="space-y-2">
+        <SettingsCard>
           <SettingsRow
             title={messages.settings.behavior.assistantOutput}
             description={messages.settings.behavior.assistantOutputDescription}
@@ -1520,11 +1309,11 @@ function SettingsRouteView() {
               />
             }
           />
-        </div>
+        </SettingsCard>
       </SettingsSection>
 
       <SettingsSection title={messages.settings.behavior.safetySection}>
-        <div className="space-y-2">
+        <SettingsCard>
           <SettingsRow
             title={messages.settings.behavior.deleteConfirmation}
             description={messages.settings.behavior.deleteConfirmationDescription}
@@ -1608,7 +1397,7 @@ function SettingsRouteView() {
               />
             }
           />
-        </div>
+        </SettingsCard>
       </SettingsSection>
     </div>
   );
@@ -1638,7 +1427,7 @@ function SettingsRouteView() {
                   {group.workspaceRoot}
                 </h3>
 
-                <div className="overflow-hidden rounded-2xl border border-border/70 bg-card/50">
+                <div className="overflow-hidden rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-panel)]">
                   {group.worktrees.map((worktree, index) => {
                     const deleteDisabled = removeWorktreeMutation.isPending;
                     return (
@@ -1747,7 +1536,7 @@ function SettingsRouteView() {
       <div className="space-y-6">
         {archivedGroups.length === 0 ? (
           <SettingsSection title={messages.settings.archived.emptySection}>
-            <div className="rounded-2xl border border-dashed border-border/70 bg-card/35 px-5 py-10 text-center">
+            <div className="rounded-xl border border-dashed border-border/70 px-5 py-10 text-center">
               <div className="mx-auto mb-3 flex size-11 items-center justify-center rounded-full border border-border/70 bg-background/70 text-muted-foreground">
                 <ArchiveIcon className="size-5" />
               </div>
@@ -1765,7 +1554,7 @@ function SettingsRouteView() {
               key={project?.id ?? "unknown-project"}
               title={project?.name ?? messages.settings.archived.unknownProject}
             >
-              <div className="overflow-hidden rounded-2xl border border-border/70 bg-card/50">
+              <div className="overflow-hidden rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-panel)]">
                 {projectThreads.map((thread, index) => (
                   <div
                     key={thread.id}
@@ -1817,395 +1606,10 @@ function SettingsRouteView() {
     );
   };
 
-  const renderModelsPanel = () => (
-    <div className="space-y-6">
-      <SettingsSection title={messages.settings.models.generationSection}>
-        <div className="space-y-2">
-          <SettingsRow
-            title={messages.settings.models.gitWritingModel}
-            description={messages.settings.models.gitWritingModelDescription}
-            resetAction={
-              isGitTextGenerationModelDirty ? (
-                <SettingResetButton
-                  label={messages.settings.models.gitWritingModel.toLowerCase()}
-                  onClick={() =>
-                    updateSettings({
-                      textGenerationProvider: defaults.textGenerationProvider,
-                      textGenerationModel: defaults.textGenerationModel,
-                    })
-                  }
-                />
-              ) : null
-            }
-            control={
-              <Select
-                value={currentGitTextGenerationValue}
-                onValueChange={(value) => {
-                  if (!value) return;
-                  const separatorIndex = value.indexOf(":");
-                  const provider = value.slice(0, separatorIndex) as ProviderKind;
-                  const model = value.slice(separatorIndex + 1);
-                  if (!provider || !model) return;
-                  updateSettings({
-                    textGenerationProvider: provider,
-                    textGenerationModel: model,
-                  });
-                }}
-              >
-                <SelectTrigger
-                  className="w-full sm:w-52"
-                  aria-label={messages.settings.models.gitWritingModelAria}
-                >
-                  <SelectValue>{selectedGitTextGenerationModelLabel}</SelectValue>
-                </SelectTrigger>
-                <SelectPopup align="end" alignItemWithTrigger={false}>
-                  {gitTextGenerationModelOptions.map((option) => (
-                    <SelectItem
-                      hideIndicator
-                      key={`${option.provider}:${option.slug}`}
-                      value={`${option.provider}:${option.slug}`}
-                    >
-                      {PROVIDER_DISPLAY_NAMES[option.provider]} / {option.name}
-                    </SelectItem>
-                  ))}
-                </SelectPopup>
-              </Select>
-            }
-          />
-        </div>
-      </SettingsSection>
-    </div>
-  );
-
-  const renderProvidersPanel = () => (
-    <div className="space-y-6">
-      {renderProviderUpdatesSection()}
-      {renderProviderInstallsSection()}
-    </div>
-  );
-
-  const renderProviderUpdatesSection = () => (
-    <div ref={providerUpdatesRef} id="provider-updates">
-      <SettingsSection title={messages.settings.providers.updatesSection}>
-        <div className="space-y-2">
-          <SettingsRow
-            title={messages.settings.providers.updates.title}
-            description={messages.settings.providers.updates.description}
-            status={
-              outdatedProviderCount > 0
-                ? outdatedProviderCount === 1
-                  ? messages.settings.providers.updates.statusAvailableOne
-                  : messages.settings.providers.updates.statusAvailablePlural(outdatedProviderCount)
-                : messages.settings.providers.updates.statusNoUpdates
-            }
-          >
-            {outdatedProviderStatuses.length > 0 ? (
-              <div className="mt-4 overflow-hidden rounded-lg border border-border/70">
-                {outdatedProviderStatuses.map((providerStatus) => {
-                  const updateAdvisory = providerStatus.versionAdvisory;
-                  const updateState = providerStatus.updateState?.status;
-                  const isProviderUpdateActive =
-                    updateState === "queued" ||
-                    updateState === "running" ||
-                    updatingProviders.has(providerStatus.provider);
-                  const canUpdateProvider =
-                    updateAdvisory?.canUpdate === true && !isProviderUpdateActive;
-                  const updateLabel = providerUpdateStatusLabel(providerStatus);
-
-                  return (
-                    <div
-                      key={providerStatus.provider}
-                      className="flex min-h-11 items-center gap-3 border-t border-border/70 px-3 py-2 first:border-t-0"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-foreground">
-                          {PROVIDER_DISPLAY_NAMES[providerStatus.provider]}
-                        </div>
-                        {updateLabel ? (
-                          <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                            {updateLabel}
-                          </div>
-                        ) : null}
-                      </div>
-                      {updateAdvisory?.canUpdate ? (
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="outline"
-                          disabled={!canUpdateProvider}
-                          title={
-                            updateAdvisory.updateCommand
-                              ? messages.settings.providers.updates.runCommandTitle(
-                                  updateAdvisory.updateCommand,
-                                )
-                              : messages.settings.providers.updates.versionAdvisoryNoCommand
-                          }
-                          onClick={() => void runProviderUpdate(providerStatus.provider)}
-                        >
-                          {isProviderUpdateActive ? (
-                            <Loader2Icon className="size-3.5 animate-spin" />
-                          ) : (
-                            <DownloadIcon className="size-3.5" />
-                          )}
-                          {isProviderUpdateActive
-                            ? messages.settings.providers.updates.updatingButton
-                            : messages.settings.providers.updates.updateButton}
-                        </Button>
-                      ) : (
-                        <span className="shrink-0 text-[11px] text-muted-foreground">
-                          {messages.settings.providers.updates.manualUpdate}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-          </SettingsRow>
-        </div>
-      </SettingsSection>
-    </div>
-  );
-
-  const renderProviderInstallsSection = () => (
-    <div ref={providerInstallsRef} id="provider-installs">
-      <SettingsSection title={messages.settings.providers.toolsSection}>
-        <div className="space-y-2">
-          <SettingsRow
-            title={messages.settings.providers.tools.title}
-            description={messages.settings.providers.tools.description}
-            status={
-              outdatedProviderCount > 0
-                ? outdatedProviderCount === 1
-                  ? messages.settings.providers.tools.statusAvailableOne
-                  : messages.settings.providers.tools.statusAvailablePlural(outdatedProviderCount)
-                : messages.settings.providers.tools.statusNoUpdates
-            }
-            resetAction={
-              isInstallSettingsDirty ? (
-                <SettingResetButton
-                  label={messages.settings.providers.tools.resetLabel}
-                  onClick={() => {
-                    updateSettings({
-                      piAgentDir: defaults.piAgentDir,
-                      piBinaryPath: defaults.piBinaryPath,
-                    });
-                    setOpenInstallProviders({
-                      pi: false,
-                    });
-                  }}
-                />
-              ) : null
-            }
-          >
-            <div className="mt-4">
-              <div className="overflow-hidden rounded-lg border border-border/70">
-                {buildInstallProviderSettings(messages).map((providerSettings) => {
-                  const isOpen = openInstallProviders[providerSettings.provider];
-                  const isDirty =
-                    settings.piBinaryPath !== defaults.piBinaryPath ||
-                    settings.piAgentDir !== defaults.piAgentDir;
-                  const providerStatus = providerStatusByProvider.get(providerSettings.provider);
-                  const providerUpdateLabel = providerStatus
-                    ? providerUpdateStatusLabel(providerStatus)
-                    : null;
-                  const updateAdvisory = providerStatus?.versionAdvisory;
-                  const providerUpdateState = providerStatus?.updateState?.status;
-                  const isProviderUpdateActive =
-                    providerUpdateState === "queued" ||
-                    providerUpdateState === "running" ||
-                    updatingProviders.has(providerSettings.provider);
-                  const canUpdateProvider =
-                    updateAdvisory?.status === "behind_latest" &&
-                    updateAdvisory.canUpdate &&
-                    !isProviderUpdateActive;
-
-                  return (
-                    <Collapsible
-                      key={providerSettings.provider}
-                      open={isOpen}
-                      onOpenChange={(open) =>
-                        setOpenInstallProviders((existing) => ({
-                          ...existing,
-                          [providerSettings.provider]: open,
-                        }))
-                      }
-                    >
-                      <div className="border-t border-border/70 first:border-t-0">
-                        <div className="flex min-h-11 items-center gap-2 px-3 py-2">
-                          <button
-                            type="button"
-                            className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                            onClick={() =>
-                              setOpenInstallProviders((existing) => ({
-                                ...existing,
-                                [providerSettings.provider]: !existing[providerSettings.provider],
-                              }))
-                            }
-                          >
-                            <span className="min-w-0 flex-1 text-sm font-medium text-foreground">
-                              {providerSettings.title}
-                            </span>
-                            {isDirty ? (
-                              <span className="shrink-0 text-[11px] text-muted-foreground">
-                                {messages.settings.providers.tools.customBadge}
-                              </span>
-                            ) : null}
-                            {providerUpdateLabel ? (
-                              <span
-                                className={cn(
-                                  "shrink-0 text-[11px]",
-                                  updateAdvisory?.status === "behind_latest"
-                                    ? "text-foreground"
-                                    : "text-muted-foreground",
-                                )}
-                              >
-                                {providerUpdateLabel}
-                              </span>
-                            ) : null}
-                            <ChevronDownIcon
-                              className={cn(
-                                "size-4 shrink-0 text-muted-foreground transition-transform",
-                                isOpen && "rotate-180",
-                              )}
-                            />
-                          </button>
-                          {updateAdvisory?.status === "behind_latest" &&
-                          updateAdvisory.canUpdate ? (
-                            <Button
-                              type="button"
-                              size="xs"
-                              variant="outline"
-                              disabled={!canUpdateProvider}
-                              title={
-                                updateAdvisory.updateCommand
-                                  ? messages.settings.providers.updates.runCommandTitle(
-                                      updateAdvisory.updateCommand,
-                                    )
-                                  : messages.settings.providers.updates.versionAdvisoryNoCommand
-                              }
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                void runProviderUpdate(providerSettings.provider);
-                              }}
-                            >
-                              {isProviderUpdateActive ? (
-                                <Loader2Icon className="size-3.5 animate-spin" />
-                              ) : (
-                                <DownloadIcon className="size-3.5" />
-                              )}
-                              {isProviderUpdateActive
-                                ? messages.settings.providers.updates.updatingButton
-                                : messages.settings.providers.updates.updateButton}
-                            </Button>
-                          ) : null}
-                        </div>
-
-                        <CollapsibleContent>
-                          <div className="border-t border-border/70 bg-muted/20 px-3 py-3">
-                            <div className="space-y-3">
-                              <ProviderDocsLinks
-                                docs={providerSettings.docs}
-                                label={messages.settings.providers.docs.label}
-                              />
-                              {updateAdvisory?.status === "behind_latest" ? (
-                                <div className="text-xs text-muted-foreground">
-                                  {updateAdvisory.canUpdate && updateAdvisory.updateCommand ? (
-                                    <>
-                                      <span>
-                                        {messages.settings.providers.updates.commandLabel}
-                                      </span>
-                                      <code className="font-mono">
-                                        {updateAdvisory.updateCommand}
-                                      </code>
-                                    </>
-                                  ) : (
-                                    messages.settings.providers.updates.versionAdvisoryNoCommand
-                                  )}
-                                </div>
-                              ) : null}
-
-                              <label
-                                htmlFor={`provider-install-${providerSettings.binaryPathKey}`}
-                                className="block"
-                              >
-                                <span className="block text-xs font-medium text-foreground">
-                                  {messages.settings.providers.tools.binaryPathLabel(
-                                    providerSettings.title,
-                                  )}
-                                </span>
-                                <Input
-                                  id={`provider-install-${providerSettings.binaryPathKey}`}
-                                  className="mt-1"
-                                  value={piBinaryPath}
-                                  onChange={(event) =>
-                                    updateSettings({ piBinaryPath: event.target.value })
-                                  }
-                                  placeholder={providerSettings.binaryPlaceholder}
-                                  spellCheck={false}
-                                />
-                                <span className="mt-1 block text-xs text-muted-foreground">
-                                  {providerSettings.binaryDescription
-                                    .split("`")
-                                    .map((segment, index, segments) =>
-                                      index === segments.length - 1 ? (
-                                        <span key={index}>{segment}</span>
-                                      ) : (
-                                        <span key={index}>
-                                          {segment}
-                                          <code>{providerSettings.binaryCommand}</code>
-                                        </span>
-                                      ),
-                                    )}
-                                </span>
-                              </label>
-
-                              {providerSettings.agentDirKey ? (
-                                <label
-                                  htmlFor={`provider-install-${providerSettings.agentDirKey}`}
-                                  className="block"
-                                >
-                                  <span className="block text-xs font-medium text-foreground">
-                                    {messages.settings.providers.tools.agentDirLabel}
-                                  </span>
-                                  <Input
-                                    id={`provider-install-${providerSettings.agentDirKey}`}
-                                    className="mt-1"
-                                    value={piAgentDir}
-                                    onChange={(event) =>
-                                      updateSettings({
-                                        piAgentDir: event.target.value,
-                                      })
-                                    }
-                                    placeholder={providerSettings.agentDirPlaceholder}
-                                    spellCheck={false}
-                                  />
-                                  {providerSettings.agentDirDescription ? (
-                                    <span className="mt-1 block text-xs text-muted-foreground">
-                                      {providerSettings.agentDirDescription}
-                                    </span>
-                                  ) : null}
-                                </label>
-                              ) : null}
-                            </div>
-                          </div>
-                        </CollapsibleContent>
-                      </div>
-                    </Collapsible>
-                  );
-                })}
-              </div>
-            </div>
-          </SettingsRow>
-        </div>
-      </SettingsSection>
-    </div>
-  );
-
   const renderAdvancedPanel = () => (
     <div className="space-y-6">
       <SettingsSection title={messages.settings.advanced.developerSection}>
-        <div className="space-y-2">
+        <SettingsCard>
           <SettingsRow
             title={messages.settings.advanced.keybindings.title}
             description={messages.settings.advanced.keybindings.description}
@@ -2283,11 +1687,11 @@ function SettingsRouteView() {
               </div>
             ) : null}
           </SettingsRow>
-        </div>
+        </SettingsCard>
       </SettingsSection>
 
       <SettingsSection title={messages.settings.advanced.aboutSection}>
-        <div className="space-y-2">
+        <SettingsCard>
           <SettingsRow
             title={messages.settings.advanced.version.title}
             description={messages.settings.advanced.version.description}
@@ -2304,7 +1708,7 @@ function SettingsRouteView() {
               </Button>
             }
           />
-        </div>
+        </SettingsCard>
       </SettingsSection>
     </div>
   );
@@ -2319,14 +1723,19 @@ function SettingsRouteView() {
         return renderNotificationsPanel();
       case "behavior":
         return renderBehaviorPanel();
+      case "skills":
+        return <SkillsPanel />;
       case "worktrees":
         return renderWorktreesPanel();
       case "archived":
         return renderArchivedPanel();
-      case "models":
-        return renderModelsPanel();
-      case "providers":
-        return renderProvidersPanel();
+      case "piPackages":
+        return (
+          <PiPackagesSettingsPanel
+            key={settings.piAgentDir.trim()}
+            agentDir={settings.piAgentDir.trim()}
+          />
+        );
       case "modelProviders":
         return (
           <ModelProvidersSettingsPanel
@@ -2342,37 +1751,36 @@ function SettingsRouteView() {
   };
 
   return (
-    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none text-foreground">
-      <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-        {/* Header */}
-        {isElectron ? (
-          <div
-            className={cn(
-              "drag-region flex h-[52px] shrink-0 items-center border-b border-border/70 px-5",
-              desktopTopBarTrafficLightGutterClassName,
-            )}
-          >
-            <SidebarHeaderNavigationControls />
-            <span className="text-xs font-medium tracking-wide text-muted-foreground/70">
-              {messages.settings.title}
-            </span>
-            <div className="ms-auto flex items-center gap-2">
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={changedSettingLabels.length === 0}
-                onClick={() => void restoreDefaults()}
-              >
-                <RotateCcwIcon className="size-3.5" />
-                {messages.settings.restoreDefaults}
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <header className="border-b border-border/70 px-3 py-2 sm:px-5">
-            <div className="flex items-center gap-2">
-              <SidebarHeaderTrigger className="size-7 shrink-0" />
-              <span className="text-sm font-medium text-foreground">{messages.settings.title}</span>
+    <SidebarInset className="h-dvh min-h-0 overflow-hidden overscroll-y-none bg-[var(--color-background-elevated-secondary)] text-foreground">
+      <div className="flex h-full min-h-0 min-w-0 flex-1">
+        <SettingsNav
+          items={localizedNavItems}
+          groups={localizedNavGroups}
+          activeSection={activeSection}
+          onSelectSection={(section) => {
+            void navigate({
+              to: "/settings",
+              search: (previous) => ({
+                ...previous,
+                section: section === "general" ? undefined : section,
+              }),
+            });
+          }}
+          onBack={() => {
+            void navigate({ to: "/" });
+          }}
+        />
+
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* Header — the settings navigation column owns the window's left
+              edge, so this bar sits clear of the desktop traffic lights and
+              must not reserve a gutter of its own. */}
+          {isElectron ? (
+            <div className="drag-region flex h-[52px] shrink-0 items-center border-b border-border/70 px-5">
+              <SidebarHeaderNavigationControls />
+              <span className="text-xs font-medium tracking-wide text-muted-foreground/70">
+                {messages.settings.title}
+              </span>
               <div className="ms-auto flex items-center gap-2">
                 <Button
                   size="xs"
@@ -2385,19 +1793,43 @@ function SettingsRouteView() {
                 </Button>
               </div>
             </div>
-          </header>
-        )}
+          ) : (
+            <header className="border-b border-border/70 px-3 py-2 sm:px-5">
+              <div className="flex items-center gap-2">
+                <SidebarHeaderTrigger className="size-7 shrink-0" />
+                <span className="text-sm font-medium text-foreground">
+                  {messages.settings.title}
+                </span>
+                <div className="ms-auto flex items-center gap-2">
+                  <Button
+                    size="xs"
+                    variant="outline"
+                    disabled={changedSettingLabels.length === 0}
+                    onClick={() => void restoreDefaults()}
+                  >
+                    <RotateCcwIcon className="size-3.5" />
+                    {messages.settings.restoreDefaults}
+                  </Button>
+                </div>
+              </div>
+            </header>
+          )}
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-2xl px-6 py-6">
-            {/* Section header */}
-            <div className="mb-6">
-              <h1 className="text-2xl font-semibold text-foreground">{activeSectionItem.label}</h1>
-              <p className="mt-1 text-sm text-muted-foreground">{activeSectionItem.description}</p>
+          {/* Content */}
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="mx-auto w-full max-w-6xl px-8 py-8">
+              {/* Section header */}
+              <div className="mb-6">
+                <h1 className="text-2xl font-semibold text-foreground">
+                  {activeSectionItem.label}
+                </h1>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {activeSectionItem.description}
+                </p>
+              </div>
+
+              {renderActivePanel()}
             </div>
-
-            {renderActivePanel()}
           </div>
         </div>
       </div>

@@ -5,6 +5,7 @@
  * first-class proposed-plan event. The extraction helpers keep the UI path
  * provider-agnostic by converting tagged markdown into canonical runtime events.
  */
+import type { ProviderInteractionMode } from "@peakcode/contracts";
 
 export const PROVIDER_PLAN_MODE_PROMPT_PREFIX = [
   "Peak Code plan mode is active.",
@@ -20,7 +21,7 @@ const PROPOSED_PLAN_BLOCK_REGEX = /<proposed_plan>\s*([\s\S]*?)\s*<\/proposed_pl
 
 export function withProviderPlanModePrompt(input: {
   readonly text: string;
-  readonly interactionMode?: "default" | "plan" | undefined;
+  readonly interactionMode?: ProviderInteractionMode | undefined;
 }): string {
   if (input.interactionMode !== "plan") {
     return input.text;

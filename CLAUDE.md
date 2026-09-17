@@ -54,7 +54,7 @@ Peak Code is a Bun monorepo (`packageManager: bun@1.3.9`) using Turborepo and Ef
 - **`apps/desktop`**: Electron 40 wrapper. Bundles the server + web app into a desktop application. Uses `electron-updater` for auto-updates.
 - **`apps/marketing`**: Marketing/landing page site.
 - **`packages/contracts`**: Shared Effect/Schema schemas and TypeScript contracts for provider events, the WebSocket RPC protocol, model/session types, and IPC messages. Schema-only — no runtime logic. Build this first (`bun run build:contracts`) before working on dependent packages.
-- **`packages/shared`**: Shared runtime utilities consumed by both server and web. Uses explicit subpath exports (e.g. `@t3tools/shared/git`) — no barrel index.
+- **`packages/shared`**: Shared runtime utilities consumed by both server and web. Uses explicit subpath exports (e.g. `@peakcode/shared/git`) — no barrel index.
 - **`packages/effect-acp`**: Effect-TS wrapper around the Agent Communication Protocol (ACP). Provides typed client/server abstractions for agent communication.
 - **`scripts`**: Build and development tooling — `dev-runner.ts` (orchestrates dev mode), `build-desktop-artifact.ts`, `release-smoke.ts`.
 

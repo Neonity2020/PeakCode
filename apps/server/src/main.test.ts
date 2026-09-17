@@ -23,7 +23,7 @@ vi.mock("./threadRetention", async () => {
   };
 });
 
-import { CliConfig, recordStartupHeartbeat, t3Cli, type CliConfigShape } from "./main";
+import { CliConfig, recordStartupHeartbeat, peakcodeCli, type CliConfigShape } from "./main";
 
 const start = vi.fn(() => undefined);
 const stop = vi.fn(() => undefined);
@@ -71,7 +71,7 @@ const runCli = (
     PEAKCODE_NO_BROWSER: "true",
   },
 ) => {
-  const program = Command.runWith(t3Cli, { version: "0.0.0-test" })(args).pipe(
+  const program = Command.runWith(peakcodeCli, { version: "0.0.0-test" })(args).pipe(
     Effect.provide(
       ConfigProvider.layer(
         ConfigProvider.fromEnv({
