@@ -26,7 +26,11 @@ import { Schema } from "effect";
 const SIDEBAR_COOKIE_NAME = "sidebar_state";
 const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
 const SIDEBAR_WIDTH = "16rem";
-const SIDEBAR_WIDTH_MOBILE = "calc(100vw - var(--spacing(3)))";
+// A phone gets the sheet nearly edge to edge, leaving a sliver of the chat showing. Written
+// as plain CSS on purpose: `--spacing(3)` is a Tailwind arbitrary-value shorthand, and this
+// string lands in an inline custom property where nothing expands it — the declaration would
+// be dropped and the sheet would shrink to its content.
+const SIDEBAR_WIDTH_MOBILE = "calc(100vw - 0.75rem)";
 const SIDEBAR_WIDTH_ICON = "3rem";
 const SIDEBAR_RESIZE_DEFAULT_MIN_WIDTH = 16 * 16;
 

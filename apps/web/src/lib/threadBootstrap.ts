@@ -67,6 +67,8 @@ interface ResolveTerminalThreadCreationStateInput {
   draftThread: DraftThreadState | null;
   options: NewThreadOptions | undefined;
   projectDefaultModelSelection: ModelSelection | null;
+  /** The server-wide default for new chats; null when nobody configured one. */
+  serverDefaultModelSelection: ModelSelection | null;
   projectId: ProjectId;
 }
 
@@ -259,6 +261,7 @@ export function resolveTerminalThreadCreationState(
           ? input.activeThread.modelSelection
           : null,
       projectModelSelection: input.projectDefaultModelSelection,
+      serverDefaultModelSelection: input.serverDefaultModelSelection,
       defaultProvider: input.defaultProvider,
     }),
     runtimeMode:

@@ -50,6 +50,7 @@ function makeComposerDraftState(
     nonPersistedImageIds: [],
     persistedAttachments: [],
     assistantSelections: [],
+    plugins: [],
     terminalContexts: [],
     queuedTurns: [],
     modelSelectionByProvider: {
@@ -220,6 +221,7 @@ describe("threadBootstrap", () => {
         draftThread: makeDraftThread(),
         options: undefined,
         projectDefaultModelSelection: modelSelection("pi", "gpt-5.4"),
+        serverDefaultModelSelection: null,
         projectId: PROJECT_ID,
       }),
     ).toEqual({
@@ -252,12 +254,49 @@ describe("threadBootstrap", () => {
           envMode: "local",
         },
         projectDefaultModelSelection: modelSelection("pi", "gpt-5.4"),
+        serverDefaultModelSelection: null,
         projectId: PROJECT_ID,
       }),
     ).toMatchObject({
       envMode: "local",
       worktreePath: null,
       branch: "feature/terminal-bootstrap",
+    });
+  });
+
+  it("starts a thread with no closer preference on the server's default model", () => {
+    // The case a paired phone is in: no draft composer state, no thread, and a project
+    // without its own default — only the server-wide setting speaks.
+    expect(
+      resolveTerminalThreadCreationState({
+        activeDraftThread: null,
+        activeThread: null,
+        draftComposerState: null,
+        draftThread: null,
+        options: undefined,
+        projectDefaultModelSelection: null,
+        serverDefaultModelSelection: modelSelection("pi", "pi/server-default"),
+        projectId: PROJECT_ID,
+      }),
+    ).toMatchObject({
+      modelSelection: modelSelection("pi", "pi/server-default"),
+    });
+  });
+
+  it("lets a project default win over the server default", () => {
+    expect(
+      resolveTerminalThreadCreationState({
+        activeDraftThread: null,
+        activeThread: null,
+        draftComposerState: null,
+        draftThread: null,
+        options: undefined,
+        projectDefaultModelSelection: modelSelection("pi", "pi/project"),
+        serverDefaultModelSelection: modelSelection("pi", "pi/server-default"),
+        projectId: PROJECT_ID,
+      }),
+    ).toMatchObject({
+      modelSelection: modelSelection("pi", "pi/project"),
     });
   });
 });

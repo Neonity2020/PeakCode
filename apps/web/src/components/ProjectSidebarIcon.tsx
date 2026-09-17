@@ -5,36 +5,13 @@
 
 import { useEffect, useState } from "react";
 import { HiOutlineFolderOpen } from "react-icons/hi2";
+import { resolveServerOrigin } from "../lib/serverEndpoint";
 import { FolderClosed } from "./FolderClosed";
 
 const projectFaviconPresence = new Map<string, boolean>();
 
-function resolveServerHttpOrigin(): string {
-  if (typeof window === "undefined") return "";
-
-  const bridgeWsUrl = window.desktopBridge?.getWsUrl?.();
-  const envWsUrl = import.meta.env.VITE_WS_URL as string | undefined;
-  const wsCandidate =
-    typeof bridgeWsUrl === "string" && bridgeWsUrl.length > 0
-      ? bridgeWsUrl
-      : typeof envWsUrl === "string" && envWsUrl.length > 0
-        ? envWsUrl
-        : null;
-
-  if (!wsCandidate) return window.location.origin;
-
-  try {
-    const wsUrl = new URL(wsCandidate);
-    const protocol =
-      wsUrl.protocol === "wss:" ? "https:" : wsUrl.protocol === "ws:" ? "http:" : wsUrl.protocol;
-    return `${protocol}//${wsUrl.host}`;
-  } catch {
-    return window.location.origin;
-  }
-}
-
 function resolveProjectFaviconUrl(cwd: string): string {
-  const origin = resolveServerHttpOrigin();
+  const origin = typeof window === "undefined" ? "" : resolveServerOrigin();
   const url =
     origin.length > 0
       ? new URL("/api/project-favicon", origin)

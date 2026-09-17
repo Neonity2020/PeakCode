@@ -2,7 +2,7 @@ import { type ProjectId, ThreadId } from "@peakcode/contracts";
 import { getDefaultModel } from "@peakcode/shared/model";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
-import { useAppSettings } from "../appSettings";
+import { resolveDefaultModelSelection, useAppSettings } from "../appSettings";
 import {
   type ComposerThreadDraftState,
   type DraftThreadState,
@@ -139,6 +139,9 @@ export function useHandleNewThread() {
           draftThread,
           options: creationOptions,
           projectDefaultModelSelection,
+          // The server-wide default is the last stop before the provider's first model; it
+          // is what a phone with no composer history starts its chats on.
+          serverDefaultModelSelection: resolveDefaultModelSelection(settings),
           projectId,
         });
       // Terminal-first threads need a real orchestration thread immediately so
@@ -287,6 +290,8 @@ export function useHandleNewThread() {
       openTerminalThreadPage,
       focusedThreadId,
       markTemporaryThread,
+      settings.defaultModel,
+      settings.defaultModelProvider,
       settings.defaultProvider,
     ],
   );
