@@ -30,13 +30,20 @@ import { ProjectFaviconResolverLive } from "./project/Layers/ProjectFaviconResol
 import { ServerEnvironmentLive } from "./environment/Layers/ServerEnvironment";
 import { AutomationServiceLive } from "./automation/Layers/AutomationService";
 import { AutomationRunReactorLive } from "./automation/Layers/AutomationRunReactor";
+import { ImServiceLive } from "./im/Layers/ImService";
 import { AutomationRepositoryLive } from "./persistence/Layers/Automations";
+import { ImConversationRepositoryLive } from "./persistence/Layers/ImConversations";
 import { KanbanRunReactorLive } from "./kanban/Layers/KanbanRunReactor";
 import { KanbanServiceLive } from "./kanban/Layers/KanbanService";
 
-export { makeServerProviderLayer } from "./provider/runtimeLayer";
+import { makeServerProviderLayer } from "./provider/runtimeLayer";
 
-export function makeServerRuntimeServicesLayer() {
+export { makeServerProviderLayer };
+
+/** The provider stack (sessions, discovery) as `main.ts` builds it. */
+export type ServerProviderLayer = ReturnType<typeof makeServerProviderLayer>;
+
+export function makeServerRuntimeServicesLayer(providerLayer: ServerProviderLayer) {
   const checkpointStoreLayer = CheckpointStoreLive.pipe(Layer.provide(GitCoreLive));
 
   const checkpointDiffQueryLayer = CheckpointDiffQueryLive.pipe(
@@ -53,6 +60,10 @@ export function makeServerRuntimeServicesLayer() {
   const automationServiceLayer = AutomationServiceLive.pipe(
     Layer.provide(AutomationRepositoryLive),
     Layer.provideMerge(runtimeServicesLayer),
+    // Scheduled runs resolve a model from the provider, like the IM bridge does — and the
+    // default model for runs with no composer comes from the settings.
+    Layer.provide(ServerSettingsLive),
+    Layer.provide(providerLayer),
   );
   const automationRunReactorLayer = AutomationRunReactorLive.pipe(
     Layer.provideMerge(automationServiceLayer),
@@ -61,6 +72,9 @@ export function makeServerRuntimeServicesLayer() {
     Layer.provideMerge(runtimeServicesLayer),
     Layer.provideMerge(WorkspaceLayerLive),
     Layer.provideMerge(TextGenerationLayerLive),
+    // Board runs resolve a model too, and fall back to the configured default.
+    Layer.provide(ServerSettingsLive),
+    Layer.provide(providerLayer),
   );
   const kanbanRunReactorLayer = KanbanRunReactorLive.pipe(Layer.provideMerge(kanbanServiceLayer));
   const runtimeIngestionLayer = ProviderRuntimeIngestionLive.pipe(
@@ -110,6 +124,19 @@ export function makeServerRuntimeServicesLayer() {
     serverAuthLayer,
   );
 
+  // The IM bridge dispatches turns through the orchestration engine, reads their results
+  // back from the projection, stores its chat→thread index, and mints the phone pairing
+  // credential — hence the auth layer alongside the runtime services.
+  const imServiceLayer = ImServiceLive.pipe(
+    Layer.provide(ImConversationRepositoryLive),
+    Layer.provide(runtimeServicesLayer),
+    Layer.provide(ServerSettingsLive),
+    Layer.provide(authServicesLayer),
+    // The bridge asks the provider which models exist before it opens a thread; the
+    // caller's stack is reused so there is one pi runtime, not two.
+    Layer.provide(providerLayer),
+  );
+
   return Layer.mergeAll(
     orchestrationReactorLayer,
     threadDeletionReactorLayer,
@@ -127,5 +154,6 @@ export function makeServerRuntimeServicesLayer() {
     automationRunReactorLayer,
     kanbanServiceLayer,
     kanbanRunReactorLayer,
+    imServiceLayer,
   ).pipe(Layer.provideMerge(NodeServices.layer));
 }

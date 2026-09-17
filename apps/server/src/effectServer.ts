@@ -17,6 +17,7 @@ import { makeEffectHttpRouteLayer } from "./http";
 import { Keybindings } from "./keybindings";
 import { AutomationRunReactor } from "./automation/Services/AutomationRunReactor";
 import { AutomationService } from "./automation/Services/AutomationService";
+import { ImService } from "./im/Services/ImService";
 import { KanbanRunReactor } from "./kanban/Services/KanbanRunReactor";
 import { OrchestrationReactor } from "./orchestration/Services/OrchestrationReactor";
 import { ThreadDeletionReactor } from "./orchestration/Services/ThreadDeletionReactor";
@@ -37,6 +38,7 @@ export interface ServerShape {
     | Path.Path
     | AutomationRunReactor
     | AutomationService
+    | ImService
     | KanbanRunReactor
     | Keybindings
     | ServerLifecycleEvents
@@ -63,6 +65,7 @@ export const createEffectServer = Effect.fn(function* () {
   const config = yield* ServerConfig;
   const automationRunReactor = yield* AutomationRunReactor;
   const automationService = yield* AutomationService;
+  const imService = yield* ImService;
   const kanbanRunReactor = yield* KanbanRunReactor;
   const keybindings = yield* Keybindings;
   const lifecycleEvents = yield* ServerLifecycleEvents;
@@ -129,6 +132,7 @@ export const createEffectServer = Effect.fn(function* () {
   yield* Scope.provide(threadDeletionReactor.start(), subscriptionsScope);
   yield* Scope.provide(kanbanRunReactor.start(), subscriptionsScope);
   yield* Scope.provide(automationRunReactor.start(), subscriptionsScope);
+  yield* Scope.provide(imService.start(), subscriptionsScope);
   yield* Scope.provide(providerSessionReaper.start(), subscriptionsScope);
   yield* automationService.startScheduler();
   yield* Effect.addFinalizer(() =>

@@ -10,6 +10,7 @@ import OS from "node:os";
 import { Config, Data, Effect, FileSystem, Layer, Option, Path, Schema, ServiceMap } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { NetService } from "@peakcode/shared/Net";
+import { createFileShellEnvironmentCache } from "@peakcode/shared/shellEnvironment";
 import {
   DEFAULT_PORT,
   deriveServerPaths,
@@ -24,7 +25,11 @@ import {
   type SkillPackResult,
 } from "@peakcode/agent-toolkit/skills/default-pack";
 import { installBundledSkills } from "@peakcode/agent-toolkit/skills/bundled";
+import { bundledPluginSkills } from "@peakcode/agent-toolkit/plugins/registry";
 import { makeAutomationToolHost, setAutomationToolHost } from "./automation/automationTool";
+import { makeBrowserToolHost, setBrowserToolHost } from "./browser/browserTool";
+import { createComputerUseClient } from "./computer/computerUseClient";
+import { DefaultComputerToolHost, setComputerToolHost } from "./computer/computerTool";
 import { makeKanbanToolHost, setKanbanToolHost } from "./kanban/kanbanTool";
 import { createLogger } from "./logger";
 import { migrateLegacyHomeIfNeeded } from "./homeMigration";
@@ -94,7 +99,10 @@ export class CliConfig extends ServiceMap.Service<CliConfig, CliConfigShape>()(
       const path = yield* Path.Path;
       return {
         cwd: process.cwd(),
-        fixPath: Effect.sync(fixPath),
+        // Reuse the capture the desktop wrote for this launch (and the one from the last
+        // launch when the shell's startup files are unchanged) instead of starting a login
+        // shell on every boot.
+        fixPath: Effect.sync(() => fixPath({ cache: createFileShellEnvironmentCache() })),
         resolveStaticDir: resolveStaticDir().pipe(
           Effect.provideService(FileSystem.FileSystem, fileSystem),
           Effect.provideService(Path.Path, path),
@@ -122,6 +130,10 @@ const CliEnvConfig = Config.all({
   ),
   devUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   noBrowser: Config.boolean("PEAKCODE_NO_BROWSER").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
+  browserUsePipePath: Config.string("PEAKCODE_BROWSER_USE_PIPE_PATH").pipe(
     Config.option,
     Config.map(Option.getOrUndefined),
   ),
@@ -216,6 +228,10 @@ const ServerConfigLive = (input: CliInput) =>
         Option.getOrUndefined(input.host) ??
         env.host ??
         (mode === "desktop" ? "127.0.0.1" : undefined);
+      // Present only under the desktop app: the window that hosts the browser pane creates
+      // the pipe and passes its path down. Absent means "this session has no browser", which
+      // is why the tool is registered from this value rather than from a setting.
+      const browserUsePipePath = env.browserUsePipePath?.trim();
 
       const config: ServerConfigShape = {
         mode,
@@ -232,6 +248,9 @@ const ServerConfigLive = (input: CliInput) =>
         autoBootstrapProjectFromCwd,
         logProviderEvents,
         logWebSocketEvents,
+        ...(browserUsePipePath === undefined || browserUsePipePath.length === 0
+          ? {}
+          : { browserUsePipePath }),
       } satisfies ServerConfigShape;
 
       return config;
@@ -239,8 +258,10 @@ const ServerConfigLive = (input: CliInput) =>
   );
 
 const LayerLive = (input: CliInput) => {
-  const runtimeServicesLayer = makeServerRuntimeServicesLayer();
+  // One provider stack (sessions, discovery) for the whole app: the server's own fibers
+  // resolve it here, and the runtime services hand the same instance to the IM bridge.
   const providerLayer = makeServerProviderLayer();
+  const runtimeServicesLayer = makeServerRuntimeServicesLayer(providerLayer);
   const providerHealthLayer = ProviderHealthLive.pipe(
     // Provider health reads persisted provider settings while constructing its
     // cache, so build it with the same runtime services layer exposed to Server.
@@ -336,6 +357,36 @@ const makeServerProgram = (input: CliInput) =>
     const kanbanToolHost = yield* makeKanbanToolHost;
     yield* Effect.sync(() => setKanbanToolHost(kanbanToolHost));
 
+    /**
+     * `browser` is installed only when the desktop handed us a pipe path.
+     *
+     * No path means no pane, and the provider registers the tool from whether this host
+     * exists — so a headless or CLI server never advertises a browser it cannot drive.
+     */
+    yield* Effect.sync(() => {
+      const pipePath = config.browserUsePipePath;
+      setBrowserToolHost(pipePath === undefined ? null : makeBrowserToolHost({ pipePath }));
+    });
+
+    /**
+     * `computer` is installed only when the native helper answers.
+     *
+     * The helper is a separate app that the desktop installs and starts, so the server probes
+     * for it rather than assuming: a socket that nobody is listening on, a closed socket, or a
+     * helper from an older protocol all resolve to "no tool", and the provider then never
+     * advertises desktop control this session cannot carry out. The probe is bounded, so a
+     * helper that is slow to appear costs a start-up pause rather than a hang.
+     */
+    yield* Effect.promise(async () => {
+      const client = createComputerUseClient();
+      try {
+        const status = await client.statusOrNull();
+        setComputerToolHost(status === null ? null : new DefaultComputerToolHost(client));
+      } catch {
+        setComputerToolHost(null);
+      }
+    });
+
     // Keep the default engineering-workflow skill pack present in the shared library the
     // agent reads (`~/.agents/skills`). The workflow section of the system prompt names those
     // skills, so an install that has never run the skills CLI would otherwise advertise
@@ -372,6 +423,21 @@ const makeServerProgram = (input: CliInput) =>
             yield* Effect.logInfo("bundled skill installed", { skill: result.skill });
           } else if (result.status === "failed") {
             yield* Effect.logWarning("bundled skill unavailable", {
+              skill: result.skill,
+              detail: result.detail,
+            });
+          }
+        }
+
+        // Skills that belong to a bundled plugin (browser-use, computer-use) ride the same
+        // installer and the same library. A plugin's manifest is served from the embedded
+        // registry, but its skill has to be on disk for the agent to read it and for the
+        // composer to offer it, so it is written exactly like any other bundled skill.
+        for (const result of installBundledSkills({ skills: bundledPluginSkills() })) {
+          if (result.status === "installed") {
+            yield* Effect.logInfo("bundled plugin skill installed", { skill: result.skill });
+          } else if (result.status === "failed") {
+            yield* Effect.logWarning("bundled plugin skill unavailable", {
               skill: result.skill,
               detail: result.detail,
             });

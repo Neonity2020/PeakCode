@@ -23,6 +23,9 @@ import type { SessionCredentialServiceShape } from "./auth/Services/SessionCrede
 import { SessionCredentialService } from "./auth/Services/SessionCredentialService";
 import { deriveAuthClientMetadata } from "./auth/utils";
 import { ServerConfig, type ServerConfigShape } from "./config";
+import { isLocalDevViewerHost, proxyToDevWebServer } from "./devWebProxy.ts";
+import { imEffectRouteLayer } from "./im/http.ts";
+import { resolveWebEntryFilePath } from "./webEntryPaths.ts";
 import { LOCAL_IMAGE_ROUTE_PATH, resolveAllowedLocalImageFile } from "./localImageFiles.ts";
 import type { ProjectFaviconResolverShape } from "./project/Services/ProjectFaviconResolver";
 import { ProjectFaviconResolver } from "./project/Services/ProjectFaviconResolver";
@@ -59,6 +62,7 @@ export function makeEffectHttpRouteLayer(readiness: ServerReadiness) {
       ),
     ),
     authEffectRouteLayer,
+    imEffectRouteLayer,
     projectFaviconEffectRouteLayer,
     localImageEffectRouteLayer,
     attachmentsEffectRouteLayer,
@@ -413,7 +417,7 @@ export const attachmentsEffectRouteLayer = HttpRouter.add(
   }).pipe(Effect.catchTag("AuthError", (error) => Effect.succeed(authErrorResponse(error)))),
 );
 
-const staticAndDevEffectRouteLayer = HttpRouter.add(
+export const staticAndDevEffectRouteLayer = HttpRouter.add(
   "GET",
   "*",
   Effect.gen(function* () {
@@ -423,7 +427,13 @@ const staticAndDevEffectRouteLayer = HttpRouter.add(
 
     const config = yield* ServerConfig;
     if (config.devUrl) {
-      return HttpServerResponse.redirect(config.devUrl.toString(), { status: 302 });
+      // A browser on this machine is redirected to the dev web server — that is where the
+      // app is, Hot Module Replacement and all. A viewer reaching us from anywhere else
+      // (phone through the tunnel, device on the LAN) has no route to this machine's
+      // loopback, so it is served the dev app through this origin instead.
+      return isLocalDevViewerHost(request.headers.host)
+        ? HttpServerResponse.redirect(config.devUrl.toString(), { status: 302 })
+        : yield* proxyToDevWebServer({ request, devUrl: config.devUrl, url });
     }
 
     if (!config.staticDir) {
@@ -435,7 +445,11 @@ const staticAndDevEffectRouteLayer = HttpRouter.add(
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
     const staticRoot = path.resolve(config.staticDir);
-    const requestPath = url.pathname === "/" ? "/index.html" : url.pathname;
+    // The phone's page is a second entry in the same build, served under its own short path.
+    const requestPath =
+      url.pathname === "/"
+        ? "/index.html"
+        : (resolveWebEntryFilePath(url.pathname) ?? url.pathname);
     const rawRelativePath = requestPath.replace(/^[/\\]+/, "");
     const relativePath = path.normalize(rawRelativePath).replace(/^[/\\]+/, "");
     if (

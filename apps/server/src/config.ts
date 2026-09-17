@@ -51,6 +51,14 @@ export interface ServerConfigShape extends ServerDerivedPaths {
   readonly autoBootstrapProjectFromCwd: boolean;
   readonly logProviderEvents: boolean;
   readonly logWebSocketEvents: boolean;
+  /**
+   * Socket path of the desktop's browser-use pipe.
+   *
+   * Present only when the desktop app started this server and handed the path down; absent
+   * for every other deployment, which is what tells the server it has no browser pane to
+   * offer the agent.
+   */
+  readonly browserUsePipePath?: string;
 }
 
 export const deriveServerPaths = Effect.fn(function* (
