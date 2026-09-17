@@ -33,6 +33,7 @@ import {
 } from "@peakcode/contracts";
 import { getGoal, isTerminal, maxGoalContinuations } from "@peakcode/agent-toolkit/agent-goals";
 import { threadConversationKey } from "../../agentToolkit.ts";
+import { makeHeadlessModelResolver } from "../../provider/resolveHeadlessModelSelection.ts";
 import { AutomationService, type AutomationServiceShape } from "../Services/AutomationService.ts";
 
 const SCHEDULER_INTERVAL_MS = 30_000;
@@ -47,7 +48,6 @@ const SUMMARY_MAX_LENGTH = 4_000;
 const MAX_THREAD_TITLE_LENGTH = 120;
 /** A scheduled run is unattended, so the workspace stays behind the approval gate. */
 const RUN_RUNTIME_MODE = "approval-required" as const;
-const FALLBACK_MODEL_SELECTION: ModelSelection = { provider: "pi", model: "pi/default" };
 
 const newCommandId = () => CommandId.makeUnsafe(`cmd_${randomUUID()}`);
 const newThreadId = () => ThreadId.makeUnsafe(`thread_${randomUUID()}`);
@@ -111,6 +111,7 @@ const makeAutomationService = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
   const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
   const repository = yield* AutomationRepository;
+  const headlessModel = yield* makeHeadlessModelResolver;
 
   const schedulerIntervalRef = yield* Ref.make<Option.Option<ReturnType<typeof setInterval>>>(
     Option.none(),
@@ -235,8 +236,18 @@ const makeAutomationService = Effect.gen(function* () {
     threadId: ThreadId,
   ) => {
     const createdAt = new Date().toISOString();
-    const modelSelection = project.defaultModelSelection ?? FALLBACK_MODEL_SELECTION;
     return Effect.gen(function* () {
+      // A scheduled run has nobody to pick a model: the workspace default, or whatever the
+      // provider actually offers.
+      const modelSelection = yield* headlessModel.resolve(project.defaultModelSelection);
+      if (modelSelection === null) {
+        return yield* Effect.fail(
+          new Error(
+            "这个工作区还没有可用的模型：先在 Peak Code 里给工作区选一个模型，自动化任务才知道用什么执行。",
+          ),
+        );
+      }
+
       yield* orchestrationEngine.dispatch({
         type: "thread.create",
         commandId: newCommandId(),

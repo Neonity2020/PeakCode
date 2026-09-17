@@ -28,13 +28,16 @@ import {
   AutomationRepository,
   type AutomationWrite,
 } from "../../persistence/Services/Automations.ts";
+import { ProviderDiscoveryService } from "../../provider/Services/ProviderDiscoveryService.ts";
+import { ServerSettingsService } from "../../serverSettings.ts";
 import { AutomationService } from "../Services/AutomationService.ts";
 import { AutomationServiceLive, validateSchedule } from "./AutomationService.ts";
 import { threadConversationKey } from "../../agentToolkit.ts";
 
 const PROJECT_ID = ProjectId.makeUnsafe("project-1");
 const SHANGHAI = "Asia/Shanghai";
-const FALLBACK_MODEL_SELECTION: ModelSelection = { provider: "pi", model: "pi/default" };
+/** What the discovery stub reports; a run with no workspace default must use it. */
+const TEST_MODEL_SLUG = "anthropic/claude-sonnet-4-6";
 
 const project = {
   id: PROJECT_ID,
@@ -251,6 +254,13 @@ const makeLayer = (state: FakeState) =>
     Layer.provide(makeRepositoryLayer(state)),
     Layer.provide(makeOrchestrationLayer(state)),
     Layer.provide(makeProjectionLayer(state)),
+    // No default model is configured here, so the discovery stub below decides.
+    Layer.provide(ServerSettingsService.layerTest()),
+    // A scheduled run resolves a model with nobody to ask: the stub reports one so the
+    // dispatch carries a real slug instead of dying on the fallback.
+    Layer.provide(
+      ProviderDiscoveryService.layerTest({ models: [{ slug: TEST_MODEL_SLUG, name: "Test" }] }),
+    ),
   );
 
 const dailyAt = (hour: number, minute: number) => ({ kind: "daily" as const, hour, minute });
@@ -380,7 +390,9 @@ describe("AutomationService", () => {
       assert.strictEqual(create.title, "自动化：Weekly review");
       assert.strictEqual(create.interactionMode, "plan");
       assert.strictEqual(create.runtimeMode, "approval-required");
-      assert.deepStrictEqual(create.modelSelection, FALLBACK_MODEL_SELECTION);
+      // No workspace default, so the run takes the model the provider offers — the old
+      // behaviour dispatched a constant `pi/default` slug that no install has.
+      assert.deepStrictEqual(create.modelSelection, { provider: "pi", model: TEST_MODEL_SLUG });
       assert.strictEqual(turn.type, "thread.turn.start");
       assert.strictEqual(turn.threadId, create.threadId);
       assert.strictEqual(
