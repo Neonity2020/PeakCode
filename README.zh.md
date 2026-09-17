@@ -5,11 +5,12 @@
 <h1 align="center">Peak Code</h1>
 
 <p align="center">
-  <strong>AI 编程代理的开源图形界面。</strong><br />
-  统一的精美界面，支持 Claude Code、Codex、Gemini、Kilo Code、OpenCode 等。
+  <strong>本地优先的 Pi 编程代理桌面端与 Web 图形界面。</strong><br />
+  流式输出、差异对比、看板与定时任务，全部围绕一个代理 —— 并且都跑在你自己的机器上。
 </p>
 
 <p align="center">
+  <a href="./README.md">English</a> •
   <a href="https://github.com/PeakCode-AI/PeakCode/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/PeakCode-AI/PeakCode?style=flat-square" alt="License" />
   </a>
@@ -25,10 +26,10 @@
 </p>
 
 <p align="center">
-  <a href="#-快速开始">快速开始</a> •
-  <a href="#-功能特性">功能特性</a> •
-  <a href="https://discord.gg/jn4EGJjrvv">Discord</a> •
-  <a href="#-参与贡献">参与贡献</a>
+  <a href="#快速开始">快速开始</a> •
+  <a href="#功能特性">功能特性</a> •
+  <a href="#架构">架构</a> •
+  <a href="#参与贡献">参与贡献</a>
 </p>
 
 ---
@@ -37,12 +38,13 @@
 
 ## 为什么选择 Peak Code？
 
-AI 编程代理功能强大，但通过原始终端使用它们体验很差。Peak Code 为你提供**精致、本地优先的桌面和 Web 界面**，将你喜爱的 AI 代理统一在一个体验中：
+编程代理最大的价值，在于你能看着它干活、随时介入，并且明天还能回到那次运行；而终端给不了这些。Peak Code 把一个代理 —— [Pi](https://github.com/earendil-works/pi) —— 放进为这个循环设计的界面里：
 
-- **告别终端切换** — 在一个窗口中管理多个 AI 代理会话
-- **实时流式输出** — 实时观看代码生成、审查和应用
-- **内置 Git 工作流** — 分支、提交、推送、查看 diff，无需离开应用
-- **代码保留在本地** — 一切都在你的机器上运行，绝不接触云端
+- **先计划，再动代码** —— 输入区会把交互模式（Agent、Plan、Goal）随每条消息一起发出，所以一次请求可以以「待你确认的计划」返回，而不是以「需要回滚的改动」返回。
+- **每次运行都可复查** —— 回合实时流式输出，每一轮都记录一个 git 检查点，差异面板展示这一轮改了什么。
+- **工作比会话活得更久** —— 会话、看板和定时任务都是你机器上的文件与数据表，而不是厂商云里的状态。
+- **自带模型** —— Pi 自己的 `models.json` 可以直接在应用里编辑，任何 OpenAI、Anthropic 或 Google 兼容的端点都能接入。
+- **在你代码所在的地方运行** —— 桌面应用（macOS、Windows、Linux），或者你自己托管的 Web 服务。
 
 ## 快速开始
 
@@ -84,7 +86,13 @@ bun install
 bun run dev
 ```
 
-> **要求：** [Codex CLI](https://github.com/openai/codex)、Node.js 24+ 或 Bun、Git 2.30+、现代浏览器。
+然后打开 **`http://localhost:5733`**。
+
+> **要求：** Bun 1.3.9+（工作区锁定在 `bun@1.3.9`）或 Node.js 24+、Git 2.30+，以及装有至少一个
+> 已认证模型的 [Pi](https://github.com/earendil-works/pi)。Peak Code 通过内置的
+> `@earendil-works/pi-coding-agent` SDK 在进程内驱动 Pi 代理，并读取 pi 自己的配置目录
+> （`~/.pi/agent`）获取模型与凭据。未安装或版本过旧的 `pi` 会显示在提供商状态面板里，也可以在那里
+> 就地更新（npm、bun、pnpm 或 Homebrew）。
 
 #### 从源码构建 - Windows
 
@@ -107,17 +115,11 @@ bun run dev
 
 ## 功能特性
 
-### 多代理，统一界面
+### 只有一个代理：Pi
 
-无需改变工作流即可无缝切换 AI 编程提供商：
+Peak Code 只驱动一个代理运行时。Pi 是契约层里唯一的提供商（`ProviderKind = ["pi"]`），由唯一的适配器封装，并且在进程内运行——没有需要守护的代理子进程。这是刻意的取舍：这样应用就能把终端做不到的部分做好，而不必重新实现一个代理。
 
-| 提供商         | 状态   |
-| -------------- | ------ |
-| Claude Code    | 已支持 |
-| Codex (OpenAI) | 已支持 |
-| Gemini         | 已支持 |
-| Kilo Code      | 已支持 |
-| OpenCode       | 已支持 |
+模型不在 Pi 的管辖范围内，而是由你来定 —— 见下方「模型提供商」。
 
 ### 运行模式 —— Agent / Plan / Goal
 
@@ -128,6 +130,8 @@ bun run dev
 - **Goal** —— 完整工具集加 `goal` 工具。目标与验收标准保存在状态里，由服务端在轮次之间持续续跑，直到目标完成、被放弃或用完预算（受 token 预算和续跑次数上限约束）。
 
 目标会显示在输入区的目标面板中，可以暂停、恢复、完成或放弃；因预算耗尽而停止的目标状态为 `budget-limited`。
+
+另有一个独立于交互模式的运行时模式（完全访问 / 受监管），决定会话本身的审批与沙箱策略，详见 [`.docs/runtime-modes.md`](./.docs/runtime-modes.md)。
 
 ### 模型提供商
 
@@ -148,6 +152,12 @@ Settings → Pi 包 可以在应用内安装 [pi 包](https://github.com/earendi
 
 现成例子：**pi-crew**（`npm:@melihmucuk/pi-crew`，或 `git:github.com/melihmucuk/pi-crew`）带来六个 `crew_*` 工具，让子代理并行工作而当前回合保持可交互。它的工具、技能与 `/pi-crew-plan`、`/pi-crew-review` 提示词模板在 Peak Code 中可用；TUI 挂件、快捷键和 `@` 提及补全属于终端专属，保持静默。
 
+### 技能与命令
+
+Settings → 技能 列出代理可以读取的技能，每一项都带一个开关：关掉某个技能会保留它的文件，但把它从每轮的技能列表里移除，并让 `read_skill` 拒绝它（存为 `AGENT_DISABLED_SKILLS`）。技能从机器上共享的技能目录导入（`~/.agents/skills`，以及其他代理留下的目录），同时 Peak Code 会在系统层面保持安装 [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) 技能包，让 DEFINE → PLAN → BUILD → VERIFY → REVIEW → SHIP 工作流在每条新会话里就已就位。主题与两个提示词工程技能移植自 [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi)（MIT）—— 见 [`.docs/oh-my-pi-integration.md`](./.docs/oh-my-pi-integration.md)。
+
+斜杠命令让你不必手写提示词就能用上这些技能：`/compress` 驱动 `semantic-compression`，`/prompt-review` 驱动 `system-prompts`，`/review-prs` 运行本仓库自己的门禁（`scripts/pr-review.sh`）。三者都会先把指令插入输入区，供你阅读后再发送。
+
 ### 看板
 
 每个项目在自身目录下都有一块看板，存放在 `.kanban/board.json`，应用、编码代理和其他工具读写的是同一个文件：
@@ -155,7 +165,7 @@ Settings → Pi 包 可以在应用内安装 [pi 包](https://github.com/earendi
 - 列为 待开始 / 进行中 / 已完成 / 已阻塞 / 归档，支持拖拽换列。
 - 任务进入 进行中（或直接创建在该列）会派发给代理执行。任务的需求是一份带验收标准的敏捷简报，可以由代理根据标题生成。
 - 运行结果会写回任务：成功为 已完成，失败为 已阻塞，运行被中断则回到 待开始。
-- 任务详情把看板留言与代理在该线程里的消息合并展示，并支持对正在运行的一轮进行引导（steer）或中断。
+- 任务详情把看板留言与代理在该线程里的消息合并展示，并支持对正在运行的一轮进行引导（steer）或中断。`kanban_comment` 工具让被派发的代理能在自己的卡片上为每个完成的步骤留下一条留言。
 
 ### 定时任务
 
@@ -167,48 +177,72 @@ Settings → Pi 包 可以在应用内安装 [pi 包](https://github.com/earendi
 - 随时可以暂停、恢复或立即运行。一次性任务跑完会自动关闭；错过超过 6 小时的触发点会被顺延，而不是补跑。
 - 也可以直接对着代理说一句话来创建 —— 「每天早上帮我汇总一下这里的改动」会走 `schedule_task` 工具，落到你当前所在的工作区。
 
-### 实时流式输出
+详见 [`.docs/automations.md`](./.docs/automations.md)。
 
-实时观看 AI 代理工作——看到代码被编写、工具被调用、结果即时呈现。无需轮询，无需刷新。
+### Git、差异与工作树
 
-### Git 集成
+会话头部就是 git 操作入口 —— 提交、推送、同步、创建 Pull Request；而「暂存」发生在提交对话框里：勾选要进入这次提交的文件、写提交信息、提交。Pull Request 通过 GitHub CLI 创建。
 
-内置版本控制，支持分支管理、暂存、提交和推送——一切都在你与 AI 交互的同一界面中完成。
+差异面板可以展示某一轮的改动，也可以展示整个分支相对基线的改动；每一轮都会记录一个 git 检查点，这正是「回滚这一轮」所恢复的内容。一条线程既可以跑在项目目录里，也可以跑在它自己的 git 工作树（worktree）中，这样两个代理可以同时改同一个仓库而不用抢工作区；工作树列表与清理在 Settings → 工作树 里。
+
+### 终端与浏览器
+
+每条线程都带一个内嵌的 xterm 终端（服务端由真实 PTY 支撑），工作区页面还提供整屏宽度的终端视图。桌面版另有一个浏览器面板，可以在会话旁边驱动网页，并把截图送回对话。
 
 ### 会话持久化
 
-会话在重启后依然保留。智能检查点机制会捕获对话状态，让你可以从中断处精确恢复。
+对话以事件溯源方式写入 SQLite（应用目录下的 `state.sqlite`），因此线程、消息、工具调用与审批都能跨重启保留；之前在运行的会话会从保存的游标处恢复。会话状态是本地的 —— 除了模型调用本身，对话内容不会离开你的机器。
 
-### 集成终端与编辑器
+### 应用里还有
 
-内置终端用于命令执行，基于 Monaco 的代码编辑器支持语法高亮——无需离开窗口即可完成所有操作。
-
-### 跨平台
-
-支持原生 **Electron 桌面应用**（macOS、Windows、Linux）和可自托管的 **Web 应用**。
+- **外观** —— 主题系统，包含移植自 oh-my-pi 的 100 个 pi TUI 主题，以及主题包编辑器。
+- **中英文界面** —— 完整 i18n，默认简体中文。
+- **语音输入** —— 口述内容转写进输入区。
+- **用量与速率限制** —— 提供商用量面板与速率限制提示条。
+- **通知** —— 长回合结束时发送桌面通知。
+- **子代理、侧聊与分叉** —— 从其他线程分出来的会话保留父子关系。
+- **自动更新** —— 桌面版通过 `electron-updater` 自更新。
+- **快捷键** —— 见 [KEYBINDINGS.md](./KEYBINDINGS.md)。
 
 ## 架构
 
-Peak Code 采用分层客户端-服务器架构：
+Peak Code 是一个 Bun monorepo（`bun@1.3.9`，Turborepo，全面使用 Effect-TS），客户端与服务端分层：
 
 ```
-浏览器 / 桌面 (React + Vite + Electron)
-        │ WebSocket
+桌面端 (Electron)  /  浏览器
+        │  WebSocket —— Effect RPC + 类型化推送通道
         ▼
-   Node.js 服务器
-        │ JSON-RPC over stdio
+   Node.js 服务器（Effect-TS 层图、事件溯源编排）
+        │  进程内调用，无子进程
         ▼
-   AI 代理运行时 (codex app-server)
+   Pi 编程代理（@earendil-works/pi-coding-agent）
+        │
+        ▼
+   state.sqlite（项目、线程、事件、投影）
 ```
 
-| 层             | 关键组件                               |
-| -------------- | -------------------------------------- |
-| **展示层**     | React UI、Zustand 状态管理、主题系统   |
-| **应用层**     | Native API、事件处理器、WebSocket 传输 |
-| **领域层**     | 编排引擎、领域事件、状态投影           |
-| **基础设施层** | 提供商服务、Git 服务、终端服务         |
+| 层             | 关键组件                                                    |
+| -------------- | ----------------------------------------------------------- |
+| **展示层**     | React 19 / Vite 界面、Zustand 状态、TanStack Router + Query |
+| **应用层**     | WebSocket 之上的 `NativeApi`、类型化推送通道、传输层队列    |
+| **领域层**     | 编排命令/事件、投影、反应器（reactor）、检查点              |
+| **基础设施层** | Pi 适配器、agent-toolkit、git 服务、PTY 服务、SQLite 存储   |
 
-详见 [`.docs/architecture.md`](./.docs/architecture.md) 获取完整技术深入分析。
+| 包                       | 职责                                                                    |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `apps/server`            | WebSocket 服务（`peakcode`）、编排、提供商会话，并托管构建好的 Web 应用 |
+| `apps/web`               | React 界面 —— 会话、消息流、终端、看板、定时任务、设置                  |
+| `apps/desktop`           | Electron 外壳，把服务端与 Web 应用打包成桌面应用                        |
+| `apps/marketing`         | 官网落地页（Astro）                                                     |
+| `packages/contracts`     | 提供商事件、WS 协议、模型、看板的 Effect/Schema 契约 —— 仅含 Schema     |
+| `packages/agent-toolkit` | 代理 harness：工具、计划、目标、审批、技能及其 sqlite 存储              |
+| `packages/shared`        | 服务端与 Web 共用的运行时工具（显式子路径导出）                         |
+| `packages/effect-acp`    | Agent Communication Protocol 的 Effect-TS 封装                          |
+
+延伸阅读：[`.docs/runtime-modes.md`](./.docs/runtime-modes.md)、
+[`.docs/automations.md`](./.docs/automations.md)、
+[`.docs/skills-and-workflow.md`](./.docs/skills-and-workflow.md)、
+[`.docs/workspace-layout.md`](./.docs/workspace-layout.md)，自托管请看 [REMOTE.md](./REMOTE.md)。
 
 ## 开发
 
@@ -220,9 +254,10 @@ bun run dev
 bun run dev:server         # 仅服务器
 bun run dev:web            # 仅 Web UI
 bun run dev:desktop        # 桌面应用
+bun run dev:marketing      # 落地页
 
 # 质量检查
-bun run test               # Vitest 测试套件
+bun run test               # Vitest 测试套件（不要用 `bun test`）
 bun run lint               # oxlint
 bun run fmt                # oxfmt 格式化
 bun run typecheck          # TypeScript 类型检查
@@ -258,9 +293,13 @@ env -u PEAKCODE_AUTH_TOKEN PEAKCODE_PORT_OFFSET=3158 PEAKCODE_NO_BROWSER=1 \
   bun run dev -- --home-dir ./.peakcode-dev --port 58090
 ```
 
+服务器端口为 `3773` 加偏移量，Web 客户端为 `5733` 加偏移量，`--port` 覆盖服务器端口。
+`--home-dir` 让项目、`state.sqlite` 和日志不落进你真实的 `~/.peakcode`；加上 `--dry-run`
+可以在不启动任何进程的情况下查看解析后的配置。
+
 ## 参与贡献
 
-欢迎贡献！在提交 Issue 或 PR 前请先阅读 [CONTRIBUTING.md](./CONTRIBUTING.md)。
+欢迎贡献！在提交 Issue 或 PR 前请先阅读 [CONTRIBUTING.zh.md](./CONTRIBUTING.zh.md)。
 
 **快速指南：**
 
@@ -273,8 +312,7 @@ env -u PEAKCODE_AUTH_TOKEN PEAKCODE_PORT_OFFSET=3158 PEAKCODE_NO_BROWSER=1 \
 ## 社区
 
 - **[GitHub Issues](https://github.com/PeakCode-AI/PeakCode/issues)** — 报告 Bug 和请求功能
-
-## Star 历史
+- **[Discord](https://discord.gg/jn4EGJjrvv)** — 提问与日常交流
 
 如果 Peak Code 对你的工作流有帮助，不妨给它一个 Star——这能帮助更多人发现这个项目。
 

@@ -5,8 +5,8 @@
 <h1 align="center">Peak Code</h1>
 
 <p align="center">
-  <strong>The open-source GUI for AI coding agents.</strong><br />
-  One beautiful interface for Claude Code, Codex, Gemini, Kilo Code, OpenCode, and more.
+  <strong>A local-first desktop and web GUI for the Pi coding agent.</strong><br />
+  Streaming, diffs, boards and scheduled runs around one agent — all on your machine.
 </p>
 
 <p align="center">
@@ -26,10 +26,10 @@
 </p>
 
 <p align="center">
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-features">Features</a> •
-  <a href="https://discord.gg/jn4EGJjrvv">Discord</a> •
-  <a href="#-contributing">Contributing</a>
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#features">Features</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#contributing">Contributing</a>
 </p>
 
 ---
@@ -38,12 +38,19 @@
 
 ## Why Peak Code?
 
-AI coding agents are powerful, but using them through raw terminals is painful. Peak Code gives you a **polished, local-first desktop and web interface** that wraps your favorite AI agents in a unified experience:
+A coding agent is most useful when you can watch it work, steer it mid-turn, and come back to the run
+tomorrow. A terminal gives you none of that. Peak Code puts one agent — [Pi](https://github.com/earendil-works/pi) —
+behind an interface built for that loop:
 
-- **No more juggling terminals** — manage multiple AI agent sessions in one window
-- **Real-time streaming** — watch code being generated, reviewed, and applied live
-- **Built-in Git workflows** — branch, commit, push, and review diffs without leaving the app
-- **Your code stays local** — everything runs on your machine, nothing touches the cloud
+- **Plan before it edits** — the composer carries the interaction mode (Agent, Plan, Goal) with every
+  message, so a request can come back as a plan you accept instead of a diff you revert.
+- **Every run stays reviewable** — turns stream live, each one records a git checkpoint, and the diff
+  panel shows what a turn changed.
+- **Work outlives the session** — conversations, boards and scheduled runs are files and tables on your
+  machine, not state inside a vendor's cloud.
+- **Bring your own models** — Pi's own `models.json` is editable in-app, so any OpenAI-, Anthropic- or
+  Google-compatible endpoint works.
+- **Runs where your code is** — a desktop app (macOS, Windows, Linux) or a web server you self-host.
 
 ## Quick Start
 
@@ -87,7 +94,13 @@ bun install
 bun run dev
 ```
 
-> **Requirements:** [Codex CLI](https://github.com/openai/codex), Node.js 24+ or Bun, Git 2.30+, modern browser.
+Then open **`http://localhost:5733`**.
+
+> **Requirements:** Bun 1.3.9+ (the workspace is pinned to `bun@1.3.9`) or Node.js 24+, Git 2.30+, and
+> [Pi](https://github.com/earendil-works/pi) with at least one authenticated model. Peak Code runs the Pi
+> agent in-process from the bundled `@earendil-works/pi-coding-agent` SDK and reads pi's own config
+> directory (`~/.pi/agent`) for models and credentials. A missing or outdated `pi` install shows up in the
+> provider status panel, where it can also be updated in place (npm, bun, pnpm or Homebrew).
 
 #### From Source - Windows
 
@@ -110,17 +123,14 @@ Then open **`http://localhost:5733`** in your browser.
 
 ## Features
 
-### Multi-Agent, One Interface
+### One Agent: Pi
 
-Seamlessly switch between AI coding providers without changing your workflow:
+Peak Code drives a single agent runtime. Pi is the only provider in the contracts
+(`ProviderKind = ["pi"]`), is wrapped by a single adapter, and runs in-process — there is no agent
+subprocess to supervise. That is deliberate: the app can then own the parts a terminal cannot, without
+re-implementing the agent.
 
-| Provider       | Status    |
-| -------------- | --------- |
-| Claude Code    | Supported |
-| Codex (OpenAI) | Supported |
-| Gemini         | Supported |
-| Kilo Code      | Supported |
-| OpenCode       | Supported |
+The model is the one thing Pi leaves to you — see [Model Providers](#model-providers) below.
 
 ### Run Modes — Agent, Plan, Goal
 
@@ -131,6 +141,9 @@ The composer picks how a turn is handled, and the mode travels with the message:
 - **Goal** — the full tool set plus the `goal` tool. The objective and its acceptance criteria are kept in state, and the harness continues the work across turns — within a token budget and a continuation cap — until the goal is completed, dropped, or out of budget.
 
 A goal appears in the composer's goal panel, where it can be paused, resumed, completed or dropped. A goal that ran out of budget shows as `budget-limited`.
+
+A separate runtime mode (Full access / Supervised) decides approvals and sandboxing for the session
+itself; see [`.docs/runtime-modes.md`](./.docs/runtime-modes.md).
 
 ### Model Providers
 
@@ -151,6 +164,22 @@ Settings → Pi Packages installs [pi packages](https://github.com/earendil-work
 
 Ready-made example: **pi-crew** (`npm:@melihmucuk/pi-crew`, or `git:github.com/melihmucuk/pi-crew`) adds six `crew_*` tools for running subagents in parallel while the current turn stays interactive. Its tools, skills and `/pi-crew-plan` / `/pi-crew-review` prompt templates work in Peak Code; its TUI widget, keyboard shortcut and `@`-mention autocomplete are terminal-only and stay inert.
 
+### Skills and Commands
+
+Settings → Skills lists the skills the agent can read, with a switch on each one: turning a skill off keeps
+its files on disk but removes it from the per-turn skill list and makes `read_skill` refuse it
+(`AGENT_DISABLED_SKILLS`). Skills are imported from the machine's shared skill directories
+(`~/.agents/skills`, plus the ones other agents left behind), and Peak Code keeps the
+[addyosmani/agent-skills](https://github.com/addyosmani/agent-skills) pack installed at the system level so
+the DEFINE → PLAN → BUILD → VERIFY → REVIEW → SHIP workflow is present in every new thread. Themes and two
+prompt-engineering skills are ported from [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi) (MIT) —
+see [`.docs/oh-my-pi-integration.md`](./.docs/oh-my-pi-integration.md).
+
+Slash commands put the ported skills to work without describing them by hand: `/compress` drives
+`semantic-compression`, `/prompt-review` drives `system-prompts`, and `/review-prs` runs this repository's
+own gate (`scripts/pr-review.sh`). Each one inserts its instruction into the composer for you to read
+before sending.
+
 ### Kanban Boards
 
 Every project has a board inside its directory at `.kanban/board.json`, so the app, a coding agent, and any other tooling read and write the same file:
@@ -158,7 +187,7 @@ Every project has a board inside its directory at `.kanban/board.json`, so the a
 - Columns 待开始 / 进行中 / 已完成 / 已阻塞 / 归档, with drag-and-drop between them.
 - Moving a task into 进行中 — or creating it there — dispatches it to an agent. The task's requirement is an agile brief with acceptance criteria, which an agent can draft from the title.
 - Run status is written back onto the task: 已完成 on success, 已阻塞 on failure, 待开始 when the run was interrupted.
-- The task detail view merges board comments with the agent's own messages from the thread it ran in, and lets you steer or interrupt a running turn.
+- The task detail view merges board comments with the agent's own messages from the thread it ran in, and lets you steer or interrupt a running turn. The `kanban_comment` tool lets a dispatched agent leave one comment per finished step on its card.
 
 ### Scheduled Tasks
 
@@ -170,48 +199,83 @@ An automation is a plan plus one instruction plus the workspace it runs in. When
 - Pause, resume, or run a task by hand at any time. A one-off switches itself off once it has run, and a trigger missed by more than six hours is rolled forward instead of firing late.
 - You can also create one by talking to the agent — "every morning, summarise what changed here" goes through the `schedule_task` tool, which schedules it in the workspace you are already in.
 
-### Real-Time Streaming
+See [`.docs/automations.md`](./.docs/automations.md).
 
-Watch AI agents work in real-time — see code being written, tools being invoked, and results appearing instantly. No polling, no refreshing.
+### Git, Diffs and Worktrees
 
-### Git Integration
+The chat header carries the git actions — commit, push, sync and open a pull request — and the commit
+dialog is where staging happens: pick the files that go in, write the message, commit. Pull requests go
+through the GitHub CLI.
 
-Built-in version control with branch management, staging, committing, and pushing — all from the same interface where you interact with AI.
+The diff panel renders a turn's changes or the whole branch against its base, and each turn records a git
+checkpoint, which is what "revert this turn" restores. A thread can also run in the project directory or in
+its own git worktree, so two agents can work on the same repository without fighting over the working tree;
+worktrees are listed and cleaned up from Settings → Worktrees.
+
+### Terminal & Browser
+
+An embedded xterm terminal (backed by real PTYs on the server) is attached to every thread, and the
+workspace page gives a terminal its own full-width view. On the desktop build, a browser panel can drive a
+page next to the transcript and feed screenshots back into the conversation.
 
 ### Session Persistence
 
-Sessions survive restarts. Smart checkpointing captures conversation state so you can pick up exactly where you left off.
+Conversations are event-sourced into SQLite (`state.sqlite` under the app's home directory), so threads,
+messages, tool runs and approvals survive a restart; a session that was running is resumed from its stored
+cursor. Session state is local — nothing in the transcript leaves your machine except the model call.
 
-### Integrated Terminal & Editor
+### Also in the App
 
-Embedded terminal for command execution and Monaco-based code editor with syntax highlighting — everything you need without leaving the window.
-
-### Cross-Platform
-
-Available as a native **Electron desktop app** (macOS, Windows, Linux) and a **web application** you can self-host.
+- **Appearance** — themes, including 100 pi TUI themes ported from oh-my-pi and a theme-pack editor.
+- **English / 简体中文 UI** — full i18n, with Chinese as the default language.
+- **Voice input** — dictated prompts transcribed into the composer.
+- **Usage and rate limits** — a provider usage panel and rate-limit banners.
+- **Notifications** — a desktop notification when a long turn finishes.
+- **Subagents, sidechats and forks** — threads that branch off another thread keep their parent link.
+- **Auto-update** — the desktop build updates itself through `electron-updater`.
+- **Keybindings** — see [KEYBINDINGS.md](./KEYBINDINGS.md).
 
 ## Architecture
 
-Peak Code uses a layered client-server architecture:
+Peak Code is a Bun monorepo (`bun@1.3.9`, Turborepo, Effect-TS throughout) with a layered
+client-server split:
 
 ```
-Browser / Desktop (React + Vite + Electron)
-        │ WebSocket
+Desktop (Electron)  /  Browser
+        │  WebSocket — Effect RPC + typed push channels
         ▼
-   Node.js Server
-        │ JSON-RPC over stdio
+   Node.js server  (Effect-TS layer graph, event-sourced orchestration)
+        │  in-process, no subprocess
         ▼
-   AI Agent Runtime (codex app-server)
+   Pi coding agent  (@earendil-works/pi-coding-agent)
+        │
+        ▼
+   state.sqlite  (projects, threads, events, projections)
 ```
 
-| Layer              | Key Components                                         |
-| ------------------ | ------------------------------------------------------ |
-| **Presentation**   | React UI, Zustand stores, theme system                 |
-| **Application**    | Native API, event handlers, WebSocket transport        |
-| **Domain**         | Orchestration engine, domain events, state projections |
-| **Infrastructure** | Provider service, Git service, terminal service        |
+| Layer              | Key components                                                     |
+| ------------------ | ------------------------------------------------------------------ |
+| **Presentation**   | React 19 / Vite UI, Zustand stores, TanStack Router + Query        |
+| **Application**    | `NativeApi` over WebSocket, typed push channels, wsTransport queue |
+| **Domain**         | Orchestration commands/events, projections, reactors, checkpoints  |
+| **Infrastructure** | Pi adapter, agent toolkit, git service, PTY service, SQLite store  |
 
-See [`.docs/architecture.md`](./.docs/architecture.md) for the full technical deep-dive.
+| Package                  | Role                                                                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| `apps/server`            | WebSocket server (`peakcode`), orchestration, provider sessions, serves the built web app |
+| `apps/web`               | React UI — sessions, transcript, terminal, boards, automations, settings                  |
+| `apps/desktop`           | Electron wrapper that bundles server + web into the desktop app                           |
+| `apps/marketing`         | Landing page (Astro)                                                                      |
+| `packages/contracts`     | Effect/Schema contracts for provider events, WS protocol, models, kanban — schema only    |
+| `packages/agent-toolkit` | The agent harness: tools, plans, goals, approvals, skills, their sqlite store             |
+| `packages/shared`        | Runtime utilities shared by server and web (explicit subpath exports)                     |
+| `packages/effect-acp`    | Effect-TS wrapper around the Agent Communication Protocol                                 |
+
+Further reading: [`.docs/runtime-modes.md`](./.docs/runtime-modes.md),
+[`.docs/automations.md`](./.docs/automations.md),
+[`.docs/skills-and-workflow.md`](./.docs/skills-and-workflow.md),
+[`.docs/workspace-layout.md`](./.docs/workspace-layout.md),
+[REMOTE.md](./REMOTE.md) for self-hosting.
 
 ## Development
 
@@ -223,9 +287,10 @@ bun run dev
 bun run dev:server         # Server only
 bun run dev:web            # Web UI only
 bun run dev:desktop        # Desktop app
+bun run dev:marketing      # Landing page
 
 # Quality checks
-bun run test               # Vitest test suite
+bun run test               # Vitest test suite (never `bun test`)
 bun run lint               # oxlint
 bun run fmt                # oxfmt formatter
 bun run typecheck          # TypeScript type checking
@@ -261,6 +326,10 @@ env -u PEAKCODE_AUTH_TOKEN PEAKCODE_PORT_OFFSET=3158 PEAKCODE_NO_BROWSER=1 \
   bun run dev -- --home-dir ./.peakcode-dev --port 58090
 ```
 
+The server takes port `3773` plus the offset, the web client `5733` plus the offset, and `--port`
+overrides the server port. `--home-dir` keeps projects, `state.sqlite` and logs out of your real
+`~/.peakcode`. Add `--dry-run` to see the resolved configuration without starting anything.
+
 ## Contributing
 
 We welcome contributions! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) before opening issues or PRs.
@@ -276,8 +345,7 @@ We welcome contributions! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) befor
 ## Community
 
 - **[GitHub Issues](https://github.com/PeakCode-AI/PeakCode/issues)** — bug reports and feature requests
-
-## Star History
+- **[Discord](https://discord.gg/jn4EGJjrvv)** — questions and day-to-day chatter
 
 If Peak Code helps your workflow, consider giving it a star — it helps others discover the project.
 
