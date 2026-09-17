@@ -68,6 +68,22 @@ Long term maintainability is a core priority. If you add new functionality, firs
 - Check both server and web ports with `lsof -nP -iTCP:<port> -sTCP:LISTEN`. A desktop app can bind `127.0.0.1:<port>` while the dev server binds IPv6 `*:<port>`, and `localhost` may still hit the wrong process.
 - If the UI shows no threads, verify the server path before changing SQL: inspect the isolated `state.sqlite`, then probe `orchestration.getSnapshot` over WebSocket. A healthy snapshot with projects/threads means the issue is client connection/hydration, not empty history.
 
+## Starting the App ("启动" means the desktop client)
+
+Peak Code ships a desktop client, so when the user says 启动 / 启动起来 / 启动客户端 / 跑起来看看, build and launch the **desktop client**. Do not start the web dev server or the web-only prod server unless the user asks for the web UI (起 web / 开网页 / dev server).
+
+```bash
+bun run build          # everything; `bun run build:desktop` (desktop bundle + server) is enough once apps/web/dist exists
+# Launch the built client against isolated state so it cannot touch ~/.peakcode or a running instance:
+env -u PEAKCODE_AUTH_TOKEN PEAKCODE_HOME="$PWD/.peakcode-desktop-<purpose>" bun run start:desktop
+```
+
+- `bun run start:desktop` runs `apps/desktop/dist-electron/main.js`. The client spawns its own backend from `apps/server/dist/index.mjs` on a free loopback port with a per-run auth token, so no port juggling is needed; unpackaged runs resolve the app root back to the repo, which is why both the Electron process and the backend it spawned show up in `ps`.
+- That backend serves the built web client from `apps/server/dist/client`, so the client always reflects the last `bun run build` — no HMR. Use `bun run electron:dev` when live reload is what the user wants.
+- A distributable `.app`/dmg comes from `scripts/build-desktop-artifact.ts` (electron-builder, ad-hoc signed). It is slow; run it only when an actual artifact is wanted.
+- Serving the web UI instead (`node apps/server/dist/index.mjs --home-dir <isolated> --port <free>`) is the fallback for web-only checks, not the default way to show the user the app.
+- After launching, confirm the process and window are really up (`list_apps` / `list_windows`), bring the window to the front, and tell the user where to look.
+
 ## Codex App Server (Important)
 
 Peak Code is currently Codex-first. The server starts `codex app-server` (JSON-RPC over stdio) per provider session, then streams structured events to the browser through WebSocket push messages.

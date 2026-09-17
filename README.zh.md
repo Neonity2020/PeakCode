@@ -61,13 +61,13 @@
 #### macOS 提示「应用已损坏」
 
 发布包目前尚未使用 Apple Developer ID 签名，Apple Silicon 版 macOS 会拦截下载的
-应用，提示「"Peak Code (Alpha)" 已损坏，无法打开」。文件本身是完整的——只是带了
+应用，提示「"Peak Code" 已损坏，无法打开」。文件本身是完整的——只是带了
 隔离标记（quarantine），且没有公证（notarization）票据。清除该标记后，从
 **应用程序**目录打开即可：
 
 ```bash
 # 如果安装在别的位置，请替换成实际路径
-xattr -dr com.apple.quarantine "/Applications/Peak Code (Alpha).app"
+xattr -dr com.apple.quarantine "/Applications/Peak Code.app"
 ```
 
 若 macOS 仍拒绝打开，进入 **系统设置 → 隐私与安全性**，找到被拦截的提示并选择
@@ -179,6 +179,18 @@ Settings → 技能 列出代理可以读取的技能，每一项都带一个开
 
 详见 [`.docs/automations.md`](./.docs/automations.md)。
 
+### 即时通讯渠道
+
+在聊天软件里给代理发一条消息，答案就回到那个聊天里 —— 而它同时是一条真实会话，之后可以在应用里打开、继续追问：
+
+- 六个渠道：**微信个人号**（扫码接入；向外长轮询，不需要公网地址）、**飞书 / Lark** 与 **QQ**（长连接）、**企业微信** 与 **微信公众号**（腾讯回调过来，这两个需要公网 HTTPS 地址），以及通用的 **Webhook** —— 群机器人负责播报任务完成，同时提供一条带密钥保护的 HTTP 桥接，任何脚本或快捷指令都能投递任务。
+- 每个聊天保留自己的上下文：桥接记住每个对话续在哪条线程上，空闲 12 小时（可配置，`0` 表示永不过期）后自动开一条新会话。
+- 正在执行时到达的消息会排队；渠道支持撤回时，「正在处理」的临时提示会在答案落地前被收回。
+- **手机访问**不用折腾网络：在设置里开一条 Cloudflare 快速隧道（服务端没要求令牌时会拒绝，因为隧道地址是公开的），再扫配对二维码，就能在手机上打开这个工作区，甚至直接落到当时屏幕上的那条会话。
+- 运行默认停在 **approval-required** —— 聊天驱动的回合没有人守在屏幕前。
+
+渠道清单、各自需要的凭据、回调验签算法与 HTTP 接口都在 [`.docs/im-channels.md`](./.docs/im-channels.md)。
+
 ### Git、差异与工作树
 
 会话头部就是 git 操作入口 —— 提交、推送、同步、创建 Pull Request；而「暂存」发生在提交对话框里：勾选要进入这次提交的文件、写提交信息、提交。Pull Request 通过 GitHub CLI 创建。
@@ -241,6 +253,7 @@ Peak Code 是一个 Bun monorepo（`bun@1.3.9`，Turborepo，全面使用 Effect
 
 延伸阅读：[`.docs/runtime-modes.md`](./.docs/runtime-modes.md)、
 [`.docs/automations.md`](./.docs/automations.md)、
+[`.docs/im-channels.md`](./.docs/im-channels.md)、
 [`.docs/skills-and-workflow.md`](./.docs/skills-and-workflow.md)、
 [`.docs/workspace-layout.md`](./.docs/workspace-layout.md)，自托管请看 [REMOTE.md](./REMOTE.md)。
 

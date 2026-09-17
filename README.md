@@ -67,13 +67,13 @@ Download from [Releases](https://github.com/PeakCode-AI/PeakCode/releases):
 #### macOS reports the app as damaged
 
 Release builds are not signed with an Apple Developer ID yet, so Apple Silicon macOS
-blocks the downloaded app with _"Peak Code (Alpha)" is damaged and can't be opened_.
+blocks the downloaded app with _"Peak Code" is damaged and can't be opened_.
 The download itself is intact — the bundle just carries a quarantine flag and no
 notarization ticket. Clear the flag, then open the app from **Applications**:
 
 ```bash
 # Adjust the path if you installed the app somewhere else
-xattr -dr com.apple.quarantine "/Applications/Peak Code (Alpha).app"
+xattr -dr com.apple.quarantine "/Applications/Peak Code.app"
 ```
 
 If macOS still refuses, open **System Settings → Privacy & Security**, scroll to the
@@ -201,6 +201,19 @@ An automation is a plan plus one instruction plus the workspace it runs in. When
 
 See [`.docs/automations.md`](./.docs/automations.md).
 
+### IM Channels
+
+Send the agent a message from a chat app and the answer comes back there — as a real thread you can open in the app afterwards:
+
+- Six channels: **personal WeChat** (scan a QR code to pair it; it long-polls outward, so no public URL is needed), **Feishu/Lark** and **QQ** (outbound sockets), **企业微信** and **微信公众号** (Tencent posts to you, so those two need a public HTTPS address), and a generic **webhook** — group robots that announce finished runs, plus a secret-guarded HTTP bridge any script or shortcut can post a task to.
+- A chat keeps its context: the bridge remembers which thread each conversation continues in, and starts a fresh one after 12 idle hours (configurable; `0` keeps one context forever).
+- A message that arrives while a turn is already running is queued, and the channel's own "working on it" notice is withdrawn once the answer lands.
+- **Phone access** without a networking project: open a Cloudflare quick tunnel from Settings (refused unless the server requires a token, since the address is public), then scan the pairing QR to open the workspace — or the exact conversation that was on screen — on your phone.
+- Runs default to **approval-required**, because nobody is at the screen during a chat-driven turn.
+
+Channels, credentials, the callback signature scheme and the HTTP surface are in
+[`.docs/im-channels.md`](./.docs/im-channels.md).
+
 ### Git, Diffs and Worktrees
 
 The chat header carries the git actions — commit, push, sync and open a pull request — and the commit
@@ -273,6 +286,7 @@ Desktop (Electron)  /  Browser
 
 Further reading: [`.docs/runtime-modes.md`](./.docs/runtime-modes.md),
 [`.docs/automations.md`](./.docs/automations.md),
+[`.docs/im-channels.md`](./.docs/im-channels.md),
 [`.docs/skills-and-workflow.md`](./.docs/skills-and-workflow.md),
 [`.docs/workspace-layout.md`](./.docs/workspace-layout.md),
 [REMOTE.md](./REMOTE.md) for self-hosting.

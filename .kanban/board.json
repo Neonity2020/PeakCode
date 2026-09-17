@@ -241,6 +241,67 @@
       "updatedAt": "2026-09-17T02:57:08Z"
     },
     {
+      "id": "t_58aaf0bce6",
+      "title": "把代码合并到主干分，并推送远程",
+      "description": "# 目标\n将当前分支的改动合并到主干分支并推送到远程，使远程主干包含本次变更。假设主干分支为 `main`，若名为 `master` 需按实际调整。\n\n# 范围\n- 切换到主干分支并拉取远程最新提交。\n- 将目标分支合并进主干，保留提交历史。\n- 将主干推送至远程同名分支。\n- 边界情况：出现合并冲突时中止并报告，绝不使用强制推送。\n\n# 验收标准\n- [ ] `git log` 显示主干包含目标分支的提交。\n- [ ] `git status` 显示工作区干净且无未完成合并。\n- [ ] `git push` 后远程主干与本地主干指向同一提交。\n- [ ] 冲突场景下未执行 `--force` 推送。",
+      "status": "archived",
+      "priority": "medium",
+      "pipeline": "",
+      "assignee": "",
+      "agentProvider": "pi",
+      "agentModel": "",
+      "agentThreadId": "thread_41317286-3652-4bbf-80ab-a4f3dde5ae62",
+      "agentRunStatus": "done",
+      "comments": [
+        {
+          "commentId": "c_f8e767ee3b",
+          "author": "agent",
+          "kind": "status",
+          "statusCode": "started",
+          "body": "",
+          "createdAt": "2026-09-17T02:56:40Z"
+        },
+        {
+          "commentId": "c_954efccc52",
+          "author": "agent",
+          "kind": "note",
+          "body": "界定+计划：目标分支 feat-model-providers-agent-toolkit-kanban 领先 main 5 个提交，且工作区有大量未提交改动（staged 122 文件 / unstaged 36 文件 / 34 未跟踪，约 1.6 万行新增）。假设：这些未提交改动属于该分支的在建工作，需先提交以免丢失并使工作区干净，再把分支合并进 main 并推送。已经用 typecheck(9/9 通过)、lint(0 error)、fmt:check(通过) 验证工作树一致，证明可安全提交。边界：冲突即中止、绝不 force push。下一步：提交工作树 → 跑测试 → 合并 main（--no-ff 保留历史）→ 推送。",
+          "createdAt": "2026-09-17T02:58:45Z"
+        },
+        {
+          "commentId": "c_a467275003",
+          "author": "agent",
+          "kind": "note",
+          "body": "构建/验证完成：在提交工作树后跑了完整检查 —— `bun run typecheck` 9/9 通过、`bun run lint` 0 error（188 warning，退出码 0）、`bun run fmt:check` 通过、`bun run test` 11/11 通过（peakcode 服务端 796 用例、web 127 文件 1411 用例等）。注：`bun run test` 首次因环境缺 `bunx` 二进制（apps/web 的 test 脚本用 bunx）报 127，与本次改动无关；用临时 shim `/tmp/pxbin/bunx`（等价 `bun x`）重跑后全部通过。下一步：合并 main 并推送。",
+          "createdAt": "2026-09-17T03:01:15Z"
+        },
+        {
+          "commentId": "c_dbecc21ae5",
+          "author": "agent",
+          "kind": "note",
+          "body": "交付完成（SHIP）：`feat-model-providers-agent-toolkit-kanban` 已合并进 `main` 并推送远程。合并方式 `git merge --no-ff` → 合并提交 `4baccd1`，保留全部分支提交历史；推送为普通 fast-forward `59a0009..4baccd1`（无 `+`、未用 `--force`）。合并期间 origin/main 已从 53a5295 前进到 59a0009（PR #21），已先 ff-only 同步 main 再合并，无冲突。合并后再次全量复验：typecheck 9/9、lint 0 error、fmt:check 通过。结论：远程 main = 本地 main = `4baccd1`，工作区干净、无未完成合并。",
+          "createdAt": "2026-09-17T03:01:15Z"
+        },
+        {
+          "commentId": "c_94a71f5fc0",
+          "author": "agent",
+          "kind": "note",
+          "body": "总结：已完成合并+推送。改动：新增提交 50ebbe5（把分支上 122 staged/36 unstaged/34 untracked 的在建改动一次性提交，避免丢失并使工作区干净），`--no-ff` 合并入 main 生成 4baccd1。验收证据：`git merge-base --is-ancestor feat-... main` = YES；`git status --porcelain` 为空且无 MERGE_HEAD；推送输出 `59a0009..4baccd1 main -> main`，fetch 后 local==remote==4baccd1745f5；全程未用 `--force`，无冲突发生。遗留/未做：未删除本地分支（远程无同名分支，保留以便回查）；未打 tag/未发版；工作树中被一并提交的 WIP 内容未做逐文件评审（仅以 typecheck/lint/fmt/全量测试作为屏障）。假设：卡片的「当前分支改动」包含未提交工作树内容。",
+          "createdAt": "2026-09-17T03:01:21Z"
+        },
+        {
+          "commentId": "c_15283e2be5",
+          "author": "agent",
+          "kind": "status",
+          "statusCode": "done",
+          "body": "",
+          "createdAt": "2026-09-17T03:01:29Z"
+        }
+      ],
+      "createdAt": "2026-09-17T01:34:49Z",
+      "updatedAt": "2026-09-17T09:14:43Z"
+    },
+    {
       "id": "t_6d07eece60",
       "title": "现在项目还有很多地方，啊，明明是中文，它显示成英文了，这个需要修改一下。还有，默认要是中文，它现在默认还是英文。",
       "description": "## 目标\n统一项目界面语言：修复本应显示中文却显示英文的文案，并将默认语言设为中文。假设当前已有 i18n 机制，只需补齐翻译与默认值。\n\n## 范围\n- 排查界面中硬编码或缺失翻译导致的英文文案，替换为中文。\n- 将应用默认语言改为中文（首次启动、无本地存储时生效）。\n- 保留语言切换能力，切换后即时生效并持久化。\n- 边界情况：用户已设置过英文时，不应被新默认值覆盖。\n\n## 验收标准\n- [ ] 首次启动（无语言偏好）时界面显示中文。\n- [ ] 通过关键字搜索确认相关文案不再出现英文硬编码。\n- [ ] 手动切换中/英文后刷新页面，语言保持选择。\n- [ ] 已选英文的老用户升级后仍显示英文。",
@@ -355,38 +416,67 @@
       "updatedAt": "2026-09-17T01:29:32Z"
     },
     {
-      "id": "t_58aaf0bce6",
-      "title": "把代码合并到主干分，并推送远程",
-      "description": "# 目标\n将当前分支的改动合并到主干分支并推送到远程，使远程主干包含本次变更。假设主干分支为 `main`，若名为 `master` 需按实际调整。\n\n# 范围\n- 切换到主干分支并拉取远程最新提交。\n- 将目标分支合并进主干，保留提交历史。\n- 将主干推送至远程同名分支。\n- 边界情况：出现合并冲突时中止并报告，绝不使用强制推送。\n\n# 验收标准\n- [ ] `git log` 显示主干包含目标分支的提交。\n- [ ] `git status` 显示工作区干净且无未完成合并。\n- [ ] `git push` 后远程主干与本地主干指向同一提交。\n- [ ] 冲突场景下未执行 `--force` 推送。",
-      "status": "in_progress",
+      "id": "t_c23d02a281",
+      "title": "看板新增任务，需求描述里面需要支持上传图片。",
+      "description": "",
+      "status": "done",
       "priority": "medium",
       "pipeline": "",
       "assignee": "",
       "agentProvider": "pi",
       "agentModel": "",
-      "agentThreadId": "thread_41317286-3652-4bbf-80ab-a4f3dde5ae62",
-      "agentRunStatus": "running",
+      "agentThreadId": "thread_319a6801-029a-415a-bd70-2b3eb3dfc45f",
+      "agentRunStatus": "done",
       "comments": [
         {
-          "commentId": "c_f8e767ee3b",
+          "commentId": "c_5f21594300",
           "author": "agent",
           "kind": "status",
           "statusCode": "started",
           "body": "",
-          "createdAt": "2026-09-17T02:56:40Z"
+          "createdAt": "2026-09-17T09:13:15Z"
         },
         {
-          "commentId": "c_954efccc52",
+          "commentId": "c_8edb415cbf",
           "author": "agent",
           "kind": "note",
-          "body": "界定+计划：目标分支 feat-model-providers-agent-toolkit-kanban 领先 main 5 个提交，且工作区有大量未提交改动（staged 122 文件 / unstaged 36 文件 / 34 未跟踪，约 1.6 万行新增）。假设：这些未提交改动属于该分支的在建工作，需先提交以免丢失并使工作区干净，再把分支合并进 main 并推送。已经用 typecheck(9/9 通过)、lint(0 error)、fmt:check(通过) 验证工作树一致，证明可安全提交。边界：冲突即中止、绝不 force push。下一步：提交工作树 → 跑测试 → 合并 main（--no-ff 保留历史）→ 推送。",
-          "createdAt": "2026-09-17T02:58:45Z"
+          "body": "开始界定需求：要在「看板新增任务」的需求描述里支持上传图片。先摸清现有看板卡片创建表单与描述字段的实现位置，再确定上传落点（服务端存哪、客户端怎么渲染）。",
+          "createdAt": "2026-09-17T09:13:20Z"
+        },
+        {
+          "commentId": "c_9795e04eb7",
+          "author": "agent",
+          "kind": "note",
+          "body": "界定完成。需求：看板新增任务的「需求描述」要能上传图片。\n\n验收标准（自定）：\n1. 新增任务页可以在需求描述区添加图片（文件选择 / 粘贴 / 拖拽），有缩略图预览、可删除、有数量与体积上限（≤8 张、单张 ≤10MB，与聊天附件一致）。\n2. 图片随项目看板落盘在 `<workspaceRoot>/.kanban/attachments/`，board.json 只存描述符（不塞 base64），刷新/重开仍在。\n3. 任务详情页能显示这些图片缩略图。\n4. 派给智能体的需求文本里带上附件路径，智能体能读到图。\n\n最小合理假设：本期只做「新增任务」时的上传 + 详情页展示；详情页内增删图片留作后续。图片不进 board.json 的正文文本，而是结构化 `attachments` 字段 —— 这样「一键生成需求」替换 description 时不会把图片弄丢。\n\n实现顺序：contracts → server 存储/落盘 → web 新增页上传与预览 → 详情页展示 → 看板卡片角标 → 测试与验证。",
+          "createdAt": "2026-09-17T09:15:40Z"
+        },
+        {
+          "commentId": "c_1dc3c1faeb",
+          "author": "agent",
+          "kind": "note",
+          "body": "BUILD 完成主体实现，进入验证。\n\n改动：\n- contracts（packages/contracts/src/kanban.ts）：新增 `KanbanTaskAttachment` / `KanbanUploadTaskAttachment`，`KanbanTask.attachments` 必填数组，`KanbanCreateTaskInput.attachments`（≤8，≤10MB/张），`KanbanTaskDetail.workspaceRoot`。\n- server：`boardDocument.ts` 规范化 attachments（丢弃非图片/相对路径逃逸项）、`createStoredTask`/`toKanbanTask` 带上附件、`buildTaskPrompt` 在需求后追加附件相对路径。`KanbanService.createTask` 解码 dataUrl 写入 `<workspaceRoot>/.kanban/attachments/<uuid>.<ext>`，board.json 只存描述符，并把 workspaceRoot 放进 task detail。\n- web：新增 `lib/kanbanTaskAttachments.ts`（选择/校验/预览/读 dataUrl）与 `components/KanbanTaskAttachments.tsx`（缩略图条）。新增任务页支持文件选择、粘贴、拖拽，带缩略图与删除，提交时把图片转 dataUrl 一起创建。任务详情页展示缩略图（走既有 /api/local-image 路由），看板卡片显示图片数量角标。i18n 补 en/zh 文案。\n\n证据：\n- 新增/更新测试并通过：`boardDocument.test.ts`(31)、`KanbanService.test.ts`(31，含「图片落盘且 board.json 无 base64」)、`kanbanTaskAttachments.test.ts`(4)；apps/web 全量 128 文件 1415 用例通过；apps/server 794/799 通过（4 个 GitCore 失败为中文 locale 导致，与本次无关）。\n- `bun run typecheck` 9 包全通过；oxlint 改动文件 0 error；oxfmt --check 全部通过。\n\n下一步：跑一次看板相关 browser 组件测试确认新增页渲染无回归，然后收尾。",
+          "createdAt": "2026-09-17T09:23:16Z"
+        },
+        {
+          "commentId": "c_927c9e823e",
+          "author": "agent",
+          "kind": "note",
+          "body": "收尾总结。\n\n做完的内容：\n- 新增任务页「需求描述」现可上传图片：文件选择、粘贴（Ctrl/Cmd+V）、拖拽三种入口，缩略图预览 + 可删除，上限 8 张 / 单张 10MB，超限弹 toast。\n- 图片落盘到 `<workspaceRoot>/.kanban/attachments/<uuid>.<ext>`；board.json 只存描述符（attachmentId/name/mimeType/sizeBytes/relativePath），不塞 base64，board.json 仍是小的文本文件且与看板插件兼容。\n- 任务详情页在需求下方显示缩略图（走既有 /api/local-image 服务路由）；看板卡片显示图片数量角标。\n- 派发给智能体的需求文本里附上图片相对路径（「需求附带图片（相对项目根目录，可用 read 工具查看）」），智能体可读图。\n- 一键生成需求只替换 description，不会丢图片。\n\n改动文件：packages/contracts/src/kanban.ts；apps/server/src/kanban/boardDocument.ts、Layers/KanbanService.ts（+对应测试）；apps/web/src/lib/kanbanTaskAttachments.ts(+test)、components/KanbanTaskAttachments.tsx、KanbanTaskCreateView.tsx、KanbanTaskDetailView.tsx(+browser fixture)、KanbanView.tsx、i18n/messages.ts。\n\n验证结果与命令：\n- `vitest run apps/server/src/kanban apps/web/src/lib/kanbanTaskAttachments.test.ts apps/web/src/lib/kanbanTaskDraft.test.ts` → 6 文件 / 78 用例全过。其中新用例覆盖：图片确实写入 .kanban/attachments、board.json 不含 base64、detail 带 workspaceRoot、路径逃逸/非图片项被丢弃、构建 prompt 含附件路径、上传限额。\n- `cd apps/web && vitest run`（node 环境）→ 128 文件 / 1415 用例全过。\n- `cd apps/server && vitest run` → 794/799 通过；4 个失败在 GitCore.test.ts，原因是本机 git 输出为中文（locale），与本次改动无关。\n- `cd apps/web && vitest run --config vitest.browser.config.ts KanbanTaskCreateView.browser.tsx` → 7/7 通过（含新增的「选图后出现缩略图，提交时 createTask 收到 dataUrl」用例）。最后一次仅调整 import/类型别名后，该 browser 运行器在本机反复残留进程导致重跑挂起，未能再跑一次；同日 typecheck 与全部单测在最终代码上通过。\n- `bun run typecheck` 9 个包全过；oxlint 改动文件 0 warning/0 error；oxfmt --check 改动文件全部通过。\n\n遗留 / 未做：\n1. 详情页需求编辑态暂不能在已有任务上增删图片（本期只做新增任务）。\n2. 删除任务或移除附件时未清理磁盘上的图片文件，会有孤儿文件；后续可加 prune。\n3. 多张图片上传时若中途失败，已写入的前几张会成为孤儿文件。\n4. 未注册为聊天式 turn attachment（智能体通过 prompt 里的文件路径读取，而非附件通道）。",
+          "createdAt": "2026-09-17T09:34:46Z"
+        },
+        {
+          "commentId": "c_1f6489f566",
+          "author": "agent",
+          "kind": "status",
+          "statusCode": "done",
+          "body": "",
+          "createdAt": "2026-09-17T09:34:54Z"
         }
       ],
-      "createdAt": "2026-09-17T01:34:49Z",
-      "updatedAt": "2026-09-17T02:58:45Z"
+      "createdAt": "2026-09-17T09:13:03Z",
+      "updatedAt": "2026-09-17T09:34:54Z"
     }
   ],
   "createdAt": "2026-09-16T04:36:38Z",
-  "updatedAt": "2026-09-17T02:58:45Z"
+  "updatedAt": "2026-09-17T09:34:54Z"
 }
