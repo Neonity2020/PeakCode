@@ -35,7 +35,7 @@ export type PermissionRule = {
 
 /** 一次工具调用翻译出的授权请求（也是弹窗展示的数据源）。 */
 export type PermissionRequest = {
-  /** 权限名：bash / edit / read / external_directory / webfetch / websearch / mcp / media / task / doom_loop */
+  /** 权限名：bash / edit / read / external_directory / webfetch / websearch / browsing / browsing_script / mcp / media / task / doom_loop */
   permission: string;
   /** 请求的具体对象（命令 / 路径 / URL / 工具名）。 */
   pattern: string;
@@ -265,10 +265,27 @@ export function defaultRules(mode: ApprovalMode = approvalMode()): PermissionRul
     { permission: "sandbox_escalation", pattern: "*", action: "deny" },
   ];
 
+  /**
+   * 浏览器动作的默认策略，单独一档。
+   *
+   * `browsing` 是「导航到一个站点」的边界，按 origin 记账：一个站点问一次，
+   * 「始终允许」之后同一站点的后续动作不再弹窗（逐次弹窗等于把这个功能废掉）。
+   * 它比 `webfetch` 严一点是合理的 —— 抓取只是读，浏览器**能动手**。
+   *
+   * `browsing_script` 是在页面里跑任意 JS：它读得到 cookie、调得动接口，
+   * 而用户在面板上什么都看不见。所以它比 `browsing` 更严（`browsing` 放行
+   * 也不代表这次放行），并且永远按 `*` 记账 —— 脚本没有 origin 可言。
+   */
+  const browsingRules = (action: PermissionAction): PermissionRule[] => [
+    { permission: "browsing", pattern: "*", action },
+    { permission: "browsing_script", pattern: "*", action },
+  ];
+
   if (mode === "auto") {
     return [
       ...readAllow,
       ...escalationDeny,
+      ...browsingRules("allow"),
       { permission: "bash", pattern: "*", action: "allow" },
       { permission: "edit", pattern: "*", action: "allow" },
       { permission: "mcp", pattern: "*", action: "allow" },
@@ -279,6 +296,7 @@ export function defaultRules(mode: ApprovalMode = approvalMode()): PermissionRul
     return [
       ...readAllow,
       ...escalationAsk,
+      ...browsingRules("ask"),
       { permission: "bash", pattern: "*", action: "ask" },
       { permission: "edit", pattern: "*", action: "ask" },
       { permission: "mcp", pattern: "*", action: "ask" },
@@ -288,6 +306,7 @@ export function defaultRules(mode: ApprovalMode = approvalMode()): PermissionRul
     return [
       ...readAllow,
       ...escalationDeny,
+      ...browsingRules("deny"),
       { permission: "bash", pattern: "*", action: "deny" },
       { permission: "edit", pattern: "*", action: "deny" },
       { permission: "mcp", pattern: "*", action: "deny" },
@@ -299,6 +318,7 @@ export function defaultRules(mode: ApprovalMode = approvalMode()): PermissionRul
   return [
     ...readAllow,
     ...escalationAsk,
+    ...browsingRules("ask"),
     { permission: "bash", pattern: "*", action: "allow" },
     ...DANGEROUS_COMMAND_WILDCARDS.map(
       (pattern): PermissionRule => ({ permission: "bash", pattern, action: "ask" }),
@@ -450,6 +470,22 @@ function stringArg(args: Record<string, unknown>, ...keys: string[]): string {
     if (typeof value === "string" && value.trim()) return value.trim();
   }
   return "";
+}
+
+/**
+ * `origin` 形式的站点标识（`https://example.com`）。
+ *
+ * 拿不到（空串 / 相对地址 / 解析失败）时返回空串：调用方据此跳过授权询问，
+ * 而不是拿一个半截地址去写规则。`about:blank` 与 `file:` 这类非网络地址的
+ * origin 是字面量 `"null"`，同样当作拿不到 —— 它们没有站点可以记账。
+ */
+function urlOrigin(raw: string): string {
+  try {
+    const origin = new URL(raw).origin;
+    return origin === "null" ? "" : origin;
+  } catch {
+    return "";
+  }
 }
 
 /**
@@ -658,6 +694,119 @@ export function permissionRequestForTool(call: ToolCallShape): PermissionRequest
     }
     case "web_search":
       return null; // 有独立开关（WEB_SEARCH_ENABLED），不再弹窗
+    case "browser": {
+      const action = stringArg(args, "action");
+
+      /**
+       * 导航：按 origin 记账，一个站点问一次。
+       *
+       * 「始终允许」写进去的是 origin 而不是完整 URL —— 同一个站点换个路径
+       * 不该再问一遍，那正是这套工具要避免的打扰。
+       */
+      if (action === "navigate" || action === "new_tab") {
+        const url = stringArg(args, "url");
+        // 不带 url 的 new_tab 只是开一个空白页（about:blank），没有站点要授权。
+        const origin = url ? urlOrigin(url) : "";
+        if (!origin) return null;
+        return {
+          permission: "browsing",
+          pattern: origin,
+          title: "打开网页",
+          detail: { 站点: origin, URL: url },
+          always: [origin],
+        };
+      }
+
+      /**
+       * 在页面里跑任意 JS：读得到 cookie、调得动接口，而用户在面板上没有可见的对应动作。
+       * 它不进 `browsing` 的账（导航已授权不代表可以跑脚本），单独问一次。
+       */
+      if (action === "evaluate") {
+        const expression = stringArg(args, "expression");
+        return {
+          permission: "browsing_script",
+          pattern: "*",
+          title: "在页面里执行脚本",
+          detail: { 表达式: expression.slice(0, 500) },
+          always: ["*"],
+        };
+      }
+
+      /**
+       * 其余动作（点击 / 输入 / 快照 / 滚动 …）不单独弹窗。
+       *
+       * 它们作用在用户已经能看见的页面上：面板本身就是同意界面，而"看一眼 → 动一下
+       * → 再看一眼"这条链路里每一次点击都弹窗，这个功能就等于没有。真正需要设防的
+       * 边界是「打开了哪个站点」（上面按 origin 拦）和「跑了什么脚本」（上面单独拦）。
+       */
+      return null;
+    }
+    case "computer": {
+      const action = stringArg(args, "action");
+
+      /**
+       * 只看不动的动作不问：列应用、列窗口、读显示器几何、读可访问性树、截图、读剪贴板都是
+       * 读取，和 `read_file` 同类。其中 `screenshot` 会看到用户屏幕上的一切，`read_clipboard`
+       * 会看到用户刚复制的东西，但这两个边界都有系统自己的把守（屏幕录制的 TCC 授权、macOS
+       * 自己的粘贴提示）—— 用户已经在系统层面表达过同意，这里再问一次是重复收费。
+       */
+      if (
+        action === "status" ||
+        action === "request_access" ||
+        action === "list_apps" ||
+        action === "list_windows" ||
+        action === "displays" ||
+        action === "get_state" ||
+        action === "read_clipboard" ||
+        action === "screenshot"
+      ) {
+        return null;
+      }
+
+      /**
+       * 真正会改变状态的动作问一次，然后按会话记账。
+       *
+       * 不逐次弹窗的理由和 `browser` 一样：桌面操作也是「看一眼 → 动一下 → 再看一眼」，
+       * 每次点击都弹窗等于把这个功能关掉。但它比页面点击更重 —— 合成输入抢的是用户真实的
+       * 光标和键盘焦点，点下去的可能是"发送"也可能是"删除" —— 所以整类动作至少要有一次
+       * 明确同意，而不是像页面里那样默认放行。
+       */
+      const elementAction = stringArg(args, "element_action");
+      const detail: Record<string, string> = { 动作: action };
+      if (stringArg(args, "app")) detail["应用"] = stringArg(args, "app");
+      if (typeof args.x === "number" && typeof args.y === "number") {
+        detail["坐标"] = `${String(args.x)},${String(args.y)}`;
+      }
+      if (action === "act" && stringArg(args, "state_id")) {
+        detail["元素"] =
+          `ref ${String(args.ref ?? "")}${elementAction ? ` → ${elementAction}` : ""}`;
+      }
+      if (action === "type" && typeof args.text === "string") {
+        detail["文本"] = args.text.slice(0, 200);
+      }
+      if (action === "key") detail["按键"] = stringArg(args, "key");
+      if (action === "write_clipboard" && typeof args.text === "string") {
+        detail["写入剪贴板"] = args.text.slice(0, 200);
+      }
+      if (action === "scroll" && stringArg(args, "direction")) {
+        detail["滚动"] = `${stringArg(args, "direction")}${
+          typeof args.amount === "number" ? ` × ${String(args.amount)}` : ""
+        }`;
+      }
+      if (action === "drag" && typeof args.from_x === "number" && typeof args.to_x === "number") {
+        detail["拖拽"] =
+          `(${String(args.from_x)},${String(args.from_y ?? "")}) → ` +
+          `(${String(args.to_x)},${String(args.to_y ?? "")})`;
+      }
+
+      return {
+        permission: "computer",
+        pattern: "*",
+        title: "操作桌面应用",
+        detail,
+        always: ["*"],
+      };
+    }
     case "generate_image": {
       const externalRef = externalMediaReference(workspace, args);
       if (externalRef) {
@@ -745,6 +894,8 @@ export const HUMAN_PERMISSION_LABELS: Record<string, string> = {
   external_directory: "访问工作区之外",
   webfetch: "抓取网页",
   websearch: "联网搜索",
+  browsing: "打开网页（浏览器）",
+  browsing_script: "在页面里执行脚本",
   mcp: "外部工具",
   media: "生成媒体",
   task: "派发子任务",
@@ -803,6 +954,8 @@ const PROBES: { permission: string; pattern: string }[] = [
   { permission: "bash", pattern: "*" },
   { permission: "edit", pattern: "*" },
   { permission: "webfetch", pattern: "*" },
+  { permission: "browsing", pattern: "*" },
+  { permission: "browsing_script", pattern: "*" },
   { permission: "mcp", pattern: "*" },
   { permission: "external_directory", pattern: "*" },
   { permission: "sandbox_escalation", pattern: "*" },

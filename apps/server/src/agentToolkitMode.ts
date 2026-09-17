@@ -60,6 +60,13 @@ const WRITE_CAPABLE_TOOLKIT_TOOLS = new Set([
   // A board comment lands in the project's `.kanban/board.json`, which is a real file in the
   // workspace. Plan mode promises not to write there, so this stays off too.
   "kanban_comment",
+  // A browser click can submit a form, and "touches nothing" has to mean nothing. Reading a
+  // rendered page is what `web_fetch` already does; plan mode does not need a tab.
+  "browser",
+  // Desktop control is the same argument with more weight behind it: a synthetic click lands on
+  // whatever is under the user's pointer and a keystroke goes to whatever has their focus. Plan
+  // mode proposes, so it does not get to drive the machine.
+  "computer",
   // `write_plan` writes too, but only into the toolkit's data directory — it is the one
   // write plan mode is allowed to make, so it is handled separately below.
 ]);
