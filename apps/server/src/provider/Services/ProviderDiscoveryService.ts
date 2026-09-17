@@ -1,3 +1,4 @@
+import type { ProviderModelDescriptor } from "@peakcode/contracts";
 import type {
   ProviderComposerCapabilities,
   ProviderGetComposerCapabilitiesInput,
@@ -14,14 +15,10 @@ import type {
   ProviderReadPluginInput,
   ProviderReadPluginResult,
 } from "@peakcode/contracts";
-import { ServiceMap } from "effect";
-import type { Effect } from "effect";
+import { Effect, Layer, ServiceMap } from "effect";
 
-import type {
-  ProviderAdapterError,
-  ProviderUnsupportedError,
-  ProviderValidationError,
-} from "../Errors.ts";
+import type { ProviderAdapterError, ProviderValidationError } from "../Errors.ts";
+import { ProviderUnsupportedError } from "../Errors.ts";
 
 export type ProviderDiscoveryError =
   | ProviderValidationError
@@ -55,4 +52,30 @@ export interface ProviderDiscoveryServiceShape {
 export class ProviderDiscoveryService extends ServiceMap.Service<
   ProviderDiscoveryService,
   ProviderDiscoveryServiceShape
->()("t3/provider/Services/ProviderDiscoveryService") {}
+>()("t3/provider/Services/ProviderDiscoveryService") {
+  /**
+   * Test layer: a discovery service that answers `listModels` with a fixed list and dies on
+   * everything else. Features that resolve a model for a headless run use it to assert the
+   * slug they dispatch with.
+   */
+  static readonly layerTest = (input: {
+    readonly models: ReadonlyArray<ProviderModelDescriptor>;
+    readonly fail?: boolean;
+  }) =>
+    Layer.succeed(
+      ProviderDiscoveryService,
+      ProviderDiscoveryService.of({
+        getComposerCapabilities: () =>
+          Effect.die("ProviderDiscoveryService.getComposerCapabilities"),
+        listCommands: () => Effect.die("ProviderDiscoveryService.listCommands"),
+        listSkills: () => Effect.die("ProviderDiscoveryService.listSkills"),
+        listPlugins: () => Effect.die("ProviderDiscoveryService.listPlugins"),
+        readPlugin: () => Effect.die("ProviderDiscoveryService.readPlugin"),
+        listAgents: () => Effect.die("ProviderDiscoveryService.listAgents"),
+        listModels: () =>
+          input.fail === true
+            ? Effect.fail(new ProviderUnsupportedError({ provider: "pi" }))
+            : Effect.succeed({ models: [...input.models] }),
+      }),
+    );
+}

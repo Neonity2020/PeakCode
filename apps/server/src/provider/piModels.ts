@@ -3,9 +3,13 @@
  *
  * @module PiModels
  */
+import { readFile } from "node:fs/promises";
+
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
+
+import { declaredModelIdsFromModelsJson } from "../modelProviders.ts";
 
 export const PROVIDER = "pi" as const;
 export const DEFAULT_PI_THINKING_LEVEL: ThinkingLevel = "medium";
@@ -161,6 +165,35 @@ export function findModelInRegistry(
       (model) => model.id === parsed.id || `${model.provider}/${model.id}` === parsed.id,
     )
   );
+}
+
+/**
+ * Drop the models a provider's own configuration contradicts.
+ *
+ * `getAvailable()` merges the user's `models.json` with pi's built-in catalogue, so a
+ * provider the user pointed at their own endpoint (an aggregator, a gateway) still comes
+ * back carrying that provider's stock model list — models the endpoint has never heard
+ * of. Anything that picks one of them fails on its first request with
+ * `model_unavailable`, and the phone and the IM bridge have nobody to correct them, so
+ * they are not offered in the first place.
+ *
+ * A provider entry that declares no models keeps everything: that means "use the
+ * provider's defaults", and an unreadable file keeps everything too.
+ */
+export async function declaredPiModels(
+  modelsFilePath: string,
+  availableModels: ReadonlyArray<Model<Api>>,
+): Promise<ReadonlyArray<Model<Api>>> {
+  const raw = await readFile(modelsFilePath, "utf8").catch(() => null);
+  if (raw === null) return availableModels;
+  const declared = declaredModelIdsFromModelsJson(raw);
+  if (Object.keys(declared).length === 0) return availableModels;
+
+  return availableModels.filter((model) => {
+    const declaredIds = declared[model.provider];
+    if (declaredIds === undefined || declaredIds === null) return true;
+    return declaredIds.has(model.id);
+  });
 }
 
 export function withLocalPiModelAdditions(

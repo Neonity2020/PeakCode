@@ -14,6 +14,7 @@ import {
   type ProviderSkillDescriptor,
 } from "@peakcode/contracts";
 import { useFocusedChatContext } from "~/focusedChatContext";
+import { useMessages } from "~/i18n/I18nContext";
 import { useStore } from "~/store";
 import {
   buildPluginSearchBlob,
@@ -49,12 +50,25 @@ export type PluginSection = {
   entries: PluginEntry[];
 };
 
-function sectionTitle(value: string): string {
-  const n = value.trim();
-  return n.length === 0 ? "Unknown" : n;
+/** Bucket for a plugin whose manifest declares no category. */
+export const OTHER_CATEGORY_KEY = "other";
+
+/**
+ * The heading for a category key.
+ *
+ * A plugin's category is a machine key from its manifest, so it may come from a marketplace
+ * built by someone else. A key we have a label for gets translated; anything else keeps its
+ * raw value, because showing an untranslated heading beats hiding the plugin under one.
+ */
+export function pluginCategoryLabel(
+  key: string,
+  messages: { plugins: { category: Record<string, string> } },
+): string {
+  return messages.plugins.category[key] ?? (key === OTHER_CATEGORY_KEY ? "Other" : key);
 }
 
 export function useProviderDiscoveryData(selectedTab: DiscoveryTab) {
+  const messages = useMessages();
   const firstProject = useStore(useMemo(() => createFirstProjectSelector(), []));
   const { activeProject: focusedProject, activeThread, focusedThreadId } = useFocusedChatContext();
   const activeProject = focusedProject ?? firstProject ?? null;
@@ -134,25 +148,28 @@ export function useProviderDiscoveryData(selectedTab: DiscoveryTab) {
     return installedPluginEntries.filter((e) => buildPluginSearchBlob(e.plugin).includes(q));
   }, [pluginSearch, installedPluginEntries]);
 
-  const marketplaceSections = useMemo<PluginSection[]>(() => {
-    const map = new Map<string, { title: string; entries: PluginEntry[] }>();
+  /**
+   * Plugin entries grouped by the manifest's category key.
+   *
+   * This is the marketplace's primary axis, not the marketplace it came from: a user
+   * looking for something to install scans "developer tools", and which source a plugin
+   * ships from is an implementation detail they did not ask about. An entry with no
+   * category lands in `other` rather than being dropped.
+   */
+  const categorySections = useMemo<PluginSection[]>(() => {
+    const map = new Map<string, PluginEntry[]>();
     for (const entry of filteredPluginEntries) {
-      const existing = map.get(entry.marketplacePath);
-      if (existing) {
-        existing.entries.push(entry);
-      } else {
-        map.set(entry.marketplacePath, {
-          title: sectionTitle(entry.marketplaceName),
-          entries: [entry],
-        });
-      }
+      const key = entry.plugin.interface?.category?.trim() || OTHER_CATEGORY_KEY;
+      const bucket = map.get(key);
+      if (bucket) bucket.push(entry);
+      else map.set(key, [entry]);
     }
-    return Array.from(map.entries()).map(([key, v]) => ({
+    return Array.from(map.entries()).map(([key, entries]) => ({
       key,
-      title: v.title,
-      entries: v.entries,
+      title: pluginCategoryLabel(key, messages),
+      entries,
     }));
-  }, [filteredPluginEntries]);
+  }, [filteredPluginEntries, messages]);
 
   const filteredSkills = useMemo<ReadonlyArray<ProviderSkillDescriptor>>(() => {
     const q = normalizeProviderDiscoveryText(skillSearch);
@@ -176,7 +193,7 @@ export function useProviderDiscoveryData(selectedTab: DiscoveryTab) {
     pluginEntries,
     installedPluginEntries,
     filteredPluginEntries,
-    marketplaceSections,
+    categorySections,
     discoveredSkills,
     filteredSkills,
   };

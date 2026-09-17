@@ -1,14 +1,20 @@
 // FILE: ComposerExtrasMenu.tsx
-// Purpose: Hosts the composer `+` menu for attachments and quick composer mode toggles.
+// Purpose: Hosts the composer `+` menu: attachments first, then the plugin picker
+//          (multi-select) and quick composer mode toggles.
 // Layer: Chat composer presentation
-// Depends on: shared menu primitives, icon buttons, and caller-owned composer state callbacks.
+// Depends on: shared menu primitives, icon buttons, plugin suggestions, and
+//             caller-owned composer state callbacks.
 
 import { memo, useId, useRef, type ChangeEvent } from "react";
 
-import { PaperclipIcon, PlusIcon } from "~/lib/icons";
+import { PaperclipIcon, PlugIcon, PlusIcon } from "~/lib/icons";
+import { useMessages } from "~/i18n";
 import { Button } from "../ui/button";
 import {
   Menu,
+  MenuCheckboxItem,
+  MenuGroup,
+  MenuGroupLabel,
   MenuItem,
   MenuPopup,
   MenuRadioGroup,
@@ -20,12 +26,25 @@ import {
   MenuTrigger,
 } from "../ui/menu";
 
+export type ComposerExtrasPluginOption = {
+  /** Mention reference the plugin is attached to the turn as. */
+  reference: { name: string; path: string };
+  /** Dedup key the selection set is keyed by — see `pluginMentionDedupKey`. */
+  key: string;
+  label: string;
+  description: string | null;
+};
+
 export const ComposerExtrasMenu = memo(function ComposerExtrasMenu(props: {
   supportsFastMode: boolean;
   fastModeEnabled: boolean;
+  plugins: ReadonlyArray<ComposerExtrasPluginOption>;
+  selectedPluginKeys: ReadonlySet<string>;
   onAddPhotos: (files: File[]) => void;
   onToggleFastMode: () => void;
+  onTogglePlugin: (plugin: ComposerExtrasPluginOption) => void;
 }) {
+  const messages = useMessages();
   const inputId = useId();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -57,7 +76,7 @@ export const ComposerExtrasMenu = memo(function ComposerExtrasMenu(props: {
               size="icon-sm"
               variant="chrome"
               className="shrink-0 rounded-md"
-              aria-label="Composer extras"
+              aria-label={messages.composer.extrasAria}
             />
           }
         >
@@ -70,8 +89,45 @@ export const ComposerExtrasMenu = memo(function ComposerExtrasMenu(props: {
             }}
           >
             <PaperclipIcon className="size-4 shrink-0" />
-            Add image
+            {messages.composer.addImage}
           </MenuItem>
+
+          {/* Checkbox items keep the submenu open, so several plugins are one visit. */}
+          {props.plugins.length > 0 ? (
+            <>
+              <MenuSeparator />
+              <MenuSub>
+                <MenuSubTrigger>
+                  <PlugIcon className="size-4 shrink-0" />
+                  {messages.composer.pluginsLabel}
+                </MenuSubTrigger>
+                <MenuSubPopup className="w-72">
+                  <MenuGroup>
+                    <MenuGroupLabel>{messages.composer.pluginsHint}</MenuGroupLabel>
+                    {props.plugins.map((plugin) => (
+                      <MenuCheckboxItem
+                        key={plugin.key}
+                        checked={props.selectedPluginKeys.has(plugin.key)}
+                        onCheckedChange={() => {
+                          props.onTogglePlugin(plugin);
+                        }}
+                        className="py-2"
+                      >
+                        <span className="flex min-w-0 flex-col gap-0.5">
+                          <span className="truncate">{plugin.label}</span>
+                          {plugin.description ? (
+                            <span className="truncate text-[length:var(--app-font-size-ui-xs,10px)] leading-4 text-muted-foreground/70">
+                              {plugin.description}
+                            </span>
+                          ) : null}
+                        </span>
+                      </MenuCheckboxItem>
+                    ))}
+                  </MenuGroup>
+                </MenuSubPopup>
+              </MenuSub>
+            </>
+          ) : null}
 
           {props.supportsFastMode ? (
             <>

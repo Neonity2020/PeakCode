@@ -22,7 +22,12 @@ import {
   type ProviderComposerCapabilities,
   type ProviderListCommandsResult,
   type ProviderListModelsResult,
+  type ProviderListPluginsResult,
   type ProviderListSkillsResult,
+  type ProviderPluginDescriptor,
+  type ProviderPluginMarketplaceDescriptor,
+  type ProviderReadPluginResult,
+  type ProviderSkillDescriptor,
   type CanonicalRequestType,
   type ProviderApprovalDecision,
   type ProviderUserInputAnswers,
@@ -39,7 +44,18 @@ import { Effect, FileSystem, Layer, Queue, Stream } from "effect";
 
 import { buildThreadToolkitTools, threadConversationKey } from "../../agentToolkit";
 import { scheduleTaskFromConversation } from "../../automation/automationTool";
+import { browserControlConfigured, browserFromConversation } from "../../browser/browserTool";
+import { computerControlConfigured, computerFromConversation } from "../../computer/computerTool";
 import { commentOnTaskFromConversation } from "../../kanban/kanbanTool";
+import {
+  BUNDLED_PLUGIN_MARKETPLACE,
+  BUNDLED_PLUGIN_MARKETPLACE_PATH,
+  bundledPluginId,
+  listBundledPlugins,
+  readBundledPlugin,
+} from "@peakcode/agent-toolkit/plugins/registry";
+import { centralSkillDir } from "@peakcode/agent-toolkit/skills/central-repo";
+import type { BundledPlugin } from "@peakcode/agent-toolkit/plugins/bundled.generated";
 import { makeToolkitApprovalExtension } from "../../agentToolkitApprovals";
 import {
   activeToolNamesForMode,
@@ -50,6 +66,7 @@ import {
   rememberThreadContextWindow,
 } from "../../agentToolkitMode";
 import type { PermissionReply } from "@peakcode/agent-toolkit/agent-interactions";
+import type { BrowserToolParams, ComputerToolParams } from "@peakcode/agent-toolkit/agent-tools";
 import { rememberPromptTokens } from "@peakcode/agent-toolkit/agent-context";
 import { writeTodos } from "@peakcode/agent-toolkit/agent-todos";
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -69,6 +86,7 @@ import {
   DEFAULT_PI_THINKING_LEVEL,
   findModelInRegistry,
   getPiSupportedThinkingOptions,
+  declaredPiModels,
   normalizePiThinkingLevel,
   PROVIDER,
   toMessage,
@@ -927,6 +945,20 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             // the host's call, and it answers either way (see kanbanTool.ts).
             onKanbanComment: (params) =>
               commentOnTaskFromConversation({ threadId: input.threadId, params }),
+            // Only present when this server was started with a browser pipe, which is what
+            // the desktop app provides. Without it the tool is not registered at all, so a
+            // headless session never sees a verb it could not carry out (see browserTool.ts).
+            ...(browserControlConfigured()
+              ? {
+                  onBrowser: (params: BrowserToolParams) =>
+                    browserFromConversation({ threadId: input.threadId, params }),
+                }
+              : {}),
+            // Desktop control is registered on the same terms: the native helper is started by
+            // the desktop app, so a server that never found one does not offer the tool.
+            ...(computerControlConfigured()
+              ? { onComputer: (params: ComputerToolParams) => computerFromConversation(params) }
+              : {}),
           },
         });
         const approvalExtension = makeToolkitApprovalExtension({
@@ -1409,7 +1441,10 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           const agentDir = makeAgentDir(input.agentDir);
           const runtime = await getModelRuntime(agentDir);
           await runtime.refresh();
-          const availableModels = await runtime.getAvailable();
+          const availableModels = await declaredPiModels(
+            path.join(agentDir, "models.json"),
+            await runtime.getAvailable(),
+          );
           const models = withLocalPiModelAdditions(availableModels, availableModels).map(
             (model) => {
               const supportedThinkingOptions = getPiSupportedThinkingOptions(model);
@@ -1556,14 +1591,85 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
           }),
       });
 
+    /**
+     * Plugin discovery for the plugins Peak Code ships itself.
+     *
+     * The provider's own marketplaces have no reader yet, so this reports the bundled
+     * marketplace only. It is what lights up the /plugins view and the composer's plugin
+     * mentions, both of which are wired to this call and stay empty without it.
+     */
+    const listPlugins: NonNullable<PiAdapterShape["listPlugins"]> = () =>
+      Effect.sync(() => {
+        const plugins = listBundledPlugins().map(describeBundledPlugin);
+        const marketplace: ProviderPluginMarketplaceDescriptor = {
+          name: BUNDLED_PLUGIN_MARKETPLACE,
+          path: BUNDLED_PLUGIN_MARKETPLACE_PATH,
+          interface: { displayName: BUNDLED_PLUGIN_MARKETPLACE },
+          plugins,
+        };
+        return {
+          marketplaces: [marketplace],
+          // Nothing to report: the bundled marketplace is compiled in, so it cannot fail to
+          // load the way a directory-backed marketplace can.
+          marketplaceLoadErrors: [],
+          remoteSyncError: null,
+          // Everything shipped with the app is featured; there is no marketplace ranking to
+          // defer to, and an unfeatured bundled plugin would simply be invisible.
+          featuredPluginIds: plugins.map((plugin) => plugin.id),
+          source: "peakcode.bundled",
+          cached: false,
+        } satisfies ProviderListPluginsResult;
+      });
+
+    const readPlugin: NonNullable<PiAdapterShape["readPlugin"]> = (input) =>
+      Effect.sync(() => {
+        const plugin = readBundledPlugin(input.pluginName);
+        if (plugin === null) {
+          throw new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "plugin/read",
+            detail: `No bundled plugin named "${input.pluginName}".`,
+          });
+        }
+        const summary = describeBundledPlugin(plugin);
+        return {
+          plugin: {
+            marketplaceName: BUNDLED_PLUGIN_MARKETPLACE,
+            marketplacePath: BUNDLED_PLUGIN_MARKETPLACE_PATH,
+            summary,
+            ...(plugin.interface.longDescription !== undefined
+              ? { description: plugin.interface.longDescription }
+              : {}),
+            skills: plugin.skills.map((skill) => {
+              const dir = centralSkillDir(skill.id);
+              return {
+                name: skill.id,
+                description: skill.description,
+                // The installed path, not the payload: this is what the user would open, and
+                // a bundled skill is written into the shared library at startup.
+                path: dir ?? skill.id,
+                enabled: true,
+                scope: "bundled",
+              } satisfies ProviderSkillDescriptor;
+            }),
+            // A bundled plugin ships skills, not apps or MCP servers. Reporting empty lists
+            // is the honest answer and keeps the detail view from inventing tabs.
+            apps: [],
+            mcpServers: [],
+          },
+          source: "peakcode.bundled",
+          cached: false,
+        } satisfies ProviderReadPluginResult;
+      });
+
     const getComposerCapabilities: NonNullable<PiAdapterShape["getComposerCapabilities"]> = () =>
       Effect.succeed({
         provider: PROVIDER,
         supportsSkillMentions: true,
         supportsSkillDiscovery: true,
         supportsNativeSlashCommandDiscovery: true,
-        supportsPluginMentions: false,
-        supportsPluginDiscovery: false,
+        supportsPluginMentions: true,
+        supportsPluginDiscovery: true,
         supportsRuntimeModelList: true,
         supportsThreadCompaction: true,
         supportsThreadImport: false,
@@ -1588,8 +1694,8 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         supportsSkillMentions: true,
         supportsSkillDiscovery: true,
         supportsNativeSlashCommandDiscovery: true,
-        supportsPluginMentions: false,
-        supportsPluginDiscovery: false,
+        supportsPluginMentions: true,
+        supportsPluginDiscovery: true,
         supportsRuntimeModelList: true,
         supportsTurnSteering: true,
       },
@@ -1631,6 +1737,8 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       listModels,
       listSkills,
       listCommands,
+      listPlugins,
+      readPlugin,
       getComposerCapabilities,
       get streamEvents() {
         return Stream.fromQueue(runtimeEventQueue);
@@ -1638,8 +1746,55 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
     } satisfies PiAdapterShape;
   });
 
-export const PiAdapterLive = Layer.effect(PiAdapter, makePiAdapter());
+/**
+ * A bundled plugin as plugin discovery describes it.
+ *
+ * `installed` and `enabled` are both permanently true: a bundled plugin is compiled into the
+ * server, so there is no install step to run and no state to be in. `installPolicy` says as
+ * much to the UI, which is what keeps an "install" button off a plugin that is already here.
+ *
+ * Exported for tests: the mapping is the part with a contract on the other side (the web
+ * app's plugin browser and its composer mention menu), so it is worth pinning down without
+ * standing up the whole adapter layer.
+ */
+export function describeBundledPlugin(plugin: BundledPlugin): ProviderPluginDescriptor {
+  const { interface: surface } = plugin;
+  return {
+    id: bundledPluginId(plugin.name),
+    name: plugin.name,
+    source: { type: "local", path: `${BUNDLED_PLUGIN_MARKETPLACE_PATH}/${plugin.name}` },
+    installed: true,
+    enabled: true,
+    installPolicy: "INSTALLED_BY_DEFAULT",
+    // Nothing bundled asks the user to sign in. ON_USE rather than ON_INSTALL so the UI does
+    // not imply a prompt the user would never see.
+    authPolicy: "ON_USE",
+    interface: {
+      ...(surface.displayName === undefined ? {} : { displayName: surface.displayName }),
+      ...(surface.shortDescription === undefined
+        ? {}
+        : { shortDescription: surface.shortDescription }),
+      ...(surface.longDescription === undefined
+        ? {}
+        : { longDescription: surface.longDescription }),
+      ...(surface.developerName === undefined ? {} : { developerName: surface.developerName }),
+      ...(surface.category === undefined ? {} : { category: surface.category }),
+      ...(surface.capabilities === undefined ? {} : { capabilities: [...surface.capabilities] }),
+      ...(surface.websiteUrl === undefined ? {} : { websiteUrl: surface.websiteUrl }),
+      ...(surface.privacyPolicyUrl === undefined
+        ? {}
+        : { privacyPolicyUrl: surface.privacyPolicyUrl }),
+      ...(surface.termsOfServiceUrl === undefined
+        ? {}
+        : { termsOfServiceUrl: surface.termsOfServiceUrl }),
+      ...(surface.brandColor === undefined ? {} : { brandColor: surface.brandColor }),
+      ...(surface.composerIcon === undefined ? {} : { composerIcon: surface.composerIcon }),
+      ...(surface.defaultPrompt === undefined ? {} : { defaultPrompt: [...surface.defaultPrompt] }),
+    },
+  };
+}
 
+export const PiAdapterLive = Layer.effect(PiAdapter, makePiAdapter());
 export function makePiAdapterLive(options?: PiAdapterLiveOptions) {
   return Layer.effect(PiAdapter, makePiAdapter(options));
 }

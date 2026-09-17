@@ -5,6 +5,7 @@
 
 import { resolveThreadBranchSourceCwd } from "@peakcode/shared/threadEnvironment";
 import type {
+  ProviderMentionReference,
   ProviderNativeCommandDescriptor,
   ProviderPluginDescriptor,
   ProviderSkillDescriptor,
@@ -71,6 +72,22 @@ export function buildCommandSearchBlob(
   return normalizeProviderDiscoveryText(
     [command.name, command.description].filter(Boolean).join("\n"),
   );
+}
+
+/**
+ * The mention reference a plugin is attached to a turn as.
+ *
+ * The path names both the plugin and the marketplace it came from, so the same plugin
+ * name in two marketplaces stays two distinct selections.
+ */
+export function buildPluginMentionReference(
+  pluginName: string,
+  marketplaceName: string,
+): ProviderMentionReference {
+  return {
+    name: pluginName,
+    path: `plugin://${pluginName}@${marketplaceName}`,
+  };
 }
 
 export function formatSkillScope(scope: string | undefined): string {

@@ -83,6 +83,7 @@ async function mountPiPicker(props?: {
       nonPersistedImageIds: [],
       persistedAttachments: [],
       assistantSelections: [],
+      plugins: [],
       terminalContexts: [],
       queuedTurns: [],
       modelSelectionByProvider: {

@@ -235,6 +235,51 @@ function providersFromJson(topLevel: Record<string, unknown>): Record<string, Mo
 }
 
 /**
+ * The model ids each provider in `models.json` declares, or null when that provider
+ * falls back to the built-in catalogue.
+ *
+ * A provider entry that lists no models means "whatever the provider ships"; one that
+ * lists models means exactly those. Model discovery uses this to stop advertising a
+ * provider's catalogue entries that the user's own endpoint does not serve: an aggregator
+ * configured with a single model otherwise still shows the provider's whole default list,
+ * and anything that picks one of those — a configured default, the first-model fallback —
+ * dies on its first request with `model_unavailable`.
+ *
+ * A file that cannot be parsed declares nothing: this only ever narrows a list, so a
+ * broken file must not remove options.
+ */
+export function declaredModelIdsFromModelsJson(
+  raw: string,
+): Record<string, ReadonlySet<string> | null> {
+  let topLevel: Record<string, unknown>;
+  try {
+    topLevel = parseModelsJson(raw);
+  } catch {
+    return {};
+  }
+  const rawProviders = topLevel.providers;
+  if (!isRecord(rawProviders)) return {};
+
+  const declared: Record<string, ReadonlySet<string> | null> = {};
+  for (const [name, rawProvider] of Object.entries(rawProviders)) {
+    if (!isRecord(rawProvider)) continue;
+    const rawModels = rawProvider.models;
+    if (!Array.isArray(rawModels)) {
+      declared[name] = null;
+      continue;
+    }
+    const ids = new Set<string>();
+    for (const rawModel of rawModels) {
+      if (!isRecord(rawModel)) continue;
+      const id = typeof rawModel.id === "string" ? rawModel.id.trim() : "";
+      if (id.length > 0) ids.add(id);
+    }
+    declared[name] = ids;
+  }
+  return declared;
+}
+
+/**
  * Read the current editable view of `models.json`. Missing file yields an empty
  * provider map; malformed JSON fails so the UI can surface the problem instead
  * of silently wiping user config on the next save.
