@@ -13,8 +13,18 @@ import desktopPackageJson from "../apps/desktop/package.json" with { type: "json
 import serverPackageJson from "../apps/server/package.json" with { type: "json" };
 
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
-import { createDesktopPlatformBuildConfig } from "./lib/desktop-platform-build-config.ts";
+import {
+  createDesktopPlatformBuildConfig,
+  MAC_AD_HOC_SIGN_MODULE_FILE_NAME,
+  MAC_COMPUTER_USE_HELPER_STAGE_DIR,
+} from "./lib/desktop-platform-build-config.ts";
 import { resolveCatalogDependencies, stripWorkspaceDependencies } from "./lib/resolve-catalog.ts";
+
+import {
+  COMPUTER_USE_BUNDLED_HELPER_DIR_NAME,
+  COMPUTER_USE_HELPER_APP_NAME,
+} from "@peakcode/shared/computerUse";
+import { compileHelperBundle, resolveSigningPlan } from "@peakcode/shared/computerUseHelperBuild";
 
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
@@ -32,6 +42,11 @@ const DesktopAfterPackHookSource = Effect.zipWith(
   RepoRoot,
   Effect.service(Path.Path),
   (repoRoot, path) => path.join(repoRoot, "apps/desktop/scripts/electron-builder-after-pack.cjs"),
+);
+const DesktopAdHocSignHookSource = Effect.zipWith(
+  RepoRoot,
+  Effect.service(Path.Path),
+  (repoRoot, path) => path.join(repoRoot, "apps/desktop/scripts", MAC_AD_HOC_SIGN_MODULE_FILE_NAME),
 );
 const ProductionMacIconComposerSource = Effect.zipWith(
   RepoRoot,
@@ -558,6 +573,9 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     platform,
     target,
     hasMacIconComposer,
+    // An unsigned mac build has no Developer ID identity to sign with, so electron-builder is given
+    // a custom signing step that ad-hoc signs the bundle instead.
+    macAdHocSign: platform === "mac" && !signed,
     ...(windowsAzureSignOptions ? { windowsAzureSignOptions } : {}),
   } as const;
 
@@ -592,6 +610,52 @@ const assertPlatformBuildResources = Effect.fn("assertPlatformBuildResources")(f
   return {
     hasComposerIcon: false,
   } as const;
+});
+
+/**
+ * Build the computer-use helper into the artifact.
+ *
+ * The helper is a separate app that macOS files the Accessibility and Screen Recording grants
+ * against, so it has to be a real bundle on disk: it cannot be compiled on the user's machine
+ * (which may have no compiler) and it cannot live inside the asar. It is built here with the
+ * same recipe the app uses for its own builds, and shipped through the macOS `extraResources`
+ * entry.
+ *
+ * Which identity signs it depends on the machine: a Developer ID when the build has one, ad-hoc
+ * otherwise. Both are fine for the shipped copy — the app's install step keeps an anchored
+ * signature and re-applies its own plan to anything weaker, so the grant ends up filed against
+ * a requirement that survives the next update either way.
+ */
+const stageComputerUseHelper = Effect.fn("stageComputerUseHelper")(function* (
+  repoRoot: string,
+  stageResourcesDir: string,
+) {
+  const sourcePath = join(repoRoot, "apps/desktop/native/computer-use/main.m");
+  if (!existsSync(sourcePath)) {
+    return yield* new BuildScriptError({
+      message: `Missing the computer-use helper source at ${sourcePath}.`,
+    });
+  }
+
+  const bundlePath = join(
+    stageResourcesDir,
+    COMPUTER_USE_BUNDLED_HELPER_DIR_NAME,
+    COMPUTER_USE_HELPER_APP_NAME,
+  );
+  const plan = resolveSigningPlan();
+  const compiled = compileHelperBundle({ sourcePath, bundlePath, plan });
+  if (!compiled.ok) {
+    return yield* new BuildScriptError({
+      message:
+        `Could not build the computer-use helper for the artifact (${compiled.detail}). ` +
+        "A macOS artifact ships this helper, so clang is required — install the Xcode command " +
+        "line tools and build again.",
+    });
+  }
+
+  yield* Effect.log(
+    `[desktop-artifact] Built the computer-use helper (${plan.label}) into ${MAC_COMPUTER_USE_HELPER_STAGE_DIR}.`,
+  );
 });
 
 const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
@@ -724,6 +788,10 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     options.verbose,
   );
 
+  if (options.platform === "mac") {
+    yield* stageComputerUseHelper(repoRoot, stageResourcesDir);
+  }
+
   if (options.platform === "mac" && stagedPlatformResources.hasComposerIcon) {
     const afterPackHookSource = yield* DesktopAfterPackHookSource;
     if (!(yield* fs.exists(afterPackHookSource))) {
@@ -737,8 +805,30 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     );
   }
 
+  if (options.platform === "mac" && !options.signed) {
+    const adHocSignHookSource = yield* DesktopAdHocSignHookSource;
+    if (!(yield* fs.exists(adHocSignHookSource))) {
+      return yield* new BuildScriptError({
+        message: `Missing electron-builder ad-hoc sign hook at ${adHocSignHookSource}`,
+      });
+    }
+    yield* fs.copyFile(
+      adHocSignHookSource,
+      path.join(stageAppDir, MAC_AD_HOC_SIGN_MODULE_FILE_NAME),
+    );
+  }
+
   // electron-builder is filtering out stageResourcesDir directory in the AppImage for production
   yield* fs.copy(stageResourcesDir, path.join(stageAppDir, "apps/desktop/prod-resources"));
+
+  // The desktop app reads its icons from prod-resources at runtime, but the computer-use helper
+  // must not be copied there: it ships through the macOS `extraResources` entry so that macOS
+  // sees a real bundle, and a second copy inside the asar is dead weight — an app bundle packed
+  // into an archive cannot be launched, and 136 KB of it would be carried twice.
+  yield* fs.remove(path.join(stageAppDir, "apps/desktop/prod-resources", "computer-use"), {
+    recursive: true,
+    force: true,
+  });
 
   const stagePackageJson: StagePackageJson = {
     name: "peak-code-desktop",

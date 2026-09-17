@@ -17,9 +17,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
-const APP_DISPLAY_NAME = isDevelopment ? "Peak Code (Dev)" : "Peak Code (Alpha)";
+const APP_DISPLAY_NAME = isDevelopment ? "Peak Code (Dev)" : "Peak Code";
 const APP_BUNDLE_ID = isDevelopment ? "com.peakcode.app.dev" : "com.peakcode.app";
-const LAUNCHER_VERSION = 3;
+const LAUNCHER_VERSION = 4;
 const MICROPHONE_USAGE_DESCRIPTION =
   "Peak Code needs microphone access so you can record voice notes and transcribe them into the chat composer.";
 
@@ -106,7 +106,7 @@ function buildMacLauncher(electronBinaryPath) {
   const targetAppBundlePath = join(runtimeDir, `${APP_DISPLAY_NAME}.app`);
   const targetBinaryPath = join(targetAppBundlePath, "Contents", "MacOS", "Electron");
   const iconPath = join(desktopDir, "resources", "icon.icns");
-  // Per display name, so the Dev and Alpha bundles never validate against each
+  // Per display name, so the Dev and release bundles never validate against each
   // other's metadata and reuse a stale patch.
   const metadataPath = join(runtimeDir, `metadata-${APP_DISPLAY_NAME}.json`);
 
@@ -130,7 +130,13 @@ function buildMacLauncher(electronBinaryPath) {
   }
 
   rmSync(targetAppBundlePath, { recursive: true, force: true });
-  cpSync(sourceAppBundlePath, targetAppBundlePath, { recursive: true });
+  // `verbatimSymlinks` keeps the framework's intra-bundle links relative. Without it Node
+  // resolves them and rewrites absolute paths back into node_modules, and child processes
+  // then fail to load ICU data ("icudtl.dat not found in bundle") and trap.
+  cpSync(sourceAppBundlePath, targetAppBundlePath, {
+    recursive: true,
+    verbatimSymlinks: true,
+  });
   patchMainBundleInfoPlist(targetAppBundlePath, iconPath);
   patchHelperBundleInfoPlists(targetAppBundlePath);
   writeFileSync(metadataPath, `${JSON.stringify(expectedMetadata, null, 2)}\n`);
