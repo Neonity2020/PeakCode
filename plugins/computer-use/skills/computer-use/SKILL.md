@@ -27,7 +27,7 @@ user's cursor around while they are trying to work.
 Observe once, act once, observe again. Never chain GUI actions blind.
 
 1. `action: "list_apps"` — what is running. Apps are matched by the name the user would say
-   *or* by bundle id, so ask for "Finder" even on a system that calls it 访达.
+   _or_ by bundle id, so ask for "Finder" even on a system that calls it 访达.
 2. `action: "get_state"` with that app — returns the accessibility tree of the window in
    front, with a numbered ref for each element, its position and size, and the actions it
    actually supports.
@@ -135,10 +135,10 @@ The clipboard is part of the desktop, so it is part of the tool:
 The tool runs through a separate helper app, **Peak Code Computer Use**, and macOS files its
 grants against that helper rather than against Peak Code. It needs:
 
-| What | Which permission | Where the user grants it |
-| ---- | ---------------- | ------------------------ |
-| Reading and acting on controls | Accessibility | System Settings → Privacy & Security → Accessibility |
-| `screenshot` | Screen Recording | System Settings → Privacy & Security → Screen Recording |
+| What                           | Which permission | Where the user grants it                                |
+| ------------------------------ | ---------------- | ------------------------------------------------------- |
+| Reading and acting on controls | Accessibility    | System Settings → Privacy & Security → Accessibility    |
+| `screenshot`                   | Screen Recording | System Settings → Privacy & Security → Screen Recording |
 
 `action: "status"` reports both. If something is missing, `action: "request_access"` asks
 macOS to show its own prompt — but the prompt is only a shortcut, and the user still has to
