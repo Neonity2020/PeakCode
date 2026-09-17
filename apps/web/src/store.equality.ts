@@ -1,11 +1,6 @@
-/**
- * StoreEquality - Referential-equality helpers and slice builders for stable store updates.
- *
- * @module StoreEquality
- */
-// FILE: store.ts
-// Purpose: Normalizes orchestration snapshots into stable client state for the web app.
-// Exports: Zustand store plus pure state transition helpers shared by runtime bootstrap flows.
+// FILE: store.equality.ts
+// Purpose: Referential-equality helpers and slice builders for stable store updates.
+// Layer: Web state store
 
 import { MessageId, type ProviderKind, type TurnId } from "@peakcode/contracts";
 

@@ -1,11 +1,6 @@
-/**
- * StorePersistence - Persisted shell/UI state read and write for the renderer store.
- *
- * @module StorePersistence
- */
-// FILE: store.ts
-// Purpose: Normalizes orchestration snapshots into stable client state for the web app.
-// Exports: Zustand store plus pure state transition helpers shared by runtime bootstrap flows.
+// FILE: store.persistence.ts
+// Purpose: Persisted shell/UI state read and write for the renderer store.
+// Layer: Web state store
 
 import { normalizeWorkspaceRootForComparison } from "@peakcode/shared/threadWorkspace";
 

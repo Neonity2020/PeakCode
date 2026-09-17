@@ -1,12 +1,7 @@
-/**
- * GitTrace2 - Reads git trace2 event streams into command and exit telemetry.
- *
- * @module GitTrace2
- */
-// FILE: GitCore.ts
-// Purpose: Implements low-level Git operations used by server orchestration and UI status.
+// FILE: gitTrace2.ts
+// Purpose: Reads git trace2 event streams into command and exit telemetry.
 // Layer: Server Git service
-// Exports: GitCoreLive plus makeGitCore test factory.
+
 import {
   Effect,
   FileSystem,

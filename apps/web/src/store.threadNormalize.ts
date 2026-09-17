@@ -1,11 +1,6 @@
-/**
- * StoreThreadNormalize - Thread-level normalization from read-model and shell snapshots.
- *
- * @module StoreThreadNormalize
- */
-// FILE: store.ts
-// Purpose: Normalizes orchestration snapshots into stable client state for the web app.
-// Exports: Zustand store plus pure state transition helpers shared by runtime bootstrap flows.
+// FILE: store.threadNormalize.ts
+// Purpose: Thread-level normalization from read-model and shell snapshots.
+// Layer: Web state store
 
 import type { OrchestrationReadModel, OrchestrationShellSnapshot } from "@peakcode/contracts";
 import { resolveThreadBranchRegressionGuard } from "@peakcode/shared/git";

@@ -1,11 +1,6 @@
-/**
- * StoreProjections - Writes normalized threads and projects back into the flat store shape.
- *
- * @module StoreProjections
- */
-// FILE: store.ts
-// Purpose: Normalizes orchestration snapshots into stable client state for the web app.
-// Exports: Zustand store plus pure state transition helpers shared by runtime bootstrap flows.
+// FILE: store.projections.ts
+// Purpose: Writes normalized threads and projects back into the flat store shape.
+// Layer: Web state store
 
 import { ThreadId } from "@peakcode/contracts";
 

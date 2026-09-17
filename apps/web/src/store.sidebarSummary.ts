@@ -1,11 +1,6 @@
-/**
- * StoreSidebarSummary - Builds and compares the denormalized sidebar thread summaries.
- *
- * @module StoreSidebarSummary
- */
-// FILE: store.ts
-// Purpose: Normalizes orchestration snapshots into stable client state for the web app.
-// Exports: Zustand store plus pure state transition helpers shared by runtime bootstrap flows.
+// FILE: store.sidebarSummary.ts
+// Purpose: Builds and compares the denormalized sidebar thread summaries.
+// Layer: Web state store
 
 import { EventId, type ProviderKind, type OrchestrationSessionStatus } from "@peakcode/contracts";
 

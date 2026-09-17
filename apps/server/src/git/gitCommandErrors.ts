@@ -1,12 +1,7 @@
-/**
- * GitCommandErrors - Builds GitCommandError values and explains blocked working-tree operations.
- *
- * @module GitCommandErrors
- */
-// FILE: GitCore.ts
-// Purpose: Implements low-level Git operations used by server orchestration and UI status.
+// FILE: gitCommandErrors.ts
+// Purpose: Builds GitCommandError values and explains blocked working-tree operations.
 // Layer: Server Git service
-// Exports: GitCoreLive plus makeGitCore test factory.
+
 import { Layer, Schema } from "effect";
 
 import { commandLabel, quoteGitCommand } from "./gitOutputParsing.ts";

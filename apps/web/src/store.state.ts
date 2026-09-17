@@ -1,11 +1,6 @@
-/**
- * StoreState - Client store state shape, empty sentinels and initial state.
- *
- * @module StoreState
- */
-// FILE: store.ts
-// Purpose: Normalizes orchestration snapshots into stable client state for the web app.
-// Exports: Zustand store plus pure state transition helpers shared by runtime bootstrap flows.
+// FILE: store.state.ts
+// Purpose: Client store state shape, empty sentinels and initial state.
+// Layer: Web state store
 
 import {
   MessageId,

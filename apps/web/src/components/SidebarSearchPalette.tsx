@@ -1,9 +1,9 @@
-/**
- * SidebarSearchPalette - Command-style palette for sidebar actions, threads, and projects.
- *
- * Keeps the sidebar search UX aligned with the shared command primitives so
- * keyboard navigation and shortcut labels behave like the rest of the app.
- */
+// FILE: SidebarSearchPalette.tsx
+// Purpose: Command-style palette for sidebar actions, threads, and projects. It keeps the sidebar
+//          search UX aligned with the shared command primitives, so keyboard navigation and
+//          shortcut labels behave like the rest of the app.
+// Layer: Component
+// Exports: SidebarSearchPalette
 import {
   CheckIcon,
   DeviceLaptopIcon,

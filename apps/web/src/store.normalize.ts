@@ -1,11 +1,6 @@
-/**
- * StoreNormalize - Normalizes orchestration read-model snapshots into client store state.
- *
- * @module StoreNormalize
- */
-// FILE: store.ts
-// Purpose: Normalizes orchestration snapshots into stable client state for the web app.
-// Exports: Zustand store plus pure state transition helpers shared by runtime bootstrap flows.
+// FILE: store.normalize.ts
+// Purpose: Normalizes orchestration read-model snapshots into client store state.
+// Layer: Web state store
 
 import { MessageId, ThreadId } from "@peakcode/contracts";
 

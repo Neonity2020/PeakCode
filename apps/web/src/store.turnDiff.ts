@@ -1,11 +1,6 @@
-/**
- * StoreTurnDiff - Turn-diff, revert and derived-signal transitions for a single thread.
- *
- * @module StoreTurnDiff
- */
-// FILE: store.ts
-// Purpose: Normalizes orchestration snapshots into stable client state for the web app.
-// Exports: Zustand store plus pure state transition helpers shared by runtime bootstrap flows.
+// FILE: store.turnDiff.ts
+// Purpose: Turn-diff, revert and derived-signal transitions for a single thread.
+// Layer: Web state store
 
 import { ThreadId } from "@peakcode/contracts";
 

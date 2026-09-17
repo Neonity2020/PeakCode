@@ -1,12 +1,7 @@
-/**
- * GitOutputParsing - Parsers for git porcelain/numstat/remote output consumed by the git core layer.
- *
- * @module GitOutputParsing
- */
-// FILE: GitCore.ts
-// Purpose: Implements low-level Git operations used by server orchestration and UI status.
+// FILE: gitOutputParsing.ts
+// Purpose: Parsers for git porcelain/numstat/remote output consumed by the git core layer.
 // Layer: Server Git service
-// Exports: GitCoreLive plus makeGitCore test factory.
+
 import { Layer } from "effect";
 
 import * as nodeFs from "node:fs/promises";
