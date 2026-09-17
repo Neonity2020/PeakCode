@@ -24,3 +24,4 @@ export * from "./filesystem";
 export * from "./rpc";
 export * from "./automation";
 export * from "./kanban";
+export * from "./im";
