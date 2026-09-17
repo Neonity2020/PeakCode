@@ -5,18 +5,13 @@
 
 import "../../index.css";
 
-import type { ProviderInteractionMode } from "@peakcode/contracts";
 import { page } from "vitest/browser";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { ComposerExtrasMenu } from "./ComposerExtrasMenu";
 
-async function mountMenu(props?: {
-  fastModeEnabled?: boolean;
-  interactionMode?: ProviderInteractionMode;
-  supportsFastMode?: boolean;
-}) {
+async function mountMenu(props?: { fastModeEnabled?: boolean; supportsFastMode?: boolean }) {
   const onAddPhotos = vi.fn();
   const onToggleFastMode = vi.fn();
   const host = document.createElement("div");
@@ -68,39 +63,21 @@ describe("ComposerExtrasMenu", () => {
     expect(menu.onAddPhotos.mock.calls[0]?.[0]?.[0]?.name).toBe("photo.png");
   });
 
-  it("lists Agent, Plan, and Goal as the three modes", async () => {
-    await using _ = await mountMenu({ interactionMode: "plan", fastModeEnabled: true });
+  it("keeps the menu to attachments and speed", async () => {
+    await using _ = await mountMenu({ fastModeEnabled: true });
 
     await page.getByLabelText("Composer extras").click();
 
     await vi.waitFor(() => {
       const text = document.body.textContent ?? "";
       expect(text).toContain("Add image");
-      expect(text).toContain("Mode");
-      expect(text).toContain("Agent");
-      expect(text).toContain("Plan");
-      expect(text).toContain("Goal");
       expect(text).toContain("Fast");
       expect(text).not.toContain("Plugins");
+      // The Agent/Plan/Goal dial lives in the always-visible composer toolbar
+      // (ComposerModeChip), not behind this menu.
+      expect(text).not.toContain("Agent");
+      expect(text).not.toContain("Goal");
     });
-  });
-
-  it("marks exactly one mode as selected", async () => {
-    await using _ = await mountMenu({ interactionMode: "goal" });
-
-    await page.getByLabelText("Composer extras").click();
-
-    await vi.waitFor(async () => {
-      await expect
-        .element(page.getByRole("menuitemradio", { name: "Goal" }))
-        .toHaveAttribute("aria-checked", "true");
-    });
-    await expect
-      .element(page.getByRole("menuitemradio", { name: "Agent" }))
-      .toHaveAttribute("aria-checked", "false");
-    await expect
-      .element(page.getByRole("menuitemradio", { name: "Plan" }))
-      .toHaveAttribute("aria-checked", "false");
   });
 
   it("wires the speed control", async () => {

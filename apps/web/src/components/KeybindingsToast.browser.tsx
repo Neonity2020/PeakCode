@@ -8,18 +8,18 @@ import {
   type ServerConfig,
   type ThreadId,
   type WsWelcomePayload,
-  WS_CHANNELS,
   WS_METHODS,
 } from "@peakcode/contracts";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { ws, http, HttpResponse } from "msw";
-import { setupWorker } from "msw/browser";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { useComposerDraftStore } from "../composerDraftStore";
 import { getRouter } from "../router";
 import { useStore } from "../store";
+import { seedBrowserTestLanguage } from "../test/browserTestAppSettings";
+import { shellSnapshotFromReadModel } from "../test/shellSnapshotFixture";
+import { WsRpcTestServer } from "../test/wsRpcTestServer";
 
 const THREAD_ID = "thread-kb-toast-test" as ThreadId;
 const PROJECT_ID = "project-1" as ProjectId;
@@ -32,10 +32,8 @@ interface TestFixture {
 }
 
 let fixture: TestFixture;
-let wsClient: { send: (data: string) => void } | null = null;
-let pushSequence = 1;
 
-const wsLink = ws.link(/ws(s)?:\/\/.*/);
+const server = new WsRpcTestServer();
 
 function createBaseServerConfig(): ServerConfig {
   return {
@@ -138,85 +136,58 @@ function buildFixture(): TestFixture {
   };
 }
 
-function resolveWsRpc(tag: string): unknown {
-  if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
-    return fixture.snapshot;
-  }
-  if (tag === WS_METHODS.serverGetConfig) {
-    return fixture.serverConfig;
-  }
-  if (tag === WS_METHODS.gitListBranches) {
-    return {
-      isRepo: true,
-      hasOriginRemote: true,
-      branches: [{ name: "main", current: true, isDefault: true, worktreePath: null }],
-    };
-  }
-  if (tag === WS_METHODS.gitStatus) {
-    return {
-      branch: "main",
-      hasWorkingTreeChanges: false,
-      workingTree: { files: [], insertions: 0, deletions: 0 },
-      hasUpstream: true,
-      aheadCount: 0,
-      behindCount: 0,
-      pr: null,
-    };
-  }
-  if (tag === WS_METHODS.projectsSearchEntries) {
-    return { entries: [], truncated: false };
-  }
-  return {};
+function registerServerHandlers(): void {
+  server.handle(ORCHESTRATION_WS_METHODS.getSnapshot, () => fixture.snapshot);
+  server.handle(WS_METHODS.serverGetConfig, () => fixture.serverConfig);
+  server.handle(WS_METHODS.gitListBranches, () => ({
+    isRepo: true,
+    hasOriginRemote: true,
+    branches: [{ name: "main", current: true, isDefault: true, worktreePath: null }],
+  }));
+  server.handle(WS_METHODS.gitStatus, () => ({
+    branch: "main",
+    hasWorkingTreeChanges: false,
+    workingTree: { files: [], insertions: 0, deletions: 0 },
+    hasUpstream: true,
+    aheadCount: 0,
+    behindCount: 0,
+    pr: null,
+  }));
+  server.handle(WS_METHODS.projectsSearchEntries, () => ({ entries: [], truncated: false }));
+  server.stream(WS_METHODS.subscribeServerLifecycle, (_payload, send) => {
+    send({ type: "welcome", payload: fixture.welcome });
+  });
+  server.stream(WS_METHODS.subscribeServerConfig, (_payload, send) => {
+    send({ type: "snapshot", config: fixture.serverConfig });
+  });
+  server.stream(WS_METHODS.subscribeServerProviderStatuses, () => undefined);
+  server.stream(WS_METHODS.subscribeServerSettings, () => undefined);
+  server.stream(WS_METHODS.subscribeTerminalEvents, () => undefined);
+  server.stream(WS_METHODS.subscribeOrchestrationDomainEvents, () => undefined);
+  server.stream(ORCHESTRATION_WS_METHODS.subscribeShell, (_payload, send) => {
+    send({ kind: "snapshot", snapshot: shellSnapshotFromReadModel(fixture.snapshot) });
+  });
+  server.stream(ORCHESTRATION_WS_METHODS.subscribeThread, (payload, send) => {
+    const threadId = payload.threadId as ThreadId;
+    const thread = fixture.snapshot.threads.find((entry) => entry.id === threadId);
+    if (!thread) return;
+    send({
+      kind: "snapshot",
+      snapshot: { snapshotSequence: fixture.snapshot.snapshotSequence, thread },
+    });
+  });
 }
 
-const worker = setupWorker(
-  wsLink.addEventListener("connection", ({ client }) => {
-    wsClient = client;
-    pushSequence = 1;
-    client.send(
-      JSON.stringify({
-        type: "push",
-        sequence: pushSequence++,
-        channel: WS_CHANNELS.serverWelcome,
-        data: fixture.welcome,
-      }),
-    );
-    client.addEventListener("message", (event) => {
-      const rawData = event.data;
-      if (typeof rawData !== "string") return;
-      let request: { id: string; body: { _tag: string; [key: string]: unknown } };
-      try {
-        request = JSON.parse(rawData);
-      } catch {
-        return;
-      }
-      const method = request.body?._tag;
-      if (typeof method !== "string") return;
-      client.send(
-        JSON.stringify({
-          id: request.id,
-          result: resolveWsRpc(method),
-        }),
-      );
-    });
-  }),
-  http.get("*/attachments/:attachmentId", () => new HttpResponse(null, { status: 204 })),
-  http.get("*/api/project-favicon", () => new HttpResponse(null, { status: 204 })),
-);
+const worker = server.worker;
 
 function sendServerConfigUpdatedPush(issues: Array<{ kind: string; message: string }>) {
-  if (!wsClient) throw new Error("WebSocket client not connected");
-  wsClient.send(
-    JSON.stringify({
-      type: "push",
-      sequence: pushSequence++,
-      channel: WS_CHANNELS.serverConfigUpdated,
-      data: {
-        issues,
-        providers: fixture.serverConfig.providers,
-      },
-    }),
-  );
+  server.emit(WS_METHODS.subscribeServerConfig, {
+    type: "configUpdated",
+    payload: {
+      issues,
+      providers: fixture.serverConfig.providers,
+    },
+  });
 }
 
 function queryToastTitles(): string[] {
@@ -292,6 +263,7 @@ async function mountApp(): Promise<{ cleanup: () => Promise<void> }> {
 describe("Keybindings update toast", () => {
   beforeAll(async () => {
     fixture = buildFixture();
+    registerServerHandlers();
     await worker.start({
       onUnhandledRequest: "bypass",
       quiet: true,
@@ -305,8 +277,8 @@ describe("Keybindings update toast", () => {
 
   beforeEach(() => {
     localStorage.clear();
+    seedBrowserTestLanguage("en");
     document.body.innerHTML = "";
-    pushSequence = 1;
     useComposerDraftStore.setState({
       draftsByThreadId: {},
       draftThreadsByThreadId: {},

@@ -7,6 +7,7 @@ import { Profiler, useCallback, useRef, useState, type ProfilerOnRenderCallback 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
+import { I18nProvider } from "../../i18n";
 import { ChatTranscriptPane } from "./ChatTranscriptPane";
 import { useTranscriptAssistantSelectionAction } from "./useTranscriptAssistantSelectionAction";
 import { COLLAPSED_USER_MESSAGE_MAX_CHARS } from "./userMessagePreview";
@@ -164,58 +165,61 @@ describe("ChatTranscriptPane", () => {
     const longUserText = `${"a".repeat(COLLAPSED_USER_MESSAGE_MAX_CHARS)}${hiddenTail}`;
 
     const screen = await render(
-      <ChatTranscriptPane
-        activeThreadId="thread-user-message-expand"
-        activeTurnInProgress={false}
-        activeTurnStartedAt={null}
-        chatFontSizePx={15}
-        completionDividerBeforeEntryId={null}
-        completionSummary={null}
-        emptyStateProjectName={undefined}
-        hasMessages
-        isRevertingCheckpoint={false}
-        isWorking={false}
-        followLiveOutput={false}
-        listRef={{ current: null }}
-        markdownCwd={undefined}
-        onExpandTimelineImage={NOOP}
-        onMessagesClickCapture={NOOP}
-        onMessagesMouseUp={NOOP}
-        onMessagesPointerCancel={NOOP}
-        onMessagesPointerDown={NOOP}
-        onMessagesPointerUp={NOOP}
-        onMessagesScroll={NOOP}
-        onMessagesTouchEnd={NOOP}
-        onMessagesTouchMove={NOOP}
-        onMessagesTouchStart={NOOP}
-        onMessagesWheel={NOOP}
-        onIsAtEndChange={NOOP}
-        onOpenTurnDiff={NOOP}
-        onOpenThread={NOOP}
-        onRevertUserMessage={NOOP}
-        onScrollToBottom={NOOP}
-        resolvedTheme="dark"
-        revertTurnCountByUserMessageId={EMPTY_REVERT_COUNTS}
-        scrollButtonVisible={false}
-        terminalWorkspaceTerminalTabActive={false}
-        timelineEntries={[
-          {
-            id: "user-message-entry",
-            kind: "message",
-            createdAt: "2026-03-17T19:12:28.000Z",
-            message: {
-              id: MessageId.makeUnsafe("user-message-expand"),
-              role: "user",
-              text: longUserText,
+      <I18nProvider language="en">
+        <ChatTranscriptPane
+          activeThreadId="thread-user-message-expand"
+          activeTurnInProgress={false}
+          activeTurnStartedAt={null}
+          chatFontSizePx={15}
+          completionDividerBeforeEntryId={null}
+          completionSummary={null}
+          emptyStateProjectName={undefined}
+          hasMessages
+          isRevertingCheckpoint={false}
+          isWorking={false}
+          followLiveOutput={false}
+          listRef={{ current: null }}
+          markdownCwd={undefined}
+          onExpandTimelineImage={NOOP}
+          onMessagesClickCapture={NOOP}
+          onMessagesMouseUp={NOOP}
+          onMessagesPointerCancel={NOOP}
+          onMessagesPointerDown={NOOP}
+          onMessagesPointerUp={NOOP}
+          onMessagesScroll={NOOP}
+          onMessagesTouchEnd={NOOP}
+          onMessagesTouchMove={NOOP}
+          onMessagesTouchStart={NOOP}
+          onMessagesWheel={NOOP}
+          onIsAtEndChange={NOOP}
+          onOpenTurnDiff={NOOP}
+          onOpenThread={NOOP}
+          onRevertUserMessage={NOOP}
+          onScrollToBottom={NOOP}
+          resolvedTheme="dark"
+          revertTurnCountByUserMessageId={EMPTY_REVERT_COUNTS}
+          scrollButtonVisible={false}
+          terminalWorkspaceTerminalTabActive={false}
+          timelineEntries={[
+            {
+              id: "user-message-entry",
+              kind: "message",
               createdAt: "2026-03-17T19:12:28.000Z",
-              streaming: false,
+              message: {
+                id: MessageId.makeUnsafe("user-message-expand"),
+                role: "user",
+                text: longUserText,
+                createdAt: "2026-03-17T19:12:28.000Z",
+                streaming: false,
+              },
             },
-          },
-        ]}
-        timestampFormat="locale"
-        turnDiffSummaryByAssistantMessageId={EMPTY_TURN_DIFFS}
-        workspaceRoot={undefined}
-      />,
+          ]}
+          timestampFormat="locale"
+          turnDiffSummaryByAssistantMessageId={EMPTY_TURN_DIFFS}
+          workspaceRoot={undefined}
+        />
+        ,
+      </I18nProvider>,
     );
     try {
       expect(screen.container.textContent).not.toContain(hiddenTail);

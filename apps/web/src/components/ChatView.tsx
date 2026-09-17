@@ -6961,7 +6961,7 @@ export default function ChatView({
                           size="sm"
                           type="button"
                           onClick={toggleInteractionMode}
-                          title="Plan mode — click to return to normal build mode"
+                          title={messages.chat.planModeHint}
                         >
                           <GoTasklist className="size-3.5" />
                           <span className="sr-only sm:not-sr-only">Plan</span>

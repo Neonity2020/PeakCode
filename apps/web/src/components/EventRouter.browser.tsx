@@ -3,7 +3,6 @@ import "../index.css";
 import {
   EventId,
   MessageId,
-  ORCHESTRATION_WS_CHANNELS,
   ORCHESTRATION_WS_METHODS,
   ProjectId,
   ThreadId,
@@ -13,20 +12,21 @@ import {
   type OrchestrationShellStreamEvent,
   type OrchestrationShellSnapshot,
   type OrchestrationThread,
+  type OrchestrationThreadStreamItem,
   type ServerConfig,
   type WsWelcomePayload,
-  WS_CHANNELS,
   WS_METHODS,
 } from "@peakcode/contracts";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { HttpResponse, http, ws } from "msw";
-import { setupWorker } from "msw/browser";
+import { HttpResponse, http } from "msw";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { useComposerDraftStore } from "../composerDraftStore";
 import { getRouter } from "../router";
 import { useStore } from "../store";
+import { shellSnapshotFromReadModel } from "../test/shellSnapshotFixture";
+import { WsRpcTestServer } from "../test/wsRpcTestServer";
 import { getThreadFromState } from "../threadDerivation";
 import { useWorkspaceStore } from "../workspaceStore";
 
@@ -42,16 +42,11 @@ interface TestFixture {
 }
 
 let fixture: TestFixture;
-let wsClient: { send: (data: string) => void } | null = null;
-let pushSequence = 1;
 let delayNextThreadSnapshot = false;
-let subscribeShellRequestCount = 0;
-const subscribeThreadRequestCountById = new Map<ThreadId, number>();
-let subscribeThreadRequests: ThreadId[] = [];
 let replayEvents: OrchestrationEvent[] = [];
-let replayRequestCursors: number[] = [];
+const replayRequestCursors: number[] = [];
 
-const wsLink = ws.link(/ws(s)?:\/\/.*/);
+const server = new WsRpcTestServer();
 
 function createBaseServerConfig(): ServerConfig {
   return {
@@ -155,59 +150,6 @@ function buildFixture(): TestFixture {
   };
 }
 
-function createShellSnapshotFromFixtureSnapshot(
-  snapshot: OrchestrationReadModel,
-): OrchestrationShellSnapshot {
-  return {
-    snapshotSequence: snapshot.snapshotSequence,
-    projects: snapshot.projects
-      .filter((project) => project.deletedAt === null)
-      .map((project) => ({
-        id: project.id,
-        kind: project.kind,
-        title: project.title,
-        workspaceRoot: project.workspaceRoot,
-        defaultModelSelection: project.defaultModelSelection,
-        scripts: project.scripts,
-        createdAt: project.createdAt,
-        updatedAt: project.updatedAt,
-      })),
-    threads: snapshot.threads
-      .filter((thread) => thread.deletedAt === null)
-      .map((thread) => ({
-        id: thread.id,
-        projectId: thread.projectId,
-        title: thread.title,
-        modelSelection: thread.modelSelection,
-        interactionMode: thread.interactionMode,
-        runtimeMode: thread.runtimeMode,
-        envMode: thread.envMode,
-        branch: thread.branch,
-        worktreePath: thread.worktreePath,
-        associatedWorktreePath: thread.associatedWorktreePath ?? null,
-        associatedWorktreeBranch: thread.associatedWorktreeBranch ?? null,
-        associatedWorktreeRef: thread.associatedWorktreeRef ?? null,
-        parentThreadId: thread.parentThreadId ?? null,
-        subagentAgentId: thread.subagentAgentId ?? null,
-        subagentNickname: thread.subagentNickname ?? null,
-        subagentRole: thread.subagentRole ?? null,
-        forkSourceThreadId: thread.forkSourceThreadId ?? null,
-        sidechatSourceThreadId: thread.sidechatSourceThreadId ?? null,
-        latestTurn: thread.latestTurn,
-        latestUserMessageAt: thread.latestUserMessageAt ?? null,
-        hasPendingApprovals: thread.hasPendingApprovals ?? false,
-        hasPendingUserInput: thread.hasPendingUserInput ?? false,
-        hasActionableProposedPlan: thread.hasActionableProposedPlan ?? false,
-        createdAt: thread.createdAt,
-        updatedAt: thread.updatedAt,
-        archivedAt: thread.archivedAt ?? null,
-        handoff: thread.handoff ?? null,
-        session: thread.session,
-      })),
-    updatedAt: snapshot.updatedAt,
-  };
-}
-
 function getThreadDetailFromFixtureSnapshot(threadId: ThreadId): OrchestrationThread {
   const thread = fixture.snapshot.threads.find((entry) => entry.id === threadId);
   if (!thread) {
@@ -216,123 +158,68 @@ function getThreadDetailFromFixtureSnapshot(threadId: ThreadId): OrchestrationTh
   return thread;
 }
 
-function resolveWsRpc(tag: string, body?: unknown): unknown {
-  if (tag === ORCHESTRATION_WS_METHODS.getSnapshot) {
-    return fixture.snapshot;
-  }
-  if (tag === ORCHESTRATION_WS_METHODS.replayEvents) {
-    const request = body as { readonly fromSequenceExclusive?: unknown } | null;
+function registerServerHandlers(): void {
+  server.handle(ORCHESTRATION_WS_METHODS.getSnapshot, () => fixture.snapshot);
+  server.handle(ORCHESTRATION_WS_METHODS.getShellSnapshot, () =>
+    shellSnapshotFromReadModel(fixture.snapshot),
+  );
+  server.handle(ORCHESTRATION_WS_METHODS.replayEvents, (payload) => {
     const fromSequenceExclusive =
-      typeof request?.fromSequenceExclusive === "number" ? request.fromSequenceExclusive : 0;
+      typeof payload.fromSequenceExclusive === "number" ? payload.fromSequenceExclusive : 0;
     replayRequestCursors.push(fromSequenceExclusive);
     return replayEvents.filter((event) => event.sequence > fromSequenceExclusive);
-  }
-  if (tag === WS_METHODS.serverGetConfig) {
-    return fixture.serverConfig;
-  }
-  if (tag === WS_METHODS.gitListBranches) {
-    return {
-      isRepo: true,
-      hasOriginRemote: true,
-      branches: [{ name: "main", current: true, isDefault: true, worktreePath: null }],
-    };
-  }
-  if (tag === WS_METHODS.gitStatus) {
-    return {
-      branch: "main",
-      hasWorkingTreeChanges: false,
-      workingTree: { files: [], insertions: 0, deletions: 0 },
-      hasUpstream: true,
-      aheadCount: 0,
-      behindCount: 0,
-      pr: null,
-    };
-  }
-  if (tag === WS_METHODS.projectsSearchEntries) {
-    return { entries: [], truncated: false };
-  }
-  return {};
+  });
+  server.handle(WS_METHODS.serverGetConfig, () => fixture.serverConfig);
+  server.handle(WS_METHODS.gitListBranches, () => ({
+    isRepo: true,
+    hasOriginRemote: true,
+    branches: [{ name: "main", current: true, isDefault: true, worktreePath: null }],
+  }));
+  server.handle(WS_METHODS.gitStatus, () => ({
+    branch: "main",
+    hasWorkingTreeChanges: false,
+    workingTree: { files: [], insertions: 0, deletions: 0 },
+    hasUpstream: true,
+    aheadCount: 0,
+    behindCount: 0,
+    pr: null,
+  }));
+  server.handle(WS_METHODS.projectsSearchEntries, () => ({ entries: [], truncated: false }));
+
+  server.stream(WS_METHODS.subscribeServerLifecycle, (_payload, send) => {
+    send({ type: "welcome", payload: fixture.welcome });
+  });
+  server.stream(WS_METHODS.subscribeServerConfig, (_payload, send) => {
+    send({ type: "snapshot", config: fixture.serverConfig });
+  });
+  server.stream(WS_METHODS.subscribeServerProviderStatuses, () => undefined);
+  server.stream(WS_METHODS.subscribeServerSettings, () => undefined);
+  server.stream(WS_METHODS.subscribeTerminalEvents, () => undefined);
+  server.stream(WS_METHODS.subscribeOrchestrationDomainEvents, () => undefined);
+
+  server.stream(ORCHESTRATION_WS_METHODS.subscribeShell, (_payload, send) => {
+    send({
+      kind: "snapshot",
+      snapshot: shellSnapshotFromReadModel(fixture.snapshot),
+    });
+  });
+  server.stream(ORCHESTRATION_WS_METHODS.subscribeThread, (payload, send) => {
+    const threadId = payload.threadId as ThreadId;
+    if (delayNextThreadSnapshot) {
+      delayNextThreadSnapshot = false;
+      return;
+    }
+    send({
+      kind: "snapshot",
+      snapshot: {
+        snapshotSequence: fixture.snapshot.snapshotSequence,
+        thread: getThreadDetailFromFixtureSnapshot(threadId),
+      },
+    });
+  });
 }
 
-const worker = setupWorker(
-  wsLink.addEventListener("connection", ({ client }) => {
-    wsClient = client;
-    pushSequence = 1;
-    client.send(
-      JSON.stringify({
-        type: "push",
-        sequence: pushSequence++,
-        channel: WS_CHANNELS.serverWelcome,
-        data: fixture.welcome,
-      }),
-    );
-    client.addEventListener("message", (event) => {
-      if (typeof event.data !== "string") {
-        return;
-      }
-      let request: { id: string; body: { _tag: string } };
-      try {
-        request = JSON.parse(event.data);
-      } catch {
-        return;
-      }
-      const method = request.body?._tag;
-      if (typeof method !== "string") {
-        return;
-      }
-      if (method === ORCHESTRATION_WS_METHODS.subscribeShell) {
-        subscribeShellRequestCount += 1;
-      }
-      client.send(
-        JSON.stringify({
-          id: request.id,
-          result: resolveWsRpc(method, request.body),
-        }),
-      );
-      if (method === ORCHESTRATION_WS_METHODS.subscribeShell) {
-        client.send(
-          JSON.stringify({
-            type: "push",
-            sequence: pushSequence++,
-            channel: ORCHESTRATION_WS_CHANNELS.shellEvent,
-            data: {
-              kind: "snapshot",
-              snapshot: createShellSnapshotFromFixtureSnapshot(fixture.snapshot),
-            },
-          }),
-        );
-      }
-      if (method === ORCHESTRATION_WS_METHODS.subscribeThread && "threadId" in request.body) {
-        const threadId = request.body.threadId as ThreadId;
-        subscribeThreadRequestCountById.set(
-          threadId,
-          (subscribeThreadRequestCountById.get(threadId) ?? 0) + 1,
-        );
-        subscribeThreadRequests.push(threadId);
-        if (delayNextThreadSnapshot) {
-          delayNextThreadSnapshot = false;
-          return;
-        }
-        client.send(
-          JSON.stringify({
-            type: "push",
-            sequence: pushSequence++,
-            channel: ORCHESTRATION_WS_CHANNELS.threadEvent,
-            data: {
-              kind: "snapshot",
-              snapshot: {
-                snapshotSequence: fixture.snapshot.snapshotSequence,
-                thread: getThreadDetailFromFixtureSnapshot(threadId),
-              },
-            },
-          }),
-        );
-      }
-    });
-  }),
-  http.get("*/attachments/:attachmentId", () => new HttpResponse(null, { status: 204 })),
-  http.get("*/api/project-favicon", () => new HttpResponse(null, { status: 204 })),
-);
+const worker = server.worker;
 
 async function mountApp(options?: {
   routeThreadId?: ThreadId;
@@ -373,60 +260,32 @@ async function mountApp(options?: {
   };
 }
 
+function sendThreadStreamItem(threadId: ThreadId, item: OrchestrationThreadStreamItem) {
+  server.emit(ORCHESTRATION_WS_METHODS.subscribeThread, item, { threadId });
+}
+
 function sendThreadEventPush(event: OrchestrationEvent) {
-  if (!wsClient) {
-    throw new Error("WebSocket client not connected");
-  }
-  wsClient.send(
-    JSON.stringify({
-      type: "push",
-      sequence: pushSequence++,
-      channel: ORCHESTRATION_WS_CHANNELS.threadEvent,
-      data: {
-        kind: "event",
-        event,
-      },
-    }),
-  );
+  sendThreadStreamItem(event.aggregateId as ThreadId, { kind: "event", event });
 }
 
 function sendThreadSnapshotPush(threadId: ThreadId, snapshotSequence: number) {
-  if (!wsClient) {
-    throw new Error("WebSocket client not connected");
-  }
-  wsClient.send(
-    JSON.stringify({
-      type: "push",
-      sequence: pushSequence++,
-      channel: ORCHESTRATION_WS_CHANNELS.threadEvent,
-      data: {
-        kind: "snapshot",
-        snapshot: {
-          snapshotSequence,
-          thread: getThreadDetailFromFixtureSnapshot(threadId),
-        },
-      },
-    }),
-  );
+  sendThreadStreamItem(threadId, {
+    kind: "snapshot",
+    snapshot: {
+      snapshotSequence,
+      thread: getThreadDetailFromFixtureSnapshot(threadId),
+    },
+  });
 }
 
 function sendShellEventPush(event: OrchestrationShellStreamEvent) {
-  if (!wsClient) {
-    throw new Error("WebSocket client not connected");
-  }
-  wsClient.send(
-    JSON.stringify({
-      type: "push",
-      sequence: pushSequence++,
-      channel: ORCHESTRATION_WS_CHANNELS.shellEvent,
-      data: event,
-    }),
-  );
+  server.emit(ORCHESTRATION_WS_METHODS.subscribeShell, event);
 }
 
 describe("EventRouter scoped orchestration sync", () => {
   beforeAll(async () => {
     fixture = buildFixture();
+    registerServerHandlers();
     await worker.start({
       onUnhandledRequest: "bypass",
       quiet: true,
@@ -441,7 +300,6 @@ describe("EventRouter scoped orchestration sync", () => {
   beforeEach(() => {
     fixture = buildFixture();
     document.body.innerHTML = "";
-    pushSequence = 1;
     delayNextThreadSnapshot = false;
     localStorage.clear();
     useComposerDraftStore.setState({
@@ -479,11 +337,9 @@ describe("EventRouter scoped orchestration sync", () => {
         },
       ],
     });
-    subscribeShellRequestCount = 0;
-    subscribeThreadRequestCountById.clear();
-    subscribeThreadRequests = [];
+    server.clearRequests();
     replayEvents = [];
-    replayRequestCursors = [];
+    replayRequestCursors.length = 0;
   });
 
   afterEach(() => {
@@ -666,7 +522,7 @@ describe("EventRouter scoped orchestration sync", () => {
         kind: "thread-upserted",
         sequence: 3,
         thread: {
-          ...createShellSnapshotFromFixtureSnapshot(fixture.snapshot).threads[0]!,
+          ...shellSnapshotFromReadModel(fixture.snapshot).threads[0]!,
           updatedAt: "2026-03-04T12:00:06.000Z",
           session: sessionReady.payload.session,
         },
@@ -968,7 +824,7 @@ describe("EventRouter scoped orchestration sync", () => {
       await vi.waitFor(
         () => {
           expect(
-            subscribeThreadRequests.filter((threadId) => threadId === draftThreadId).length,
+            server.count(ORCHESTRATION_WS_METHODS.subscribeThread, { threadId: draftThreadId }),
           ).toBeGreaterThanOrEqual(1);
         },
         { timeout: 4_000, interval: 16 },
@@ -1021,7 +877,7 @@ describe("EventRouter scoped orchestration sync", () => {
       sendShellEventPush({
         kind: "thread-upserted",
         sequence: 2,
-        thread: createShellSnapshotFromFixtureSnapshot(fixture.snapshot).threads.find(
+        thread: shellSnapshotFromReadModel(fixture.snapshot).threads.find(
           (thread) => thread.id === draftThreadId,
         )!,
       });
@@ -1031,9 +887,8 @@ describe("EventRouter scoped orchestration sync", () => {
           expect(useStore.getState().threads.some((thread) => thread.id === draftThreadId)).toBe(
             true,
           );
-          expect(subscribeThreadRequestCountById.get(draftThreadId)).toBeGreaterThanOrEqual(2);
           expect(
-            subscribeThreadRequests.filter((threadId) => threadId === draftThreadId).length,
+            server.count(ORCHESTRATION_WS_METHODS.subscribeThread, { threadId: draftThreadId }),
           ).toBeGreaterThanOrEqual(2);
           const thread = getThreadFromState(useStore.getState(), draftThreadId);
           expect(thread?.messages.at(-1)?.text).toBe("draft promotion rendered");
@@ -1132,8 +987,8 @@ describe("EventRouter scoped orchestration sync", () => {
       let initialSubscribeShellCount = 0;
       await vi.waitFor(
         () => {
-          expect(subscribeShellRequestCount).toBeGreaterThan(0);
-          initialSubscribeShellCount = subscribeShellRequestCount;
+          initialSubscribeShellCount = server.count(ORCHESTRATION_WS_METHODS.subscribeShell);
+          expect(initialSubscribeShellCount).toBeGreaterThan(0);
         },
         { timeout: 4_000, interval: 16 },
       );
@@ -1142,7 +997,9 @@ describe("EventRouter scoped orchestration sync", () => {
 
       await new Promise((resolve) => window.setTimeout(resolve, 120));
 
-      expect(subscribeShellRequestCount).toBe(initialSubscribeShellCount);
+      expect(server.count(ORCHESTRATION_WS_METHODS.subscribeShell)).toBe(
+        initialSubscribeShellCount,
+      );
     } finally {
       await mounted.cleanup();
     }
