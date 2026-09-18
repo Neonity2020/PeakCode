@@ -1192,12 +1192,27 @@ async function measureUserRow(options: {
   scrollContainer.dispatchEvent(new Event("scroll"));
   await nextFrame();
 
-  const timelineRoot =
-    row!.closest<HTMLElement>('[data-timeline-root="true"]') ??
-    host.querySelector<HTMLElement>('[data-timeline-root="true"]');
-  if (!(timelineRoot instanceof HTMLElement)) {
-    throw new Error("Unable to locate timeline root container.");
-  }
+  /**
+   * Resolve the timeline root on every attempt rather than once.
+   *
+   * The root is React's to replace: a later snapshot — the thread stream arriving after the
+   * first paint, say — can remount the transcript, and a `getBoundingClientRect()` on the
+   * element captured earlier then reports zero for the rest of the run, which is exactly what
+   * this measurement used to fail on under a slower browser. A detached node has no box, so
+   * the retry loop could never recover; resolving it fresh each time keeps the assertion
+   * (a laid-out timeline has a width) while removing the racy part.
+   */
+  const resolveTimelineRoot = (): HTMLElement => {
+    const root =
+      host
+        .querySelector<HTMLElement>(rowSelector)
+        ?.closest<HTMLElement>('[data-timeline-root="true"]') ??
+      host.querySelector<HTMLElement>('[data-timeline-root="true"]');
+    if (!(root instanceof HTMLElement)) {
+      throw new Error("Unable to locate timeline root container.");
+    }
+    return root;
+  };
 
   let timelineWidthMeasuredPx = 0;
   let measuredRowHeightPx = 0;
@@ -1209,7 +1224,7 @@ async function measureUserRow(options: {
       await nextFrame();
       const measuredRow = host.querySelector<HTMLElement>(rowSelector);
       expect(measuredRow, "Unable to measure targeted user row height.").toBeTruthy();
-      timelineWidthMeasuredPx = timelineRoot.getBoundingClientRect().width;
+      timelineWidthMeasuredPx = resolveTimelineRoot().getBoundingClientRect().width;
       measuredRowHeightPx = measuredRow!.getBoundingClientRect().height;
       renderedInVirtualizedRegion = measuredRow!.closest("[data-index]") instanceof HTMLElement;
       expect(timelineWidthMeasuredPx, "Unable to measure timeline width.").toBeGreaterThan(0);
