@@ -79,6 +79,8 @@ import type {
   ServerRefreshProvidersResult,
   ServerTestModelProviderInput,
   ServerTestModelProviderResult,
+  ServerListProviderModelsInput,
+  ServerListProviderModelsResult,
   ServerInstallPiPackageInput,
   ServerInstallPiPackageResult,
   ServerListPiPackagesInput,
@@ -460,6 +462,9 @@ export interface NativeApi {
     testModelProvider: (
       input: ServerTestModelProviderInput,
     ) => Promise<ServerTestModelProviderResult>;
+    listProviderModels: (
+      input: ServerListProviderModelsInput,
+    ) => Promise<ServerListProviderModelsResult>;
     listPiPackages: (input: ServerListPiPackagesInput) => Promise<ServerListPiPackagesResult>;
     installPiPackage: (input: ServerInstallPiPackageInput) => Promise<ServerInstallPiPackageResult>;
     removePiPackage: (input: ServerRemovePiPackageInput) => Promise<ServerRemovePiPackageResult>;

@@ -1,6 +1,5 @@
 // FILE: whatsNew/entries.ts
-// Purpose: Curated "What's new" changelog rendered in the post-update dialog
-// and the settings Release history view.
+// Purpose: Curated "What's new" changelog rendered in the post-update dialog.
 // Layer: static data consumed by `useWhatsNew`, `WhatsNewDialog`, and
 // `ChangelogAccordion`.
 //
@@ -754,14 +753,6 @@ export const WHATS_NEW_ENTRIES: readonly WhatsNewEntry[] = [
           "Every update now opens a one-time dialog highlighting the latest changes, so you don't have to hunt through a changelog to know what shipped.",
         details:
           "The dialog only shows up once per release — dismiss it and it stays out of your way until the next version.",
-      },
-      {
-        id: "release-history-settings",
-        title: "📚 Release history in Settings",
-        description:
-          "A full changelog lives under Settings → Release history, grouped by version in a collapsible accordion.",
-        details:
-          "Revisit any past release at any time. The same notes as the post-update dialog, nothing to hunt for.",
       },
     ],
   },

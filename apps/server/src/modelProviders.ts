@@ -9,6 +9,7 @@
 // the file that is not `providers`.
 // Module: server
 import path from "node:path";
+import { readFile } from "node:fs/promises";
 
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import type {
@@ -210,6 +211,25 @@ export function providerToJson(config: ModelProviderConfig): Record<string, unkn
 
 function modelsFilePath(agentDir: string | undefined): string {
   return path.join(agentDir?.trim() || getAgentDir(), "models.json");
+}
+
+/**
+ * Read one provider's saved config straight off disk, without going through the
+ * Effect/FileSystem layer. Used by request paths (model list fetch) that only
+ * need `baseUrl`/`api`/`headers` and already run outside an Effect.
+ */
+export async function readSavedProviderConfig(
+  agentDir: string | undefined,
+  providerId: string,
+): Promise<ModelProviderConfig | undefined> {
+  let raw: string;
+  try {
+    raw = await readFile(modelsFilePath(agentDir), "utf8");
+  } catch {
+    return undefined;
+  }
+  const provider = providersFromJson(parseModelsJson(raw))[providerId];
+  return provider;
 }
 
 function parseModelsJson(raw: string): Record<string, unknown> {

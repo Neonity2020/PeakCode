@@ -510,6 +510,20 @@ export const ServerTestModelProviderResult = Schema.Struct({
 });
 export type ServerTestModelProviderResult = typeof ServerTestModelProviderResult.Type;
 
+export const ServerListProviderModelsInput = Schema.Struct({
+  agentDir: Schema.optional(TrimmedNonEmptyString),
+  /** Provider key in models.json; its saved baseUrl/credential are used. */
+  provider: TrimmedNonEmptyString,
+});
+export type ServerListProviderModelsInput = typeof ServerListProviderModelsInput.Type;
+
+export const ServerListProviderModelsResult = Schema.Struct({
+  models: Schema.Array(Schema.String),
+  /** Endpoint the list was read from, so the UI can show where it came from. */
+  url: Schema.optional(Schema.String),
+});
+export type ServerListProviderModelsResult = typeof ServerListProviderModelsResult.Type;
+
 export const ServerListPiPackagesInput = Schema.Struct({
   agentDir: Schema.optional(TrimmedNonEmptyString),
 });

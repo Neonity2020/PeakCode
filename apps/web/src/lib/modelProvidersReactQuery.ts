@@ -59,3 +59,17 @@ export function saveModelProvidersMutationOptions(queryClient: QueryClient) {
 export function useSaveModelProvidersMutation() {
   return useMutation(saveModelProvidersMutationOptions(useQueryClient()));
 }
+
+/**
+ * Read the provider's own `/models` list. Mutating on demand (not a query)
+ * matches the UI: the list is only fetched when the user asks for it.
+ */
+export function useListProviderModelsMutation(agentDir?: string) {
+  return useMutation({
+    mutationFn: (provider: string) =>
+      ensureNativeApi().server.listProviderModels({
+        provider,
+        ...(agentDir ? { agentDir } : {}),
+      }),
+  });
+}

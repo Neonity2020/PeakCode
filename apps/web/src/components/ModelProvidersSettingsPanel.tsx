@@ -14,6 +14,7 @@ import { cleanModelProviderDraft, patchModelProvider } from "../lib/modelProvide
 import { cn } from "~/lib/utils";
 import { useMessages } from "../i18n";
 import {
+  useListProviderModelsMutation,
   useModelProvidersQuery,
   useSaveModelProvidersMutation,
 } from "../lib/modelProvidersReactQuery";
@@ -21,8 +22,9 @@ import {
   MODEL_PROVIDER_TEMPLATES,
   MODEL_PROVIDER_TEMPLATE_BY_ID,
   modelProviderTemplateToConfig,
+  type ModelProviderTemplate,
 } from "../lib/modelProviderTemplates";
-import { Loader2Icon, PlusIcon, SquarePenIcon, Trash2 } from "../lib/icons";
+import { Loader2Icon, PlusIcon, RefreshCwIcon, SquarePenIcon, Trash2 } from "../lib/icons";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import {
@@ -34,6 +36,7 @@ import {
 } from "../components/ui/select";
 import { toastManager } from "../components/ui/toast";
 import { ModelProviderModelDialog } from "./ModelProviderModelDialog";
+import { ModelProviderRemoteModelsDialog } from "./ModelProviderRemoteModelsDialog";
 
 const API_KINDS: readonly ModelProviderApiKind[] = [
   "openai-completions",
@@ -82,6 +85,11 @@ function toApiKind(value: string | undefined): ModelProviderApiKind | undefined 
 
 type Draft = Record<string, ModelProviderConfig>;
 
+/** A provider is "enabled" once its draft entry carries a usable API key. */
+function isEnabled(provider: ModelProviderConfig | undefined): boolean {
+  return Boolean(provider?.apiKey);
+}
+
 export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: string }) {
   const messages = useMessages();
   const mp = messages.settings.modelProviders;
@@ -91,14 +99,22 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     mutationFn: (input: { provider: string; modelId?: string }) =>
       ensureNativeApi().server.testModelProvider({ ...input, ...(agentDir ? { agentDir } : {}) }),
   });
+  const listModels = useListProviderModelsMutation(agentDir);
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [templateId, setTemplateId] = useState<string>(EMPTY_TEMPLATE_ID);
   const [customKey, setCustomKey] = useState("");
+  const [customName, setCustomName] = useState("");
+  const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customApiKey, setCustomApiKey] = useState("");
-  const [selectedProviderKey, setSelectedProviderKey] = useState<string | null>(null);
+  const [enableKey, setEnableKey] = useState("");
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [modelDialogOpen, setModelDialogOpen] = useState(false);
+  /** Remote `/models` results for the picker dialog. */
+  const [remoteModelsOpen, setRemoteModelsOpen] = useState(false);
+  const [remoteModels, setRemoteModels] = useState<readonly string[]>([]);
+  const [remoteModelsError, setRemoteModelsError] = useState<string | null>(null);
   /** Index of the model being edited; `null` adds a new one. */
   const [editingModelIndex, setEditingModelIndex] = useState<number | null>(null);
 
@@ -114,6 +130,8 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     return JSON.stringify(draft) !== JSON.stringify(providers);
   }, [draft, providers]);
 
+  // Template defaults (and any already-written provider entries) make up the
+  // left-hand candidate list; un-enabled templates are not in the draft yet.
   const providerEntries = useMemo(
     () => (draft ? Object.entries(draft).toSorted(([a], [b]) => a.localeCompare(b)) : []),
     [draft],
@@ -157,6 +175,77 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     });
   };
 
+  /**
+   * Persist a draft map, then run the follow-up the caller needs. Both the
+   * connection test and the `/models` fetch read the *saved* config (that is
+   * what resolves env-var/`!shell` keys), so they run after the save lands
+   * instead of greying out their buttons on a dirty draft.
+   */
+  const persistDraft = (next: Draft, afterSave?: (key: string) => void) => {
+    const cleaned = cleanModelProviderDraft(next);
+    saveMutation.mutate(
+      { providers: cleaned, ...(agentDir ? { agentDir } : {}) },
+      {
+        onSuccess: (saved) => {
+          setDraft(cloneProviders(saved.providers));
+          connectionTest.reset();
+          const key = selectedKey ?? "";
+          if (afterSave) afterSave(key);
+        },
+      },
+    );
+  };
+
+  const runConnectionTest = (key: string) => {
+    const modelId = draft[key]?.models?.[0]?.id;
+    connectionTest.mutate({ provider: key, ...(modelId ? { modelId } : {}) });
+  };
+
+  /** Test now, saving pending edits first when the draft is dirty. */
+  const testProvider = (key: string) => {
+    if (isDirty) {
+      persistDraft(draft, () => runConnectionTest(key));
+      return;
+    }
+    runConnectionTest(key);
+  };
+
+  /** Fetch the provider's own model list, saving pending edits first. */
+  const fetchProviderModels = (key: string) => {
+    setRemoteModelsOpen(true);
+    setRemoteModelsError(null);
+    const request = () =>
+      listModels.mutate(key, {
+        onSuccess: (result) => {
+          setRemoteModels(result.models);
+          setRemoteModelsError(null);
+        },
+        onError: (error) => {
+          setRemoteModels([]);
+          setRemoteModelsError(error instanceof Error ? error.message : String(error));
+        },
+      });
+    if (isDirty) {
+      persistDraft(draft, request);
+      return;
+    }
+    request();
+  };
+
+  /** Add remote ids as bare entries; pi fills in the rest of the defaults. */
+  const addRemoteModels = (key: string, ids: readonly string[]) => {
+    const models = draft?.[key]?.models ?? [];
+    const have = new Set(models.map((model) => model.id));
+    const added = ids.filter((id) => !have.has(id)).map((id) => ({ id }));
+    if (added.length === 0) return;
+    updateModels(key, [...models, ...added]);
+  };
+
+  const handleSave = () => {
+    if (!draft) return;
+    persistDraft(draft);
+  };
+
   const removeProvider = (key: string) => {
     const name = draft[key]?.name ?? key;
     // 设置页其他删除操作也使用系统 confirm，保持一致。
@@ -170,6 +259,27 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     setTemplateId(EMPTY_TEMPLATE_ID);
   };
 
+  /**
+   * Enable flow (write-then-test): stage the template config plus the pasted key
+   * into the draft, persist it, then run a real connection test against the
+   * first model. Un-enabled templates stay out of models.json until enabled.
+   */
+  const enableTemplate = (template: ModelProviderTemplate, apiKey: string) => {
+    if (apiKey.trim().length === 0 || !draft) return;
+    const key = template.id;
+    const config = modelProviderTemplateToConfig(template, apiKey);
+    const next = { ...draft, [key]: { ...draft[key], ...config } };
+    setDraft(next);
+    setSelectedKey(key);
+    setAddProviderOpen(false);
+    setEnableKey("");
+    // The staged key must reach disk before the test can resolve it.
+    const modelId = next[key]?.models?.[0]?.id;
+    persistDraft(next, () =>
+      connectionTest.mutate({ provider: key, ...(modelId ? { modelId } : {}) }),
+    );
+  };
+
   const addFromTemplate = () => {
     if (templateId === EMPTY_TEMPLATE_ID) {
       if (customKey.trim().length === 0) return;
@@ -181,13 +291,16 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
           ...current,
           [key]: {
             ...existing,
-            name: existing?.name ?? key,
+            name: customName.trim().length > 0 ? customName.trim() : (existing?.name ?? key),
             api: existing?.api ?? "openai-completions",
+            ...(customBaseUrl.trim().length > 0 ? { baseUrl: customBaseUrl.trim() } : {}),
             ...(customApiKey.trim().length > 0 ? { apiKey: customApiKey.trim() } : {}),
           },
         };
       });
       setCustomKey("");
+      setCustomName("");
+      setCustomBaseUrl("");
       setCustomApiKey("");
       return;
     }
@@ -199,9 +312,14 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
       if (!current) return current;
       const exists = current[key] !== undefined;
       const config = modelProviderTemplateToConfig(template, customApiKey);
-      return { ...current, [key]: { ...(exists ? current[key] : {}), ...config } };
+      const configured = {
+        ...config,
+        ...(customBaseUrl.trim().length > 0 ? { baseUrl: customBaseUrl.trim() } : {}),
+      };
+      return { ...current, [key]: { ...(exists ? current[key] : {}), ...configured } };
     });
     setTemplateId(EMPTY_TEMPLATE_ID);
+    setCustomBaseUrl("");
     setCustomApiKey("");
     if (draft[key]) {
       toastManager.add({
@@ -212,30 +330,6 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     }
   };
 
-  const handleSave = () => {
-    if (!draft) return;
-    const cleaned = cleanModelProviderDraft(draft);
-    saveMutation.mutate(
-      { providers: cleaned, ...(agentDir ? { agentDir } : {}) },
-      {
-        onSuccess: (saved) => {
-          setDraft(cloneProviders(saved.providers));
-          connectionTest.reset();
-          toastManager.add({ type: "success", title: mp.savedTitle });
-        },
-      },
-    );
-  };
-
-  const regionLabel = (region: "china" | "global" | "local" | undefined) =>
-    region === "china"
-      ? mp.regionChina
-      : region === "global"
-        ? mp.regionGlobal
-        : region === "local"
-          ? mp.regionLocal
-          : "";
-
   const templateOptions: ReadonlyArray<{
     readonly id: string;
     readonly label: string;
@@ -243,30 +337,35 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     { id: EMPTY_TEMPLATE_ID, label: mp.templateCustom },
     ...MODEL_PROVIDER_TEMPLATES.map((template) => ({
       id: template.id,
-      label: `${regionLabel(template.region)} · ${template.label}`,
+      label: template.label,
     })),
   ];
 
-  const builtinEntries = providerEntries.filter(([key]) => MODEL_PROVIDER_TEMPLATE_BY_ID.has(key));
+  // Left-hand list: every template candidate (un-enabled or enabled) plus any
+  // custom providers already written.
   const customEntries = providerEntries.filter(([key]) => !MODEL_PROVIDER_TEMPLATE_BY_ID.has(key));
-  const activeProviderKey =
-    selectedProviderKey && draft[selectedProviderKey]
-      ? selectedProviderKey
-      : (providerEntries[0]?.[0] ?? null);
-  const activeProvider = activeProviderKey ? draft[activeProviderKey] : undefined;
+  const firstRealProviderKey = providerEntries[0]?.[0] ?? null;
+  const activeKey =
+    selectedKey &&
+    (draft[selectedKey] !== undefined || MODEL_PROVIDER_TEMPLATE_BY_ID.has(selectedKey))
+      ? selectedKey
+      : (firstRealProviderKey ?? MODEL_PROVIDER_TEMPLATES[0]?.id ?? null);
+  const activeProvider = activeKey ? draft[activeKey] : undefined;
+  const activeTemplate = activeKey ? MODEL_PROVIDER_TEMPLATE_BY_ID.get(activeKey) : undefined;
   const activeModels = activeProvider?.models ?? [];
 
-  const renderProviderListRow = ([key, provider]: [string, ModelProviderConfig]) => {
-    const active = key === activeProviderKey;
+  const renderProviderListRow = (
+    key: string,
+    label: string,
+    enabled: boolean,
+    onClick: () => void,
+  ) => {
+    const active = key === activeKey;
     return (
       <button
         key={key}
         type="button"
-        onClick={() => {
-          setSelectedProviderKey(key);
-          setAddProviderOpen(false);
-          setEditingModelIndex(null);
-        }}
+        onClick={onClick}
         className={cn(
           "flex h-7 w-full items-center gap-2 rounded-lg px-2.5 text-left text-[12px] transition-colors",
           active
@@ -274,12 +373,13 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
             : "font-normal text-foreground/89 hover:bg-[var(--sidebar-accent)]",
         )}
       >
-        <span className="min-w-0 flex-1 truncate">{provider.name ?? key}</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
         <span
           className={cn(
             "size-1.5 shrink-0 rounded-full",
-            provider.apiKey ? "bg-success" : "bg-muted-foreground/40",
+            enabled ? "bg-success" : "bg-muted-foreground/40",
           )}
+          title={enabled ? mp.enabledStatus : mp.disabledStatus}
           aria-hidden
         />
       </button>
@@ -287,7 +387,7 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
   };
 
   const submitModel = (model: CustomModelConfig) => {
-    if (!activeProviderKey) return;
+    if (!activeKey) return;
     const index = editingModelIndex;
     const models = [...activeModels];
     if (index !== null && index < models.length) {
@@ -295,7 +395,7 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     } else {
       models.push(model);
     }
-    updateModels(activeProviderKey, models);
+    updateModels(activeKey, models);
     setModelDialogOpen(false);
     setEditingModelIndex(null);
   };
@@ -330,17 +430,52 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
         </Select>
       </label>
       {templateId === EMPTY_TEMPLATE_ID ? (
+        <>
+          <label className="block">
+            <span className={PANEL_LABEL_CLASS}>{mp.providerNameLabel}</span>
+            <Input
+              className={cn("mt-1 text-xs", PANEL_CONTROL_CLASS)}
+              value={customName}
+              placeholder="My Company"
+              spellCheck={false}
+              onChange={(event) => setCustomName(event.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span className={PANEL_LABEL_CLASS}>{mp.providerKeyLabel}</span>
+            <Input
+              className={cn("mt-1 font-mono text-xs", PANEL_CONTROL_CLASS)}
+              value={customKey}
+              placeholder="my-provider"
+              spellCheck={false}
+              onChange={(event) => setCustomKey(event.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span className={PANEL_LABEL_CLASS}>{mp.providerBaseUrlLabel}</span>
+            <Input
+              className={cn("mt-1 font-mono text-xs", PANEL_CONTROL_CLASS)}
+              value={customBaseUrl}
+              placeholder="https://api.example.com/v1"
+              spellCheck={false}
+              onChange={(event) => setCustomBaseUrl(event.target.value)}
+            />
+          </label>
+        </>
+      ) : (
         <label className="block">
-          <span className={PANEL_LABEL_CLASS}>{mp.providerKeyLabel}</span>
+          <span className={PANEL_LABEL_CLASS}>{mp.providerBaseUrlLabel}</span>
           <Input
             className={cn("mt-1 font-mono text-xs", PANEL_CONTROL_CLASS)}
-            value={customKey}
-            placeholder="my-provider"
+            value={customBaseUrl}
+            placeholder={
+              MODEL_PROVIDER_TEMPLATE_BY_ID.get(templateId)?.baseUrl ?? "https://api.example.com/v1"
+            }
             spellCheck={false}
-            onChange={(event) => setCustomKey(event.target.value)}
+            onChange={(event) => setCustomBaseUrl(event.target.value)}
           />
         </label>
-      ) : null}
+      )}
       <label className="block">
         <span className={PANEL_LABEL_CLASS}>{mp.providerApiKeyLabel}</span>
         <Input
@@ -369,7 +504,7 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
             addFromTemplate();
             const nextKey = templateId === EMPTY_TEMPLATE_ID ? customKey.trim() : templateId;
             if (nextKey.length > 0) {
-              setSelectedProviderKey(nextKey);
+              setSelectedKey(nextKey);
               setAddProviderOpen(false);
             }
           }}
@@ -390,8 +525,61 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     </div>
   );
 
+  const renderEnableForm = (template: ModelProviderTemplate) => (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
+      <h3 className="text-[13px] font-semibold text-foreground">
+        {mp.enablePaneTitle(template.label)}
+      </h3>
+      <label className="block">
+        <span className={PANEL_LABEL_CLASS}>{mp.providerBaseUrlLabel}</span>
+        <Input
+          className={cn("mt-1 font-mono text-xs", PANEL_CONTROL_CLASS)}
+          value={template.baseUrl}
+          readOnly
+          spellCheck={false}
+        />
+      </label>
+      <label className="block">
+        <span className={PANEL_LABEL_CLASS}>{mp.providerApiLabel}</span>
+        <Input
+          className={cn("mt-1 font-mono text-xs", PANEL_CONTROL_CLASS)}
+          value={template.api}
+          readOnly
+          spellCheck={false}
+        />
+      </label>
+      <label className="block">
+        <span className={PANEL_LABEL_CLASS}>{mp.providerApiKeyLabel}</span>
+        <Input
+          className={cn("mt-1 font-mono text-xs", PANEL_CONTROL_CLASS)}
+          type="password"
+          autoComplete="off"
+          value={enableKey}
+          placeholder={mp.providerApiKeyPlaceholder(template.apiKeyEnv)}
+          spellCheck={false}
+          onChange={(event) => setEnableKey(event.target.value)}
+        />
+      </label>
+      <p className="text-xs text-muted-foreground">{mp.enablePaneHint}</p>
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          className={PANEL_PRIMARY_BUTTON_CLASS}
+          disabled={enableKey.trim().length === 0 || saveMutation.isPending}
+          onClick={() => enableTemplate(template, enableKey)}
+        >
+          {saveMutation.isPending ? (
+            <Loader2Icon data-icon="inline-start" className="animate-spin" />
+          ) : null}
+          {saveMutation.isPending ? mp.enableSavingButton : mp.enableButton}
+        </Button>
+      </div>
+    </div>
+  );
+
   const renderModelRow = (model: CustomModelConfig, index: number) => {
-    const rowKey = `${activeProviderKey}:${index}`;
+    const rowKey = `${activeKey}:${index}`;
     return (
       <div
         key={rowKey}
@@ -433,7 +621,7 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
           onClick={() => {
             setEditingModelIndex(null);
             updateModels(
-              activeProviderKey ?? "",
+              activeKey ?? "",
               activeModels.filter((_, i) => i !== index),
             );
           }}
@@ -464,13 +652,8 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
           <Button
             size="xs"
             className={PANEL_SECONDARY_BUTTON_CLASS}
-            disabled={isDirty || saveMutation.isPending || connectionTest.isPending}
-            onClick={() =>
-              connectionTest.mutate({
-                provider: key,
-                ...(models[0]?.id ? { modelId: models[0].id } : {}),
-              })
-            }
+            disabled={saveMutation.isPending || connectionTest.isPending}
+            onClick={() => testProvider(key)}
           >
             {connectionTest.isPending && isTesting ? (
               <Loader2Icon data-icon="inline-start" className="animate-spin" />
@@ -547,17 +730,32 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
         <div>
           <div className="flex items-center justify-between gap-2">
             <span className={PANEL_LABEL_CLASS}>{mp.providerModelsLabel}</span>
-            <Button
-              size="xs"
-              className={PANEL_SECONDARY_BUTTON_CLASS}
-              onClick={() => {
-                setEditingModelIndex(null);
-                setModelDialogOpen(true);
-              }}
-            >
-              <PlusIcon className="size-3.5" />
-              {mp.modelAddButton}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                size="xs"
+                className={PANEL_SECONDARY_BUTTON_CLASS}
+                disabled={saveMutation.isPending || listModels.isPending}
+                onClick={() => fetchProviderModels(key)}
+              >
+                {listModels.isPending ? (
+                  <Loader2Icon data-icon="inline-start" className="animate-spin" />
+                ) : (
+                  <RefreshCwIcon className="size-3.5" />
+                )}
+                {mp.modelFetchButton}
+              </Button>
+              <Button
+                size="xs"
+                className={PANEL_SECONDARY_BUTTON_CLASS}
+                onClick={() => {
+                  setEditingModelIndex(null);
+                  setModelDialogOpen(true);
+                }}
+              >
+                <PlusIcon className="size-3.5" />
+                {mp.modelAddButton}
+              </Button>
+            </div>
           </div>
           {models.length > 0 ? (
             <div className="mt-2 space-y-1">{models.map(renderModelRow)}</div>
@@ -568,7 +766,9 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
           )}
         </div>
 
-        <p className="text-xs text-muted-foreground">{isDirty ? mp.testSaveFirst : mp.testHint}</p>
+        <p className="text-xs text-muted-foreground">
+          {isDirty ? mp.testAutoSaveHint : mp.testHint}
+        </p>
         {!isDirty && isTesting && !connectionTest.isPending ? (
           <p role="status" className="text-xs text-muted-foreground">
             {connectionTest.isError
@@ -596,21 +796,38 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
         <div className="flex min-h-[520px]">
           <div className="flex w-[248px] shrink-0 flex-col border-r border-[color:var(--color-border-light)] p-2">
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
-              {builtinEntries.length > 0 ? (
-                <div>
-                  <div className="px-2 pb-1 text-[11px] text-muted-foreground/58">
-                    {mp.builtinGroupLabel}
-                  </div>
-                  <div className="space-y-0.5">{builtinEntries.map(renderProviderListRow)}</div>
+              <div>
+                <div className="px-2 pb-1 text-[11px] text-muted-foreground/58">
+                  {mp.builtinGroupLabel}
                 </div>
-              ) : null}
+                <div className="space-y-0.5">
+                  {MODEL_PROVIDER_TEMPLATES.map((template) =>
+                    renderProviderListRow(
+                      template.id,
+                      template.label,
+                      isEnabled(draft[template.id]),
+                      () => {
+                        setSelectedKey(template.id);
+                        setAddProviderOpen(false);
+                        setEditingModelIndex(null);
+                      },
+                    ),
+                  )}
+                </div>
+              </div>
               <div>
                 <div className="px-2 pb-1 text-[11px] text-muted-foreground/58">
                   {mp.customGroupLabel}
                 </div>
                 <div className="space-y-0.5">
                   {customEntries.length > 0 ? (
-                    customEntries.map(renderProviderListRow)
+                    customEntries.map(([key, provider]) =>
+                      renderProviderListRow(key, provider.name ?? key, isEnabled(provider), () => {
+                        setSelectedKey(key);
+                        setAddProviderOpen(false);
+                        setEditingModelIndex(null);
+                      }),
+                    )
                   ) : (
                     <div className="px-2 py-1 text-[11px] text-muted-foreground/60">
                       {mp.emptyDescription}
@@ -634,8 +851,10 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
 
           {addProviderOpen ? (
             renderAddProviderForm()
-          ) : activeProviderKey && activeProvider ? (
-            renderProviderDetail(activeProviderKey, activeProvider)
+          ) : activeKey && activeTemplate && !isEnabled(activeProvider) ? (
+            renderEnableForm(activeTemplate)
+          ) : activeKey && activeProvider ? (
+            renderProviderDetail(activeKey, activeProvider)
           ) : (
             <div className="flex flex-1 items-center justify-center px-6 py-10 text-center">
               <div>
@@ -665,6 +884,25 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
           if (!open) setEditingModelIndex(null);
         }}
         onSubmit={submitModel}
+      />
+
+      <ModelProviderRemoteModelsDialog
+        open={remoteModelsOpen}
+        providerLabel={activeKey ? (draft[activeKey]?.name ?? activeKey) : ""}
+        models={remoteModels}
+        existingIds={activeModels.map((model) => model.id)}
+        isLoading={listModels.isPending}
+        error={remoteModelsError}
+        onOpenChange={(open) => {
+          setRemoteModelsOpen(open);
+          if (!open) {
+            setRemoteModels([]);
+            setRemoteModelsError(null);
+          }
+        }}
+        onAdd={(ids) => {
+          if (activeKey) addRemoteModels(activeKey, ids);
+        }}
       />
     </fieldset>
   );

@@ -144,6 +144,8 @@ import {
   ServerRefreshProvidersResult,
   ServerTestModelProviderInput,
   ServerTestModelProviderResult,
+  ServerListProviderModelsInput,
+  ServerListProviderModelsResult,
   ServerInstallPiPackageInput,
   ServerInstallPiPackageResult,
   ServerListPiPackagesInput,
@@ -543,6 +545,12 @@ export const WsServerTestModelProviderRpc = Rpc.make(WS_METHODS.serverTestModelP
   error: WsRpcError,
 });
 
+export const WsServerListProviderModelsRpc = Rpc.make(WS_METHODS.serverListProviderModels, {
+  payload: ServerListProviderModelsInput,
+  success: ServerListProviderModelsResult,
+  error: WsRpcError,
+});
+
 export const WsServerListPiPackagesRpc = Rpc.make(WS_METHODS.serverListPiPackages, {
   payload: ServerListPiPackagesInput,
   success: ServerListPiPackagesResult,
@@ -883,6 +891,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerListModelProvidersRpc,
   WsServerSaveModelProvidersRpc,
   WsServerTestModelProviderRpc,
+  WsServerListProviderModelsRpc,
   WsServerListPiPackagesRpc,
   WsServerInstallPiPackageRpc,
   WsServerRemovePiPackageRpc,

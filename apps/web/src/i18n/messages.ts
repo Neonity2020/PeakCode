@@ -1096,9 +1096,6 @@ export type Messages = {
       templateLabel: string;
       templateAria: string;
       templateCustom: string;
-      regionChina: string;
-      regionGlobal: string;
-      regionLocal: string;
       providerExistsHint: (name: string) => string;
       providerKeyLabel: string;
       providerNameLabel: string;
@@ -1109,6 +1106,26 @@ export type Messages = {
       providerApiKeyPlaceholder: (env: string) => string;
       providerModelsLabel: string;
       modelAddButton: string;
+      modelFetchButton: string;
+      remoteModelsTitle: (provider: string) => string;
+      remoteModelsLoading: string;
+      remoteModelsFailed: string;
+      remoteModelsSummary: (total: number, missing: number) => string;
+      remoteModelsSearchPlaceholder: string;
+      remoteModelsEmpty: string;
+      remoteModelsNoMatch: string;
+      remoteModelsAdd: string;
+      remoteModelsAdded: string;
+      remoteModelsAddAria: (id: string) => string;
+      remoteModelsAddAll: string;
+      remoteModelsAddGroup: string;
+      remoteModelsGroupOther: string;
+      remoteModelsAddedCount: (count: number) => string;
+      modelCategoryAll: string;
+      modelCategories: Record<
+        "chat" | "embedding" | "rerank" | "tts" | "asr" | "image" | "video" | "music" | "other",
+        string
+      >;
       modelIdLabel: string;
       modelIdPlaceholder: string;
       modelContextLabel: string;
@@ -1130,7 +1147,13 @@ export type Messages = {
       savedTitle: string;
       testButton: string;
       testHint: string;
-      testSaveFirst: string;
+      testAutoSaveHint: string;
+      enableButton: string;
+      enableSavingButton: string;
+      enabledStatus: string;
+      disabledStatus: string;
+      enablePaneTitle: (name: string) => string;
+      enablePaneHint: string;
       testResults: Record<
         | "success"
         | "invalid-config"
@@ -1442,9 +1465,6 @@ export type Messages = {
       version: {
         title: string;
         description: string;
-        releaseHistory: string;
-        releaseHistoryDescription: string;
-        viewReleaseHistory: string;
       };
     };
     themePack: {
@@ -1669,10 +1689,6 @@ export type Messages = {
   keybindings: {
     searchPlaceholder: string;
     title: string;
-  };
-  releaseHistory: {
-    title: string;
-    open: string;
   };
   rateLimits: {
     reachedTitle: string;
@@ -2897,9 +2913,6 @@ const en: Messages = {
       templateLabel: "Template",
       templateAria: "Provider template",
       templateCustom: "Custom provider",
-      regionChina: "China",
-      regionGlobal: "Global",
-      regionLocal: "Local",
       providerExistsHint: (name) =>
         `${name} already exists; it will be updated instead of duplicated.`,
       providerKeyLabel: "Provider key",
@@ -2912,6 +2925,34 @@ const en: Messages = {
       providerApiKeyPlaceholder: (env) => `Reference an env var, e.g. ${env}`,
       providerModelsLabel: "Models",
       modelAddButton: "Add model",
+      modelFetchButton: "Fetch model list",
+      remoteModelsTitle: (provider) => `${provider} · available models`,
+      remoteModelsLoading: "Fetching the provider's model list…",
+      remoteModelsFailed: "Could not read the provider's model list.",
+      remoteModelsSummary: (total, missing) =>
+        `${total} models returned · ${missing} not added yet`,
+      remoteModelsSearchPlaceholder: "Search model id",
+      remoteModelsEmpty: "The provider returned no models.",
+      remoteModelsNoMatch: "No model matches the current filter.",
+      remoteModelsAdd: "Add",
+      remoteModelsAdded: "Added",
+      remoteModelsAddAria: (id) => `Add model ${id}`,
+      remoteModelsAddAll: "Add all",
+      remoteModelsAddGroup: "Add group",
+      remoteModelsGroupOther: "Other",
+      remoteModelsAddedCount: (count) => `${count} already added`,
+      modelCategoryAll: "All",
+      modelCategories: {
+        chat: "Chat",
+        embedding: "Embedding",
+        rerank: "Rerank",
+        tts: "Speech",
+        asr: "Transcribe",
+        image: "Image",
+        video: "Video",
+        music: "Music",
+        other: "Other",
+      },
       modelIdLabel: "Model ID",
       modelIdPlaceholder: "Model ID",
       modelContextLabel: "Context window",
@@ -2940,7 +2981,15 @@ const en: Messages = {
       testButton: "Test connection",
       testHint:
         "Sends a short request to the first configured model (or the first built-in model). May use a small amount of API credit.",
-      testSaveFirst: "Save your changes before testing the connection.",
+      testAutoSaveHint:
+        "Unsaved changes will be saved, then the connection test runs. May use a small amount of API credit.",
+      enableButton: "Enable",
+      enableSavingButton: "Enabling…",
+      enabledStatus: "Enabled",
+      disabledStatus: "Un-enabled",
+      enablePaneTitle: (name) => `Enable ${name}`,
+      enablePaneHint:
+        "Paste an API key for this provider and hit Enable. It will be saved to models.json and a connection test will run. Un-enabled providers are kept out of the config until you enable them.",
       testResults: {
         success: "Connection successful",
         "invalid-config": "Pi could not load the model configuration. Check models.json.",
@@ -3278,10 +3327,6 @@ const en: Messages = {
       version: {
         title: "Version",
         description: "Current application version.",
-        releaseHistory: "Release history",
-        releaseHistoryDescription:
-          "A running log of every update, newest first. Same notes the post-update dialog shows, kept here so you can revisit them any time.",
-        viewReleaseHistory: "View release history",
       },
     },
     changedSettingLabel: {
@@ -3510,10 +3555,6 @@ const en: Messages = {
   keybindings: {
     searchPlaceholder: "Search shortcuts...",
     title: "Keyboard shortcuts",
-  },
-  releaseHistory: {
-    title: "Release notes",
-    open: "Open",
   },
   rateLimits: {
     reachedTitle: "Rate limit reached.",
@@ -4714,9 +4755,6 @@ const zh: Messages = {
       templateLabel: "模板",
       templateAria: "提供商模板",
       templateCustom: "自定义提供商",
-      regionChina: "国内",
-      regionGlobal: "国际",
-      regionLocal: "本地",
       providerExistsHint: (name) => `${name} 已存在，将更新而不是重复添加。`,
       providerKeyLabel: "提供商 Key",
       providerNameLabel: "显示名称",
@@ -4727,6 +4765,33 @@ const zh: Messages = {
       providerApiKeyPlaceholder: (env) => `引用环境变量，例如 ${env}`,
       providerModelsLabel: "模型",
       modelAddButton: "添加模型",
+      modelFetchButton: "获取模型列表",
+      remoteModelsTitle: (provider) => `${provider} · 可用模型`,
+      remoteModelsLoading: "正在获取服务商的模型列表…",
+      remoteModelsFailed: "无法读取服务商的模型列表。",
+      remoteModelsSummary: (total, missing) => `共返回 ${total} 个模型 · 还有 ${missing} 个未添加`,
+      remoteModelsSearchPlaceholder: "搜索模型 ID",
+      remoteModelsEmpty: "服务商没有返回任何模型。",
+      remoteModelsNoMatch: "没有匹配当前筛选的模型。",
+      remoteModelsAdd: "添加",
+      remoteModelsAdded: "已添加",
+      remoteModelsAddAria: (id) => `添加模型 ${id}`,
+      remoteModelsAddAll: "全部添加",
+      remoteModelsAddGroup: "添加本组",
+      remoteModelsGroupOther: "未分组",
+      remoteModelsAddedCount: (count) => `已添加 ${count} 个`,
+      modelCategoryAll: "全部",
+      modelCategories: {
+        chat: "对话",
+        embedding: "嵌入",
+        rerank: "重排",
+        tts: "语音合成",
+        asr: "语音识别",
+        image: "图像",
+        video: "视频",
+        music: "音乐",
+        other: "其他",
+      },
       modelIdLabel: "模型 ID",
       modelIdPlaceholder: "模型 ID",
       modelContextLabel: "上下文窗口",
@@ -4753,7 +4818,14 @@ const zh: Messages = {
       savedTitle: "模型提供商已保存",
       testButton: "测试连接",
       testHint: "向第一个已配置模型（或第一个内置模型）发送简短请求，可能产生少量 API 用量。",
-      testSaveFirst: "请先保存修改，再测试连接。",
+      testAutoSaveHint: "会先保存当前修改，再测试连接。可能产生少量 API 用量。",
+      enableButton: "启用",
+      enableSavingButton: "启用中…",
+      enabledStatus: "已启用",
+      disabledStatus: "未启用",
+      enablePaneTitle: (name) => `启用 ${name}`,
+      enablePaneHint:
+        "为此提供商粘贴一个 API Key 后点击「启用」。它会写入 models.json 并进行一次连接测试。未启用的提供商在启用前不会写入配置。",
       testResults: {
         success: "连接成功",
         "invalid-config": "Pi 无法加载模型配置，请检查 models.json。",
@@ -5077,10 +5149,6 @@ const zh: Messages = {
       version: {
         title: "版本",
         description: "当前应用版本。",
-        releaseHistory: "更新历史",
-        releaseHistoryDescription:
-          "每次更新的滚动日志，按时间倒序排列。与更新后弹窗中的内容一致，可随时回看。",
-        viewReleaseHistory: "查看更新历史",
       },
     },
     changedSettingLabel: {
@@ -5306,10 +5374,6 @@ const zh: Messages = {
   keybindings: {
     searchPlaceholder: "搜索快捷键…",
     title: "键盘快捷键",
-  },
-  releaseHistory: {
-    title: "更新说明",
-    open: "打开",
   },
   rateLimits: {
     reachedTitle: "已达到速率限制。",

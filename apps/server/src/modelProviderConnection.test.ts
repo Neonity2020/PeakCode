@@ -1,13 +1,21 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { completeSimple } from "@earendil-works/pi-ai/compat";
-import { testModelProvider } from "./modelProviderConnection";
+import {
+  listProviderModels,
+  modelListHeaders,
+  modelListUrls,
+  parseModelListPayload,
+  testModelProvider,
+} from "./modelProviderConnection";
+import { readSavedProviderConfig } from "./modelProviders";
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   ModelRuntime: { create: vi.fn() },
   getAgentDir: () => "/default-agent",
 }));
 vi.mock("@earendil-works/pi-ai/compat", () => ({ completeSimple: vi.fn() }));
+vi.mock("./modelProviders", () => ({ readSavedProviderConfig: vi.fn() }));
 
 const model = { provider: "custom", id: "model" };
 const runtime = {
@@ -15,6 +23,7 @@ const runtime = {
   getModel: vi.fn(),
   getModels: vi.fn(),
   getAuth: vi.fn(),
+  getProvider: vi.fn(),
 };
 
 beforeEach(() => {
@@ -25,6 +34,8 @@ beforeEach(() => {
   runtime.getAuth.mockResolvedValue({
     auth: { apiKey: "secret", headers: { "x-test": "yes" } },
   });
+  runtime.getProvider.mockReturnValue({ baseUrl: "https://api.test/v1", headers: {} });
+  vi.mocked(readSavedProviderConfig).mockResolvedValue({ api: "openai-completions" });
   vi.mocked(completeSimple).mockResolvedValue({ stopReason: "stop" } as Awaited<
     ReturnType<typeof completeSimple>
   >);
@@ -117,5 +128,122 @@ describe("testModelProvider", () => {
     resolveAuth({ auth: { apiKey: "secret" } });
     await Promise.resolve();
     expect(completeSimple).not.toHaveBeenCalled();
+  });
+});
+
+describe("modelListUrls", () => {
+  it("only suffixes a base that already carries a version segment", () => {
+    expect(modelListUrls("https://api.deepseek.com/v1")).toEqual([
+      "https://api.deepseek.com/v1/models",
+    ]);
+    expect(modelListUrls("https://open.bigmodel.cn/api/paas/v4/")).toEqual([
+      "https://open.bigmodel.cn/api/paas/v4/models",
+    ]);
+  });
+
+  it("tries both candidate paths for a bare host", () => {
+    expect(modelListUrls("https://api.example.com")).toEqual([
+      "https://api.example.com/models",
+      "https://api.example.com/v1/models",
+    ]);
+    expect(modelListUrls("   ")).toEqual([]);
+  });
+});
+
+describe("parseModelListPayload", () => {
+  it("accepts array, data, and models payloads and dedupes ids", () => {
+    expect(parseModelListPayload('[{"id":"b"},{"id":"a"},{"id":"b"}]')).toEqual(["b", "a"]);
+    expect(parseModelListPayload('{"data":[{"id":"a"}]}')).toEqual(["a"]);
+    expect(parseModelListPayload('{"models":[{"name":"models/gemini-3"}]}')).toEqual(["gemini-3"]);
+  });
+
+  it("explains a web page instead of a JSON parse failure", () => {
+    expect(() => parseModelListPayload("<html></html>", "text/html")).toThrow(/web page/);
+    expect(() => parseModelListPayload('{"error":{"message":"bad key"}}')).toThrow(/bad key/);
+    expect(() => parseModelListPayload("   ")).toThrow(/empty body/);
+  });
+});
+
+describe("modelListHeaders", () => {
+  it("uses bearer tokens, anthropic keys, and honors authHeader=false", () => {
+    expect(modelListHeaders({ apiKey: "k", api: "openai-completions" })).toEqual({
+      Authorization: "Bearer k",
+    });
+    expect(modelListHeaders({ apiKey: "k", api: "anthropic-messages" })).toEqual({
+      "x-api-key": "k",
+      "anthropic-version": "2023-06-01",
+    });
+    expect(modelListHeaders({ apiKey: "k", authHeader: false })).toEqual({});
+    expect(modelListHeaders({ headers: { "x-extra": "1" } })).toEqual({ "x-extra": "1" });
+  });
+});
+
+describe("listProviderModels", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  const jsonResponse = (body: unknown, status = 200) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: () => "application/json" },
+    text: async () => JSON.stringify(body),
+  });
+
+  const textResponse = (body: string, contentType = "text/html", status = 200) => ({
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: () => contentType },
+    text: async () => body,
+  });
+
+  it("reads the saved endpoint with the resolved key and sorts the ids", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ data: [{ id: "z-model" }, { id: "a-model" }] }));
+
+    expect(await listProviderModels({ agentDir: "/custom-agent", provider: "custom" })).toEqual({
+      models: ["a-model", "z-model"],
+      url: "https://api.test/v1/models",
+    });
+    // The provider's own headers ride along with the resolved key.
+    expect(fetchMock).toHaveBeenCalledWith("https://api.test/v1/models", {
+      headers: { "x-test": "yes", Authorization: "Bearer secret" },
+      signal: expect.anything(),
+    });
+  });
+
+  it("falls back to /v1/models when the bare path is not the API", async () => {
+    runtime.getProvider.mockReturnValue({ baseUrl: "https://api.test", headers: {} });
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse("not found", 404))
+      .mockResolvedValueOnce(jsonResponse([{ id: "a-model" }]));
+
+    expect(await listProviderModels({ provider: "custom" })).toEqual({
+      models: ["a-model"],
+      url: "https://api.test/v1/models",
+    });
+  });
+
+  it("reports rejected credentials and unreadable lists without leaking the key", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ error: "nope" }, 401));
+    await expect(listProviderModels({ provider: "custom" })).rejects.toThrow(
+      /rejected the credentials/,
+    );
+
+    vi.mocked(readSavedProviderConfig).mockResolvedValue({
+      api: "anthropic-messages",
+      baseUrl: "https://api.test/v1",
+    });
+    fetchMock.mockResolvedValue(textResponse("<html></html>"));
+    await expect(listProviderModels({ provider: "custom" })).rejects.toThrow(/web page/);
+  });
+
+  it("refuses providers without a base URL", async () => {
+    runtime.getProvider.mockReturnValue(undefined);
+    vi.mocked(readSavedProviderConfig).mockResolvedValue({ api: "openai-completions" });
+    await expect(listProviderModels({ provider: "custom" })).rejects.toThrow(/no Base URL/);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

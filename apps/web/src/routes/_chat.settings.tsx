@@ -63,7 +63,6 @@ import {
 } from "../settingsNavigation";
 import { NATIVE_LANGUAGE_LABELS, SUPPORTED_LANGUAGES, useMessages } from "../i18n";
 import { useStore } from "../store";
-import ReleaseHistoryDialog from "../components/ReleaseHistoryDialog";
 import { createAllThreadsSelector } from "../storeSelectors";
 import { formatRelativeTime } from "../components/Sidebar";
 import { formatWorktreePathForDisplay } from "../worktreeCleanup";
@@ -240,7 +239,6 @@ function SettingsRouteView() {
   const [isOpeningKeybindings, setIsOpeningKeybindings] = useState(false);
   const [isRepairingLocalState, setIsRepairingLocalState] = useState(false);
   const [showRecoveryTools, setShowRecoveryTools] = useState(false);
-  const [releaseHistoryOpen, setReleaseHistoryOpen] = useState(false);
   const [openKeybindingsError, setOpenKeybindingsError] = useState<string | null>(null);
   const [browserNotificationPermission, setBrowserNotificationPermission] = useState(
     readBrowserNotificationPermissionState(),
@@ -1766,15 +1764,6 @@ function SettingsRouteView() {
               <code className="text-xs font-medium text-muted-foreground">{APP_VERSION}</code>
             }
           />
-          <SettingsRow
-            title={messages.settings.advanced.version.releaseHistory}
-            description={messages.settings.advanced.version.releaseHistoryDescription}
-            control={
-              <Button size="sm" variant="outline" onClick={() => setReleaseHistoryOpen(true)}>
-                {messages.settings.advanced.version.viewReleaseHistory}
-              </Button>
-            }
-          />
         </SettingsCard>
       </SettingsSection>
     </div>
@@ -1905,14 +1894,6 @@ function SettingsRouteView() {
           </div>
         </div>
       </div>
-      {/* Mounted at the route level (outside the scrollable panel) so the
-          dialog portal can overlay the entire settings view without being
-          clipped by the content wrapper's overflow. */}
-      <ReleaseHistoryDialog
-        open={releaseHistoryOpen}
-        onOpenChange={setReleaseHistoryOpen}
-        defaultExpandedVersion={APP_VERSION}
-      />
     </SidebarInset>
   );
 }

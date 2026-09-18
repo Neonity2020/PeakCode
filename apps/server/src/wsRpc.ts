@@ -52,7 +52,7 @@ import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
 import { ServerSettingsService } from "./serverSettings";
 import { readModelProvidersFile, saveModelProvidersFile } from "./modelProviders";
-import { testModelProvider } from "./modelProviderConnection";
+import { listProviderModels, testModelProvider } from "./modelProviderConnection";
 import { installPiPackage, listPiPackages, removePiPackage } from "./piPackages";
 import { TerminalManager } from "./terminal/Services/Manager";
 import { WorkspaceEntries } from "./workspace/Services/WorkspaceEntries";
@@ -629,6 +629,11 @@ export const makeWsRpcLayer = () =>
           rpcEffect(
             Effect.promise(() => testModelProvider(input)),
             "Failed to test model provider",
+          ),
+        [WS_METHODS.serverListProviderModels]: (input) =>
+          rpcEffect(
+            Effect.promise(() => listProviderModels(input)),
+            "Failed to list provider models",
           ),
         [WS_METHODS.serverListPiPackages]: (input) =>
           rpcEffect(listPiPackages(input.agentDir), "Failed to load pi packages"),

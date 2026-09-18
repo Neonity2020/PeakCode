@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   listModelProviders: vi.fn(),
   saveModelProviders: vi.fn(),
   testModelProvider: vi.fn(),
+  listProviderModels: vi.fn(),
 }));
 vi.mock("../nativeApi", () => ({ ensureNativeApi: () => ({ server: api }) }));
 
@@ -22,7 +23,10 @@ const CUSTOM_PROVIDER = {
   baseUrl: "https://old.test",
 };
 
-async function mountPanel(providers?: ModelProvidersFile["providers"]) {
+async function mountPanel(
+  providers?: ModelProvidersFile["providers"],
+  opts?: { selectCustom?: boolean },
+) {
   const file: ModelProvidersFile = {
     path: "/custom/models.json",
     providers: providers ?? { custom: { ...CUSTOM_PROVIDER, models: [{ id: "old-model" }] } },
@@ -38,6 +42,7 @@ async function mountPanel(providers?: ModelProvidersFile["providers"]) {
     ),
   }));
   api.testModelProvider.mockResolvedValue({ status: "success", model: "custom/old-model" });
+  api.listProviderModels.mockResolvedValue({ models: [], url: "https://old.test/v1/models" });
   // Desktop width: the model rows and dialog are meant for the settings pane.
   await page.viewport(1164, 900);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -48,7 +53,9 @@ async function mountPanel(providers?: ModelProvidersFile["providers"]) {
       </I18nProvider>
     </QueryClientProvider>,
   );
-  await page.getByRole("button", { name: /Custom Display/ }).click();
+  if (opts?.selectCustom !== false) {
+    await page.getByRole("button", { name: /Custom Display/ }).click();
+  }
 }
 
 it("adds a model through the dialog, keeping unsupported input kinds out of pi's input", async () => {
@@ -115,7 +122,8 @@ it("clears fields, removes models, and resets the dirty state after saving", asy
   await page.getByRole("textbox", { name: "Base URL", exact: true }).fill("");
   await page.getByRole("textbox", { name: "Display name", exact: true }).first().fill("");
   await page.getByRole("button", { name: "Remove model old-model" }).click();
-  await expect.element(page.getByRole("button", { name: "Test connection" })).toBeDisabled();
+  // The test button stays clickable on a dirty draft; clicking it saves first.
+  await expect.element(page.getByRole("button", { name: "Test connection" })).toBeEnabled();
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect
     .poll(() => api.saveModelProviders.mock.calls[0]?.[0])
@@ -125,6 +133,24 @@ it("clears fields, removes models, and resets the dirty state after saving", asy
     });
   await expect.element(page.getByText("You have unsaved changes.")).not.toBeInTheDocument();
   await expect.element(page.getByRole("button", { name: "Test connection" })).toBeEnabled();
+});
+
+it("saves pending edits before testing from the provider detail pane", async () => {
+  await mountPanel();
+  await page.getByRole("textbox", { name: "API key", exact: true }).fill("sk-updated");
+  // Dirty draft: the click must persist the key first, then test the saved config.
+  await page.getByRole("button", { name: "Test connection" }).click();
+  await expect
+    .poll(() => api.saveModelProviders.mock.calls[0]?.[0])
+    .toEqual({
+      agentDir: "/custom",
+      providers: {
+        custom: { ...CUSTOM_PROVIDER, apiKey: "sk-updated", models: [{ id: "old-model" }] },
+      },
+    });
+  await expect
+    .poll(() => api.testModelProvider.mock.calls[0]?.[0])
+    .toEqual({ agentDir: "/custom", provider: "custom", modelId: "old-model" });
 });
 
 it("edits an existing model in place, seeding the dialog from its config", async () => {
@@ -188,4 +214,154 @@ it("tests the saved model in the same directory and displays the result", async 
   await expect
     .element(page.getByRole("status"))
     .toHaveTextContent("Connection successful (custom/old-model)");
+});
+
+it("pre-seeds un-enabled templates in the list and enables one via key + connection test", async () => {
+  await mountPanel({}, { selectCustom: false });
+  // A template candidate is listed even though it is not in models.json yet.
+  const openaiRow = page.getByRole("button", { name: "OpenAI", exact: true });
+  await expect.element(openaiRow).toBeVisible();
+
+  // Selecting the un-enabled candidate opens the enable form, not the editor.
+  await openaiRow.click();
+  await expect.element(page.getByRole("heading", { name: "Enable OpenAI" })).toBeVisible();
+
+  // The API key is required to enable.
+  await expect.element(page.getByRole("button", { name: "Enable", exact: true })).toBeDisabled();
+
+  const keyInput = page.getByRole("textbox", { name: "API key", exact: true });
+  await keyInput.fill("sk-openai-test");
+  await page.getByRole("button", { name: "Enable", exact: true }).click();
+
+  // Enabling writes the template config + key to models.json, then tests it.
+  await expect
+    .poll(() => api.saveModelProviders.mock.calls[0]?.[0])
+    .toEqual({
+      agentDir: "/custom",
+      providers: {
+        openai: {
+          name: "OpenAI",
+          api: "openai-completions",
+          baseUrl: "https://api.openai.com/v1",
+          apiKey: "sk-openai-test",
+          models: [
+            {
+              id: "gpt-5.5",
+              name: "GPT-5.5",
+              reasoning: true,
+              input: ["text", "image"],
+              contextWindow: 400_000,
+            },
+            {
+              id: "gpt-5.4-mini",
+              name: "GPT-5.4 Mini",
+              reasoning: true,
+              input: ["text", "image"],
+              contextWindow: 400_000,
+            },
+            {
+              id: "gpt-5.4-nano",
+              name: "GPT-5.4 Nano",
+              input: ["text", "image"],
+              contextWindow: 400_000,
+            },
+          ],
+        },
+      },
+    });
+  await expect
+    .poll(() => api.testModelProvider.mock.calls[0]?.[0])
+    .toEqual({ agentDir: "/custom", provider: "openai", modelId: "gpt-5.5" });
+});
+
+it("keeps un-enabled templates out of the saved config", async () => {
+  await mountPanel();
+  // A template row in the list must not change the saved payload unless enabled.
+  await page.getByRole("button", { name: "Anthropic", exact: true }).click();
+  await expect.element(page.getByRole("heading", { name: "Enable Anthropic" })).toBeVisible();
+  // No save happens and nothing extra is written for the un-enabled template.
+  await expect.element(page.getByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+  await expect(api.saveModelProviders).not.toHaveBeenCalled();
+});
+
+it("adds a custom provider with the Name → Base URL → API key field order", async () => {
+  await mountPanel({}, { selectCustom: false });
+  await page.getByRole("button", { name: "Add model provider", exact: true }).click();
+
+  // The custom branch leads with the vendor name and base URL before the key.
+  await expect
+    .element(page.getByRole("textbox", { name: "Display name", exact: true }))
+    .toBeVisible();
+  await expect.element(page.getByRole("textbox", { name: "Base URL", exact: true })).toBeVisible();
+  await expect.element(page.getByRole("textbox", { name: "API key", exact: true })).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Display name", exact: true }).fill("Acme AI");
+  await page.getByRole("textbox", { name: "Provider key", exact: true }).fill("acme");
+  await page.getByRole("textbox", { name: "Base URL", exact: true }).fill("https://acme.test/v1");
+  await page.getByRole("textbox", { name: "API key", exact: true }).fill("sk-acme");
+  await page.getByRole("button", { name: "Add provider", exact: true }).click();
+
+  // Adding stages the custom provider into the draft; saving writes it out.
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect
+    .poll(() => api.saveModelProviders.mock.calls[0]?.[0])
+    .toEqual({
+      agentDir: "/custom",
+      providers: {
+        acme: {
+          name: "Acme AI",
+          api: "openai-completions",
+          baseUrl: "https://acme.test/v1",
+          apiKey: "sk-acme",
+        },
+      },
+    });
+});
+
+it("fetches the provider's own model list and adds a picked model", async () => {
+  await mountPanel();
+  api.listProviderModels.mockResolvedValue({
+    models: ["deepseek-v4-pro", "whisper-large-v3", "Qwen/Qwen3-max"],
+    url: "https://old.test/v1/models",
+  });
+
+  await page.getByRole("button", { name: "Fetch model list" }).click();
+  await expect
+    .poll(() => api.listProviderModels.mock.calls[0]?.[0])
+    .toEqual({ agentDir: "/custom", provider: "custom" });
+
+  // Grouped by vendor prefix, with non-chat families labeled by category.
+  await expect.element(page.getByText("deepseek-v4-pro")).toBeVisible();
+  await expect.element(page.getByText("whisper-large-v3")).toBeVisible();
+  await expect.element(page.getByText("Transcribe", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Add model Qwen/Qwen3-max" }).click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+
+  // The picked id lands in the draft as a bare entry and saves with the rest.
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect
+    .poll(() => api.saveModelProviders.mock.calls[0]?.[0])
+    .toEqual({
+      agentDir: "/custom",
+      providers: {
+        custom: {
+          ...CUSTOM_PROVIDER,
+          models: [{ id: "old-model" }, { id: "Qwen/Qwen3-max" }],
+        },
+      },
+    });
+});
+
+it("shows the provider's fetch failure inline instead of adding anything", async () => {
+  await mountPanel();
+  api.listProviderModels.mockRejectedValue(
+    new Error("The provider rejected the credentials (401)."),
+  );
+
+  await page.getByRole("button", { name: "Fetch model list" }).click();
+  await expect
+    .element(page.getByText("The provider rejected the credentials (401)."))
+    .toBeVisible();
+  await expect(api.saveModelProviders).not.toHaveBeenCalled();
 });

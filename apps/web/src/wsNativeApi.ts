@@ -578,6 +578,7 @@ export function createWsNativeApi(): NativeApi {
       listModelProviders: (input) => transport.request(WS_METHODS.serverListModelProviders, input),
       saveModelProviders: (input) => transport.request(WS_METHODS.serverSaveModelProviders, input),
       testModelProvider: (input) => transport.request(WS_METHODS.serverTestModelProvider, input),
+      listProviderModels: (input) => transport.request(WS_METHODS.serverListProviderModels, input),
       listPiPackages: (input) => transport.request(WS_METHODS.serverListPiPackages, input),
       installPiPackage: (input) => transport.request(WS_METHODS.serverInstallPiPackage, input),
       removePiPackage: (input) => transport.request(WS_METHODS.serverRemovePiPackage, input),
