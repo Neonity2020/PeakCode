@@ -4,6 +4,22 @@ All notable changes to Peak Code are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-09-18
+
+### Added
+
+- **Settings → 模型提供商 can import a provider's own model list.** A 获取模型列表 action next to 添加模型 calls the provider's `/models` endpoint and opens a picker over what it returned: a search box, category chips (对话 / 嵌入 / 重排 / 语音合成 / 语音识别 / 图像 / 视频 / 音乐 / 其他, counted and shown only for the families that provider actually returned), and the ids grouped by the vendor prefix before the slash, each with its own add control plus 添加本组 and 全部添加. Picked ids are added as bare `{ id }` entries — pi fills in the rest — and land in the draft, so they save with the rest of the panel. The request runs on the server (`server.listProviderModels`) rather than in the browser, because the credential has to be resolved through pi's own auth: an `ENV_VAR` reference or a `!shell` command in `apiKey` must reach the endpoint as its real value, and a renderer fetch would also meet CORS. The endpoint comes from the saved `baseUrl` — a base that already carries a version segment (`/v1`, `/v4`, `/v1beta/openai`) is only suffixed with `/models`, while a bare host tries `<base>/models` then `<base>/v1/models` — the auth header follows the API kind (`Authorization: Bearer` by default, `x-api-key` + `anthropic-version` for `anthropic-messages`, none for a provider with `authHeader: false`), and the parse accepts the array, `data` and `models` shapes plus Google's `{ name: "models/…" }`, deduping what it finds. Failures say what to do about them — a web page at the address ("point Base URL at the API root"), a rejected key, an upstream message — instead of a JSON parse error, and the fetch gives up after 15 seconds. The category classifier is a port of OmniStudio's name heuristic, ordered strictest-family-first so that `bge-reranker-v2-m3` is a reranker and not an embedding. ([apps/web/src/lib/modelCategories.ts](apps/web/src/lib/modelCategories.ts))
+- **The provider rail lists candidates you enable, not only what you already wrote.** Every template is listed whether or not it is in `models.json`, grey-dotted until it is enabled; selecting one shows an 启用 form carrying the template's endpoint and API type, and enabling it writes the provider plus your key to the file and immediately runs a real connection test against its first model. Un-enabled templates are never written to `models.json`, and the enable flow is deliberately save-then-test rather than test-then-save, because the test resolves the credential the way a session does. 小米（MiMo） replaces 零一万物 01.AI (`https://api.xiaomimimo.com/v1`, OpenAI-compatible), the Chinese vendors now lead the list with DeepSeek at the top, and the China / Global / Local prefixes are gone from both the rail and the template picker.
+
+### Changed
+
+- **测试连接 is clickable at any time.** It used to be disabled whenever the draft had unsaved edits — which is exactly the state you are in after pasting a key — so the button now saves the pending edits first and tests what it just wrote, and the hint under the model list says so.
+- The custom-provider form asks for the API key last: 名称 → 提供商 Key → Base URL → API Key, instead of a key field appearing before the provider has been described at all.
+
+### Removed
+
+- Settings → 高级 → 关于 → 更新历史 and the release-history dialog behind it, along with its strings (including a `releaseHistory` namespace nothing referenced) and the "📚 Release history in Settings" changelog entry that pointed users at it. The post-update What's New dialog and its own "Complete changelog" screen are untouched.
+
 ## [0.5.0] - 2026-09-18
 
 ### Added
