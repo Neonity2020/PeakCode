@@ -26,29 +26,24 @@ describe("createDesktopPlatformBuildConfig", () => {
     assert.deepStrictEqual(mac.extraResources, [
       { from: "apps/desktop/resources/computer-use", to: "computer-use" },
     ]);
-    assert.equal(config.afterPack, undefined);
+    // Always wired, not only for Icon Composer builds: the hook also applies the ad-hoc
+    // signature an unsigned release needs.
+    assert.equal(config.afterPack, "./electron-builder-after-pack.cjs");
     assert.equal(config.dmg, undefined);
   });
 
-  it("ad-hoc signs unsigned macOS builds instead of skipping signing", () => {
-    const unsigned = createDesktopPlatformBuildConfig({
+  it("does not hand electron-builder a sign hook it can never reach", () => {
+    // electron-builder calls a custom `mac.sign` only after it has found an identity to sign
+    // with, so an unsigned release never reached one — which is how artifacts kept shipping in
+    // the state macOS reports as damaged. Signing happens in the afterPack hook instead, which
+    // is always reached.
+    const config = createDesktopPlatformBuildConfig({
       platform: "mac",
       target: "dmg",
       hasMacIconComposer: false,
-      macAdHocSign: true,
-    });
-    const signed = createDesktopPlatformBuildConfig({
-      platform: "mac",
-      target: "dmg",
-      hasMacIconComposer: false,
-      macAdHocSign: false,
     });
 
-    assert.equal(
-      (unsigned.mac as Record<string, unknown>).sign,
-      "./electron-builder-ad-hoc-sign.cjs",
-    );
-    assert.equal((signed.mac as Record<string, unknown>).sign, undefined);
+    assert.equal((config.mac as Record<string, unknown>).sign, undefined);
   });
 
   it("preserves the icon composer packaging path for macOS builds", () => {

@@ -64,12 +64,12 @@ Download from [Releases](https://github.com/PeakCode-AI/PeakCode/releases):
 | Windows  | `.exe`      |
 | Linux    | `.AppImage` |
 
-#### macOS reports the app as damaged
+#### macOS reports the app as coming from an unidentified developer
 
-Release builds are not signed with an Apple Developer ID yet, so Apple Silicon macOS
-blocks the downloaded app with _"Peak Code" is damaged and can't be opened_.
-The download itself is intact — the bundle just carries a quarantine flag and no
-notarization ticket. Clear the flag, then open the app from **Applications**:
+Release builds are not signed with an Apple Developer ID yet, so Apple Silicon macOS refuses
+to open the downloaded app: the bundle carries an ad-hoc signature — valid, but from no
+developer macOS can vouch for — and no notarization ticket. The download itself is intact.
+Clear the quarantine flag, then open the app from **Applications**:
 
 ```bash
 # Adjust the path if you installed the app somewhere else

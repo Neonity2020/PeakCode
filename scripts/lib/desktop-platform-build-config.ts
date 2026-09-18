@@ -20,8 +20,6 @@ export const MAC_INHERITED_ENTITLEMENTS_PATH =
  */
 export const MAC_COMPUTER_USE_HELPER_STAGE_DIR = `apps/desktop/resources/${COMPUTER_USE_BUNDLED_HELPER_DIR_NAME}`;
 const MAC_AFTER_PACK_HOOK_PATH = "./electron-builder-after-pack.cjs";
-export const MAC_AD_HOC_SIGN_MODULE_FILE_NAME = "electron-builder-ad-hoc-sign.cjs";
-const MAC_AD_HOC_SIGN_MODULE_PATH = `./${MAC_AD_HOC_SIGN_MODULE_FILE_NAME}`;
 const MAC_DMG_ICON_PATH = "icon.icns";
 
 export interface DesktopPlatformBuildConfig {
@@ -38,7 +36,6 @@ export interface DesktopPlatformBuildConfig {
 
 export interface CreateDesktopPlatformBuildConfigInput {
   readonly hasMacIconComposer: boolean;
-  readonly macAdHocSign?: boolean;
   readonly platform: "linux" | "mac" | "win";
   readonly target: string;
   readonly windowsAzureSignOptions?: Record<string, string>;
@@ -55,9 +52,6 @@ export function createDesktopPlatformBuildConfig(
       hardenedRuntime: true,
       entitlements: MAC_ENTITLEMENTS_PATH,
       entitlementsInherit: MAC_INHERITED_ENTITLEMENTS_PATH,
-      // Replaces the signing step when no Developer ID identity is configured, so the artifact
-      // carries a valid ad-hoc signature instead of the broken one macOS calls "damaged".
-      ...(input.macAdHocSign ? { sign: MAC_AD_HOC_SIGN_MODULE_PATH } : {}),
       // The computer-use helper ships beside the app rather than inside the asar. Its
       // Accessibility grant is filed against the bundle, so it has to be a real bundle on disk,
       // and the app copies it into a stable location on first launch.
@@ -73,16 +67,19 @@ export function createDesktopPlatformBuildConfig(
       },
     } satisfies Record<string, unknown>;
 
-    if (!input.hasMacIconComposer) {
-      return { mac };
-    }
-
+    // The hook is always wired, not only for Icon Composer builds: besides the legacy icon it
+    // applies the ad-hoc signature an unsigned release needs — electron-builder's own `sign`
+    // hook cannot do that, because it is never reached without an identity to sign with.
     return {
       mac,
       afterPack: MAC_AFTER_PACK_HOOK_PATH,
-      dmg: {
-        icon: MAC_DMG_ICON_PATH,
-      },
+      ...(input.hasMacIconComposer
+        ? {
+            dmg: {
+              icon: MAC_DMG_ICON_PATH,
+            },
+          }
+        : {}),
     };
   }
 

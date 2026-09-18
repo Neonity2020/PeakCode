@@ -15,7 +15,6 @@ import serverPackageJson from "../apps/server/package.json" with { type: "json" 
 import { BRAND_ASSET_PATHS } from "./lib/brand-assets.ts";
 import {
   createDesktopPlatformBuildConfig,
-  MAC_AD_HOC_SIGN_MODULE_FILE_NAME,
   MAC_COMPUTER_USE_HELPER_STAGE_DIR,
 } from "./lib/desktop-platform-build-config.ts";
 import { resolveCatalogDependencies, stripWorkspaceDependencies } from "./lib/resolve-catalog.ts";
@@ -42,11 +41,6 @@ const DesktopAfterPackHookSource = Effect.zipWith(
   RepoRoot,
   Effect.service(Path.Path),
   (repoRoot, path) => path.join(repoRoot, "apps/desktop/scripts/electron-builder-after-pack.cjs"),
-);
-const DesktopAdHocSignHookSource = Effect.zipWith(
-  RepoRoot,
-  Effect.service(Path.Path),
-  (repoRoot, path) => path.join(repoRoot, "apps/desktop/scripts", MAC_AD_HOC_SIGN_MODULE_FILE_NAME),
 );
 const ProductionMacIconComposerSource = Effect.zipWith(
   RepoRoot,
@@ -573,9 +567,6 @@ const createBuildConfig = Effect.fn("createBuildConfig")(function* (
     platform,
     target,
     hasMacIconComposer,
-    // An unsigned mac build has no Developer ID identity to sign with, so electron-builder is given
-    // a custom signing step that ad-hoc signs the bundle instead.
-    macAdHocSign: platform === "mac" && !signed,
     ...(windowsAzureSignOptions ? { windowsAzureSignOptions } : {}),
   } as const;
 
@@ -792,7 +783,7 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     yield* stageComputerUseHelper(repoRoot, stageResourcesDir);
   }
 
-  if (options.platform === "mac" && stagedPlatformResources.hasComposerIcon) {
+  if (options.platform === "mac") {
     const afterPackHookSource = yield* DesktopAfterPackHookSource;
     if (!(yield* fs.exists(afterPackHookSource))) {
       return yield* new BuildScriptError({
@@ -802,19 +793,6 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     yield* fs.copyFile(
       afterPackHookSource,
       path.join(stageAppDir, "electron-builder-after-pack.cjs"),
-    );
-  }
-
-  if (options.platform === "mac" && !options.signed) {
-    const adHocSignHookSource = yield* DesktopAdHocSignHookSource;
-    if (!(yield* fs.exists(adHocSignHookSource))) {
-      return yield* new BuildScriptError({
-        message: `Missing electron-builder ad-hoc sign hook at ${adHocSignHookSource}`,
-      });
-    }
-    yield* fs.copyFile(
-      adHocSignHookSource,
-      path.join(stageAppDir, MAC_AD_HOC_SIGN_MODULE_FILE_NAME),
     );
   }
 
@@ -886,6 +864,13 @@ const buildDesktopArtifact = Effect.fn("buildDesktopArtifact")(function* (
     delete buildEnv.APPLE_API_KEY;
     delete buildEnv.APPLE_API_KEY_ID;
     delete buildEnv.APPLE_API_ISSUER;
+
+    // No identity to sign with, so the macOS bundle is left in a state macOS reports as damaged.
+    // electron-builder's own `sign` hook cannot repair that — it is never reached without an
+    // identity — so the afterPack hook is told to ad-hoc sign the bundle instead.
+    if (options.platform === "mac") {
+      buildEnv.PEAKCODE_MAC_AD_HOC_SIGN = "1";
+    }
   }
 
   if (process.platform === "win32") {

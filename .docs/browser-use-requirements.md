@@ -358,13 +358,11 @@ The layers are covered by tests, but a human has not yet watched it work.
 
 ## Follow-on work
 
-**Desktop computer use** is a separate effort and is not started here. The
-blocking issue is not the automation API but macOS permission identity: PeakCode
-signs ad-hoc today (`apps/desktop/scripts/electron-builder-ad-hoc-sign.cjs`), so
-there is no stable signature for a helper bundle to hold Accessibility and
-Screen Recording grants against, and users would have to re-authorize after
-every update. Developer ID signing and notarization come first. The cheapest
-path to value after that is an external macOS automation process such as
-`steipete/peekaboo` (MIT) rather than a bespoke native layer, since the
-non-focus-stealing behaviour that makes computer use usable depends on private
-SkyLight APIs that would have to be written by hand.
+**Desktop computer use** started as a separate effort after this document and now ships as the
+`computer` tool ([.docs/computer-use.md](computer-use.md)). The permission identity it needed is
+solved at the helper rather than at the release: the helper carries a requirement
+(`designated => identifier "com.peakcode.cua-helper"`) instead of a cdhash, so its Accessibility
+and Screen Recording grants survive a rebuild. What the release still does not have is Developer
+ID signing and notarization — an unsigned macOS build is ad-hoc signed by
+`apps/desktop/scripts/electron-builder-after-pack.cjs`, which is enough to stop macOS calling the
+download damaged, but not enough to skip Gatekeeper's unidentified-developer flow.

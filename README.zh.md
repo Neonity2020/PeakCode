@@ -58,12 +58,12 @@
 | Windows | `.exe`      |
 | Linux   | `.AppImage` |
 
-#### macOS 提示「应用已损坏」
+#### macOS 提示「无法验证开发者」
 
 发布包目前尚未使用 Apple Developer ID 签名，Apple Silicon 版 macOS 会拦截下载的
-应用，提示「"Peak Code" 已损坏，无法打开」。文件本身是完整的——只是带了
-隔离标记（quarantine），且没有公证（notarization）票据。清除该标记后，从
-**应用程序**目录打开即可：
+应用：包内带的是 ad-hoc 签名——签名本身有效，但 macOS 无法据此确认开发者身份，
+也没有公证（notarization）票据。文件本身是完整的。清除隔离标记（quarantine）后，
+从 **应用程序**目录打开即可：
 
 ```bash
 # 如果安装在别的位置，请替换成实际路径
