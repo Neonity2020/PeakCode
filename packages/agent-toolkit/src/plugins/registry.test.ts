@@ -15,6 +15,7 @@ describe("bundled plugins", () => {
     expect(listBundledPlugins().map((plugin) => plugin.name)).toEqual([
       "browser-use",
       "computer-use",
+      "jev-ultrafast",
     ]);
   });
 
@@ -37,7 +38,7 @@ describe("bundled plugins", () => {
 describe("bundled plugin skills", () => {
   it("flattens every plugin's skills", () => {
     const ids = bundledPluginSkills().map((skill) => skill.id);
-    expect(ids).toEqual(["browser-use", "computer-use"]);
+    expect(ids).toEqual(["browser-use", "computer-use", "jev-ultrafast"]);
   });
 
   it("gives every declared skill a SKILL.md", () => {

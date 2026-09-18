@@ -1,18 +1,23 @@
 /**
- * The bridge that lets a board-dispatched run write progress back onto its card.
+ * The bridge between a board-dispatched run and its card.
  *
  * A task sent to an agent from 进行中 becomes a normal conversation in that project. The
  * card, however, is what the user watches: conversation text never reaches it, so a run that
  * only talks in its thread looks like it did nothing until the final outcome lands. The
- * toolkit declares the `kanban_comment` tool; this module is the host that implements it by
- * appending a comment to the card **the thread was dispatched from**.
+ * toolkit declares `kanban_comment` (write) and `kanban_task` (read); this module is the host
+ * that implements both against the card **the thread was dispatched from**.
+ *
+ * The read side exists because the card is the project's memory: the requirement, what
+ * earlier runs decided and did, and what the user pushed back on all live in its description
+ * and comments, not in the fresh conversation a later run starts with. Reading it is how a
+ * second pass starts informed instead of starting over.
  *
  * The card is resolved from the thread id, never from tool arguments: the model cannot point
  * a comment at a card that is not its own, and it does not have to know any board ids.
  *
  * Installed once at server startup, the way the toolkit store and the automation host are —
  * that keeps the provider layer free of a kanban dependency: `PiAdapter` only asks for the
- * tool's callback, never for the service behind it.
+ * tools' callbacks, never for the service behind them.
  */
 import { Effect } from "effect";
 
@@ -24,6 +29,7 @@ import {
 } from "@peakcode/agent-toolkit/agent-tools";
 import type { ThreadId } from "@peakcode/contracts";
 
+import { kanbanThreadTaskText } from "./boardDocument.ts";
 import { KanbanService } from "./Services/KanbanService.ts";
 
 export interface KanbanToolHost {
@@ -32,6 +38,8 @@ export interface KanbanToolHost {
     readonly threadId: ThreadId;
     readonly params: KanbanCommentToolParams;
   }) => Promise<ToolOutcome>;
+  /** Read the card this conversation was dispatched from, with its whole timeline. */
+  readonly readTask: (input: { readonly threadId: ThreadId }) => Promise<ToolOutcome>;
 }
 
 let installedHost: KanbanToolHost | null = null;
@@ -58,6 +66,14 @@ export function commentOnTaskFromConversation(input: {
   return installedHost.commentOnTask(input);
 }
 
+/** Read the card the conversation was dispatched from. See {@link commentOnTaskFromConversation}. */
+export function taskFromConversation(input: { readonly threadId: ThreadId }): Promise<ToolOutcome> {
+  if (installedHost === null) {
+    return Promise.resolve(errorResult("The board is not available in this session."));
+  }
+  return installedHost.readTask(input);
+}
+
 export const makeKanbanToolHost = Effect.gen(function* () {
   const kanbanService = yield* KanbanService;
 
@@ -79,6 +95,24 @@ export const makeKanbanToolHost = Effect.gen(function* () {
             );
           }
           return textResult(`Recorded on the board card: ${body}`);
+        }).pipe(
+          Effect.catch((cause) =>
+            Effect.succeed(errorResult(cause instanceof Error ? cause.message : String(cause))),
+          ),
+        ),
+      ),
+
+    readTask: ({ threadId }) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const record = yield* kanbanService.readTaskForThread({ threadId });
+          if (record === null) {
+            return textResult(
+              "This conversation was not dispatched from a board card, so there is no card to " +
+                "read. Continue normally, or ask the user for the context you need.",
+            );
+          }
+          return textResult(kanbanThreadTaskText(record));
         }).pipe(
           Effect.catch((cause) =>
             Effect.succeed(errorResult(cause instanceof Error ? cause.message : String(cause))),

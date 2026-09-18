@@ -58,7 +58,8 @@ function createRoutePanelSearchKey(input: {
     search.panel === undefined &&
     search.diff === undefined &&
     search.diffTurnId === undefined &&
-    search.diffFilePath === undefined
+    search.diffFilePath === undefined &&
+    search.filePath === undefined
   ) {
     return null;
   }
@@ -68,6 +69,7 @@ function createRoutePanelSearchKey(input: {
     panel: search.panel ?? (search.diff ? "diff" : null),
     diffTurnId: search.diffTurnId ?? null,
     diffFilePath: search.diffFilePath ?? null,
+    filePath: search.filePath ?? null,
   });
 }
 

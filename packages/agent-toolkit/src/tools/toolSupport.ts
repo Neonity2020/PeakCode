@@ -102,6 +102,14 @@ export type ToolContext = {
    */
   onKanbanComment?: (params: KanbanCommentToolParams) => ToolOutcome | Promise<ToolOutcome>;
   /**
+   * 读回这张卡片的历史：需求原文、之前几轮做过什么、用户在卡片上说过什么。
+   *
+   * 派发时塞进提示词的只有**当前**这一版需求；需求改过几版、上一轮为什么被中断、
+   * 用户反馈了什么问题，都留在卡片的评论区里。二次派发时先读一次再动手，
+   * 比从零猜要靠谱。同样由宿主按会话反查卡片，模型不带任何 id。
+   */
+  onKanbanTask?: () => ToolOutcome | Promise<ToolOutcome>;
+  /**
    * 驱动本条会话的应用内浏览器（宿主注入，见宿主的 browser 模块）。
    *
    * 只有跑在桌面端、且拿到了 browser-use 管道路径的会话才注入这个回调 ——

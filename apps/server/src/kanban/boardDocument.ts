@@ -71,6 +71,17 @@ export interface KanbanBoardContext {
   readonly boardFilePath: string;
 }
 
+/**
+ * A card read back through the thread it was dispatched to: the stored task, the
+ * board it lives on, and the merged timeline of stored comments plus the agent's
+ * own messages. This is what a running agent consults for its context.
+ */
+export interface KanbanThreadTaskRecord {
+  readonly context: KanbanBoardContext;
+  readonly task: KanbanStoredTask;
+  readonly comments: ReadonlyArray<KanbanComment>;
+}
+
 /** Default columns written into new boards, matching the plugin's palette. */
 export const KANBAN_DEFAULT_COLUMNS: ReadonlyArray<KanbanColumn> = [
   { key: "todo", name: "待开始", dot: "#9CA3AF" },
@@ -496,13 +507,22 @@ export const BOARD_RUN_INSTRUCTIONS = [
 
 /**
  * Requirement handed to the agent: the task title, then the requirement body
- * when the user wrote one, then the board's standing instructions.
+ * when the user wrote one, then where the card lives, then the board's standing
+ * instructions.
  */
-export function buildTaskPrompt(task: {
-  readonly title: string;
-  readonly description: string;
-  readonly attachments?: ReadonlyArray<KanbanTaskAttachment>;
-}): string {
+export function buildTaskPrompt(
+  task: {
+    readonly title: string;
+    readonly description: string;
+    readonly attachments?: ReadonlyArray<KanbanTaskAttachment>;
+  },
+  /**
+   * The board this card lives on. Naming it is what lets a run go past the prompt
+   * and read the card's own history — the file is plain JSON in the project and
+   * is normally committed, so `git log` shows how the requirement got here.
+   */
+  board?: { readonly boardFilePath: string; readonly taskId: string },
+): string {
   const title = task.title.trim();
   const description = task.description.trim();
   const brief =
@@ -521,17 +541,67 @@ export function buildTaskPrompt(task: {
     attachmentLines.length === 0
       ? ""
       : `需求附带图片（相对项目根目录，可用 read 工具查看）：\n${attachmentLines.join("\n")}`;
+  const boardBlock = board
+    ? `卡片：\`${board.taskId}\`，看板文件：\`${board.boardFilePath}\`。\n` +
+      "用 `kanban_task` 读这张卡片的历史（原始需求、之前几轮做过什么、用户的反馈）；" +
+      "需要更早的来历时，直接读这个文件或用 `git log` 看它的变更。"
+    : "";
+  const trailing = [attachmentBlock, boardBlock].filter((block) => block.length > 0).join("\n");
   const withAttachments =
-    attachmentBlock.length === 0
-      ? brief
-      : brief.length === 0
-        ? attachmentBlock
-        : `${brief}\n\n${attachmentBlock}`;
+    trailing.length === 0 ? brief : brief.length === 0 ? trailing : `${brief}\n\n${trailing}`;
   // A card with no text at all still gets the standing instructions: they are what makes the
   // run comment on the board, and a title-less task is exactly when that matters most.
   return withAttachments.length === 0
     ? BOARD_RUN_INSTRUCTIONS
     : `${withAttachments}\n\n${BOARD_RUN_INSTRUCTIONS}`;
+}
+
+/**
+ * One card as an agent reads it: the requirement, where the work stands, and the
+ * whole timeline — its own past notes, the run outcomes, and what the user wrote
+ * back. Rendered as text because that is what the tool returns.
+ */
+export function kanbanThreadTaskText(record: KanbanThreadTaskRecord): string {
+  const { task, comments, context } = record;
+  const lines: string[] = [
+    `# ${task.title || "(untitled card)"}`,
+    "",
+    `卡片：\`${task.id}\`　项目：${context.projectTitle}　状态：${task.status}　` +
+      `优先级：${task.priority}${task.assignee.trim() ? `　负责人：${task.assignee.trim()}` : ""}`,
+    `看板文件：\`${context.boardFilePath}\`（随项目提交，可用 git 查看它的变更历史）`,
+    "",
+    "## 需求",
+    "",
+    task.description.trim() || "（这张卡片没有写需求正文，以上面的标题为准。）",
+  ];
+
+  if (task.attachments.length > 0) {
+    lines.push(
+      "",
+      "## 附件",
+      "",
+      ...task.attachments.map((attachment) => `- ${attachment.relativePath}`),
+    );
+  }
+
+  lines.push("", `## 历史（${comments.length} 条，从早到晚）`, "");
+  if (comments.length === 0) {
+    lines.push("（还没有任何记录：这一轮是第一次上手。）");
+  } else {
+    for (const comment of comments) {
+      lines.push(`- [${comment.createdAt}] ${describeCommentAuthor(comment)}：${comment.body}`);
+    }
+  }
+
+  lines.push("", "---", "", "以上是这张卡片在项目里留下的记录，用来对齐原始意图，不必逐条复述。");
+  return lines.join("\n");
+}
+
+function describeCommentAuthor(comment: KanbanComment): string {
+  if (comment.author === "user") return "用户";
+  if (comment.kind === "message") return "上一轮智能体";
+  if (comment.kind === "status") return `智能体（${comment.statusCode ?? "状态"}）`;
+  return "智能体";
 }
 
 /** Terminal task status for a finished agent run. */

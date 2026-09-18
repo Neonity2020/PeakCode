@@ -1513,11 +1513,107 @@ describe("sortProjectsForSidebar", () => {
     ]);
   });
 
+  it("orders by when the project was added, newest first", () => {
+    const sorted = sortProjectsForSidebar(
+      [
+        makeProject({
+          id: ProjectId.makeUnsafe("project-old"),
+          name: "Older project",
+          createdAt: "2026-03-09T10:01:00.000Z",
+        }),
+        makeProject({
+          id: ProjectId.makeUnsafe("project-new"),
+          name: "Newer project",
+          createdAt: "2026-03-09T10:05:00.000Z",
+        }),
+      ],
+      [],
+      "created_at",
+    );
+
+    expect(sorted.map((project) => project.id)).toEqual([
+      ProjectId.makeUnsafe("project-new"),
+      ProjectId.makeUnsafe("project-old"),
+    ]);
+  });
+
+  it("keeps added-at ordering when a project's threads are busy", () => {
+    // Sorting by when a project was added must not quietly become the activity
+    // ordering just because the project has threads.
+    const older = ProjectId.makeUnsafe("project-old");
+    const sorted = sortProjectsForSidebar(
+      [
+        makeProject({ id: older, name: "Older project", createdAt: "2026-03-09T10:01:00.000Z" }),
+        makeProject({
+          id: ProjectId.makeUnsafe("project-new"),
+          name: "Newer project",
+          createdAt: "2026-03-09T10:05:00.000Z",
+        }),
+      ],
+      [
+        makeThread({
+          projectId: older,
+          createdAt: "2026-03-09T09:00:00.000Z",
+          updatedAt: "2026-03-10T23:00:00.000Z",
+        }),
+      ],
+      "created_at",
+    );
+
+    expect(sorted[0]!.id).toBe(ProjectId.makeUnsafe("project-new"));
+  });
+
+  it("trails the built-in workspace whatever the ordering is", () => {
+    const workspaceId = ProjectId.makeUnsafe("project-workspace");
+    const projects = [
+      makeProject({
+        id: workspaceId,
+        name: "Workspace",
+        cwd: "/home/ada/.peakcode/workspace",
+        // The newest of the three: without the pin it would lead the list.
+        createdAt: "2026-03-09T10:09:00.000Z",
+      }),
+      makeProject({
+        id: ProjectId.makeUnsafe("project-old"),
+        name: "Older project",
+        createdAt: "2026-03-09T10:01:00.000Z",
+      }),
+      makeProject({
+        id: ProjectId.makeUnsafe("project-new"),
+        name: "Newer project",
+        createdAt: "2026-03-09T10:05:00.000Z",
+      }),
+    ];
+
+    for (const sortOrder of ["created_at", "updated_at", "manual"] as const) {
+      const sorted = sortProjectsForSidebar(projects, [], sortOrder, workspaceId);
+      expect(sorted.at(-1)!.id).toBe(workspaceId);
+      expect(sorted).toHaveLength(projects.length);
+    }
+  });
+
   it("returns the project timestamp when no threads are present", () => {
     const timestamp = getProjectSortTimestamp(
       makeProject({ updatedAt: "2026-03-09T10:10:00.000Z" }),
       [],
       "updated_at",
+    );
+
+    expect(timestamp).toBe(Date.parse("2026-03-09T10:10:00.000Z"));
+  });
+
+  it("reads the added-at timestamp off the project, not its threads", () => {
+    const project = makeProject({ createdAt: "2026-03-09T10:10:00.000Z" });
+    const timestamp = getProjectSortTimestamp(
+      project,
+      [
+        makeThread({
+          projectId: project.id,
+          createdAt: "2026-03-09T09:00:00.000Z",
+          updatedAt: "2026-03-11T09:00:00.000Z",
+        }),
+      ],
+      "created_at",
     );
 
     expect(timestamp).toBe(Date.parse("2026-03-09T10:10:00.000Z"));

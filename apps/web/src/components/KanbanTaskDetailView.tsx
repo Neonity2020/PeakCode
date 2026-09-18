@@ -55,6 +55,8 @@ import {
   kanbanTaskCode,
 } from "../lib/kanbanPresentation";
 import { cn } from "../lib/utils";
+import { isElectron } from "../env";
+import { useLeadingColumnTrafficLightGutterClassName } from "../hooks/useDesktopTopBarGutter";
 import ChatMarkdown from "./ChatMarkdown";
 import {
   KanbanPriorityMeter,
@@ -96,6 +98,9 @@ export function KanbanTaskDetailView(props: { projectId: ProjectId | null; taskI
   const messages = useMessages();
   const navigate = useNavigate();
   const { projectId, taskId } = props;
+  // The kanban surface replaces the workspace sidebar, so this page's own header
+  // owns the window's left edge and has to clear the desktop traffic lights.
+  const leadingColumnGutter = useLeadingColumnTrafficLightGutterClassName();
 
   const detailQuery = useKanbanTaskDetailQuery(projectId, taskId);
   const detail = detailQuery.data ?? null;
@@ -330,7 +335,13 @@ export function KanbanTaskDetailView(props: { projectId: ProjectId | null; taskI
   };
 
   const renderHeader = () => (
-    <header className="flex shrink-0 flex-col gap-3 border-b border-border/60 px-6 py-4">
+    <header
+      className={cn(
+        "flex shrink-0 flex-col gap-3 border-b border-border/60 px-6 py-4",
+        isElectron && "drag-region",
+        leadingColumnGutter,
+      )}
+    >
       <div className="flex items-center gap-3">
         <button
           type="button"

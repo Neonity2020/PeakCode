@@ -46,8 +46,12 @@ import type {
   GitSummarizeDiffResult,
 } from "./git";
 import type {
+  ProjectListChangedFilesInput,
+  ProjectListChangedFilesResult,
   ProjectListDirectoriesInput,
   ProjectListDirectoriesResult,
+  ProjectReadFileInput,
+  ProjectReadFileResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectSearchLocalEntriesInput,
@@ -62,6 +66,10 @@ import type {
   ServerGetEnvironmentResult,
   ServerGetProviderUsageSnapshotInput,
   ServerGetProviderUsageSnapshotResult,
+  ServerGetUsageStatisticsInput,
+  ServerGetUsageStatisticsResult,
+  ServerGetUsageSessionDetailInput,
+  ServerGetUsageSessionDetailResult,
   ServerGetSettingsResult,
   ServerListModelProvidersInput,
   ServerListModelProvidersResult,
@@ -388,7 +396,11 @@ export interface NativeApi {
     searchLocalEntries: (
       input: ProjectSearchLocalEntriesInput,
     ) => Promise<ProjectSearchLocalEntriesResult>;
+    readFile: (input: ProjectReadFileInput) => Promise<ProjectReadFileResult>;
     writeFile: (input: ProjectWriteFileInput) => Promise<ProjectWriteFileResult>;
+    listChangedFiles: (
+      input: ProjectListChangedFilesInput,
+    ) => Promise<ProjectListChangedFilesResult>;
   };
   filesystem: {
     browse: (input: FilesystemBrowseInput) => Promise<FilesystemBrowseResult>;
@@ -469,6 +481,12 @@ export interface NativeApi {
     getProviderUsageSnapshot: (
       input: ServerGetProviderUsageSnapshotInput,
     ) => Promise<ServerGetProviderUsageSnapshotResult>;
+    getUsageStatistics: (
+      input: ServerGetUsageStatisticsInput,
+    ) => Promise<ServerGetUsageStatisticsResult>;
+    getUsageSessionDetail: (
+      input: ServerGetUsageSessionDetailInput,
+    ) => Promise<ServerGetUsageSessionDetailResult>;
     getDiagnostics: () => Promise<ServerDiagnosticsResult>;
     transcribeVoice: (
       input: ServerVoiceTranscriptionInput,

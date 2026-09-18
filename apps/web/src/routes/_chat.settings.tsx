@@ -21,6 +21,7 @@ import { ImChannelsSettingsPanel } from "../components/ImChannelsSettingsPanel";
 import { PiPackagesSettingsPanel } from "../components/PiPackagesSettingsPanel";
 import { SettingsNav } from "../components/SettingsNav";
 import { SkillsPanel } from "../components/SkillsPanel";
+import { UsageStatsPanel } from "../components/UsageStatsPanel";
 import { SidebarHeaderNavigationControls } from "../components/SidebarHeaderNavigationControls";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -1795,6 +1796,8 @@ function SettingsRouteView() {
         return renderWorktreesPanel();
       case "archived":
         return renderArchivedPanel();
+      case "usage":
+        return <UsageStatsPanel />;
       case "piPackages":
         return (
           <PiPackagesSettingsPanel

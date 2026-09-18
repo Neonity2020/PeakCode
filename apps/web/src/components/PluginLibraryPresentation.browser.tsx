@@ -1,7 +1,7 @@
 // FILE: PluginLibraryPresentation.browser.tsx
 // Purpose: Pins the plugin glyph resolution the marketplace depends on — the bundled plugins
-//          render their own app icons, a logo a provider ships still wins over that art, and
-//          anything else keeps the accent tile.
+//          render their own app icons, the art behind those paths is really there, a logo a
+//          provider ships still wins over that art, and anything else keeps the accent tile.
 // Layer: Browser UI test
 
 import "../index.css";
@@ -32,6 +32,29 @@ const computerUse = plugin({
   interface: { displayName: "Computer Use", brandColor: "#7C3AED" },
 });
 
+const jevUltrafast = plugin({
+  id: "jev-ultrafast",
+  name: "jev-ultrafast",
+  interface: { displayName: "Jev Ultrafast", brandColor: "#F59E0B" },
+});
+
+/** The art every bundled plugin points at, in the order the glyphs above are rendered. */
+const BUNDLED_ICON_SOURCES = [
+  "/plugin-icons/browser-use.png",
+  "/plugin-icons/computer-use.png",
+  "/plugin-icons/jev-ultrafast.png",
+];
+
+/** The icon's natural width, rejecting rather than resolving to 0 when it never loads. */
+function loadIconWidth(src: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image.naturalWidth);
+    image.onerror = () => reject(new Error(`art missing at ${src}`));
+    image.src = src;
+  });
+}
+
 /** The glyph art for one rendered plugin, as an `<img>` the caller can inspect. */
 function appIconSrc(scope: ParentNode): string | null {
   return scope.querySelector('[data-testid="plugin-app-icon"] img')?.getAttribute("src") ?? null;
@@ -51,13 +74,26 @@ describe("PluginGlyph", () => {
       <>
         <PluginGlyph plugin={plugin()} />
         <PluginGlyph plugin={computerUse} />
+        <PluginGlyph plugin={jevUltrafast} />
       </>,
     );
 
-    const icons = [...screen.container.querySelectorAll('[data-testid="plugin-app-icon"] img')];
-    expect(icons).toHaveLength(2);
-    expect(icons[0]?.getAttribute("src")).not.toBe(icons[1]?.getAttribute("src"));
-    expect(icons[1]?.getAttribute("src")).toBe("/plugin-icons/computer-use.png");
+    const sources = [
+      ...screen.container.querySelectorAll('[data-testid="plugin-app-icon"] img'),
+    ].map((icon) => icon.getAttribute("src"));
+    expect(sources).toEqual([...BUNDLED_ICON_SOURCES]);
+    expect(new Set(sources).size, `two plugins share one icon: ${sources.join(", ")}`).toBe(
+      sources.length,
+    );
+  });
+
+  it("ships the art those paths point at", async () => {
+    // The check above pins the strings; this is the half that catches a path left behind by a
+    // renamed or forgotten file. A missing PNG renders as a broken image rather than falling
+    // back to the accent tile, so nothing else would notice.
+    for (const src of BUNDLED_ICON_SOURCES) {
+      expect(await loadIconWidth(src), src).toBe(128);
+    }
   });
 
   it("still prefers the logo a provider ships over the built-in art", async () => {

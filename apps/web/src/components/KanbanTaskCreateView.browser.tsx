@@ -79,6 +79,7 @@ async function mountCreatePage() {
         title: "PeakCode",
         workspaceRoot: "/tmp/peakcode",
         defaultModelSelection: null,
+        createdAt: "2026-03-09T10:00:00.000Z",
         hasBoard: true,
         taskCount: 0,
         todoCount: 0,

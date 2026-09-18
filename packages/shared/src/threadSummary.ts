@@ -43,7 +43,7 @@ function toPayloadRecord(payload: unknown): Record<string, unknown> | null {
 
 function requestKindFromRequestType(
   requestType: unknown,
-): "command" | "file-read" | "file-change" | null {
+): "command" | "file-read" | "file-change" | "tool" | null {
   switch (requestType) {
     case "command_execution_approval":
     case "exec_command_approval":
@@ -53,6 +53,10 @@ function requestKindFromRequestType(
     case "file_change_approval":
     case "apply_patch_approval":
       return "file-change";
+    // A tool call waiting on the user counts like any other pending approval; leaving it
+    // unclassified here is what kept it off the sidebar badge and out of the panel.
+    case "dynamic_tool_call":
+      return "tool";
     default:
       return null;
   }
@@ -161,7 +165,8 @@ export function deriveThreadSummaryState(input: {
       const requestKind =
         payload?.requestKind === "command" ||
         payload?.requestKind === "file-read" ||
-        payload?.requestKind === "file-change"
+        payload?.requestKind === "file-change" ||
+        payload?.requestKind === "tool"
           ? payload.requestKind
           : requestKindFromRequestType(payload?.requestType);
       if (requestKind) {

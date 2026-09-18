@@ -18,6 +18,7 @@ const KIND_LABEL: Record<PendingApproval["requestKind"], string> = {
   command: "COMMAND",
   "file-read": "FILE READ",
   "file-change": "FILE CHANGE",
+  tool: "TOOL",
 };
 
 export const ComposerPendingApprovalPanel = memo(function ComposerPendingApprovalPanel({

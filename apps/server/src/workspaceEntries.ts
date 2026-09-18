@@ -659,11 +659,27 @@ async function directoryHasChildDirectories(absolutePath: string): Promise<boole
   }
 }
 
+/**
+ * Resolve a directory request against the workspace root and refuse `..` traversal out of
+ * it. Symlinks inside the root are followed as before, so in-repo links keep working.
+ */
+function resolveDirectoryWithinRoot(cwd: string, relativePath: string): string | null {
+  const absoluteCwd = path.resolve(cwd);
+  const targetDirectory = relativePath ? path.resolve(absoluteCwd, relativePath) : absoluteCwd;
+  if (targetDirectory !== absoluteCwd && !targetDirectory.startsWith(absoluteCwd + path.sep)) {
+    return null;
+  }
+  return targetDirectory;
+}
+
 export async function listWorkspaceDirectories(
   input: ProjectListDirectoriesInput,
 ): Promise<ProjectListDirectoriesResult> {
   const relativePath = input.relativePath?.trim() ?? "";
-  const targetDirectory = relativePath ? path.resolve(input.cwd, relativePath) : input.cwd;
+  const targetDirectory = resolveDirectoryWithinRoot(input.cwd, relativePath);
+  if (!targetDirectory) {
+    throw new Error(`Directory is outside the workspace root: ${relativePath || "."}`);
+  }
   const dirents = await fs.readdir(targetDirectory, { withFileTypes: true });
   const entries = await mapWithConcurrency(
     dirents

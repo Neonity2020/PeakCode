@@ -142,6 +142,167 @@ export type ServerGetProviderUsageSnapshotInput = typeof ServerGetProviderUsageS
 export const ServerGetProviderUsageSnapshotResult = Schema.NullOr(ServerProviderUsageSnapshot);
 export type ServerGetProviderUsageSnapshotResult = typeof ServerGetProviderUsageSnapshotResult.Type;
 
+/** Every local coding agent the usage page can account for. */
+export const ServerUsageStatisticsSourceId = Schema.Literals([
+  "claude-code",
+  "codex",
+  "zcode",
+  "workbuddy",
+  "pi",
+  "opencode",
+  "ccmr",
+  "grok",
+  "dsh",
+]);
+export type ServerUsageStatisticsSourceId = typeof ServerUsageStatisticsSourceId.Type;
+
+const ServerUsageStatisticsSourceUsage = Schema.Struct({
+  source: ServerUsageStatisticsSourceId,
+  tokens: NonNegativeInt,
+  responses: NonNegativeInt,
+  models: Schema.Array(
+    Schema.Struct({
+      model: TrimmedNonEmptyString,
+      tokens: NonNegativeInt,
+    }),
+  ),
+});
+
+/**
+ * One day of usage in the server's local calendar, present only when that day had
+ * activity. `bySource` carries the tool split for that day, which is what lets the
+ * panel filter and re-trend without asking the server for a second pass.
+ */
+export const ServerUsageStatisticsDay = Schema.Struct({
+  date: TrimmedNonEmptyString,
+  tokens: NonNegativeInt,
+  responses: NonNegativeInt,
+  bySource: Schema.Array(ServerUsageStatisticsSourceUsage),
+});
+export type ServerUsageStatisticsDay = typeof ServerUsageStatisticsDay.Type;
+
+export const ServerUsageStatisticsModel = Schema.Struct({
+  model: TrimmedNonEmptyString,
+  tokens: NonNegativeInt,
+  responses: NonNegativeInt,
+  /** Tools that reported this model id. */
+  sources: Schema.Array(ServerUsageStatisticsSourceId),
+  lastUsedAt: IsoDateTime,
+});
+export type ServerUsageStatisticsModel = typeof ServerUsageStatisticsModel.Type;
+
+export const ServerUsageStatisticsSource = Schema.Struct({
+  id: ServerUsageStatisticsSourceId,
+  label: TrimmedNonEmptyString,
+  /** Where this tool keeps its records; shown when nothing was found for it. */
+  roots: Schema.Array(TrimmedNonEmptyString),
+  /** Whether any record of this tool was found inside the window. */
+  active: Schema.Boolean,
+  tokens: NonNegativeInt,
+  responses: NonNegativeInt,
+  sessions: NonNegativeInt,
+  models: NonNegativeInt,
+  lastUsedAt: Schema.NullOr(IsoDateTime),
+});
+export type ServerUsageStatisticsSource = typeof ServerUsageStatisticsSource.Type;
+
+export const ServerUsageStatisticsSession = Schema.Struct({
+  source: ServerUsageStatisticsSourceId,
+  sessionId: TrimmedNonEmptyString,
+  project: Schema.NullOr(TrimmedNonEmptyString),
+  startedAt: IsoDateTime,
+  endedAt: IsoDateTime,
+  tokens: NonNegativeInt,
+  responses: NonNegativeInt,
+  models: Schema.Array(TrimmedNonEmptyString),
+  /** False once the session aged out of request-log retention. */
+  hasRequestDetail: Schema.Boolean,
+});
+export type ServerUsageStatisticsSession = typeof ServerUsageStatisticsSession.Type;
+
+export const ServerUsageStatisticsTotals = Schema.Struct({
+  tokens: NonNegativeInt,
+  inputTokens: NonNegativeInt,
+  outputTokens: NonNegativeInt,
+  cacheReadTokens: NonNegativeInt,
+  cacheWriteTokens: NonNegativeInt,
+  reasoningTokens: NonNegativeInt,
+  peakDayTokens: NonNegativeInt,
+  peakDay: Schema.NullOr(TrimmedNonEmptyString),
+  /** Longest single conversation, measured from its first to its last record. */
+  longestChatMs: NonNegativeInt,
+  currentStreakDays: NonNegativeInt,
+  longestStreakDays: NonNegativeInt,
+  activeDays: NonNegativeInt,
+  sessions: NonNegativeInt,
+  responses: NonNegativeInt,
+});
+export type ServerUsageStatisticsTotals = typeof ServerUsageStatisticsTotals.Type;
+
+export const ServerUsageStatisticsResult = Schema.Struct({
+  generatedAt: IsoDateTime,
+  source: TrimmedNonEmptyString,
+  /** How far back records were read; older history is outside every total here. */
+  windowDays: NonNegativeInt,
+  earliestAt: Schema.NullOr(IsoDateTime),
+  latestAt: Schema.NullOr(IsoDateTime),
+  totals: ServerUsageStatisticsTotals,
+  /** Always the full tool list, even when the aggregates below are filtered. */
+  sources: Schema.Array(ServerUsageStatisticsSource),
+  /** Ascending, sparse: only days with usage appear. */
+  days: Schema.Array(ServerUsageStatisticsDay),
+  /** Descending by tokens consumed. */
+  models: Schema.Array(ServerUsageStatisticsModel),
+  /** Most recent sessions first, for the drill-down table. */
+  sessions: Schema.Array(ServerUsageStatisticsSession),
+});
+export type ServerUsageStatisticsResult = typeof ServerUsageStatisticsResult.Type;
+
+export const ServerGetUsageStatisticsInput = Schema.Struct({
+  /** Restrict the aggregates to one tool; omit for the whole machine. */
+  source: Schema.optional(ServerUsageStatisticsSourceId),
+  /** How far back to read; defaults to the server's window. */
+  windowDays: Schema.optional(NonNegativeInt),
+  /** Bypass the short server-side cache when the user asks for fresh numbers. */
+  refresh: Schema.optional(Schema.Boolean),
+});
+export type ServerGetUsageStatisticsInput = typeof ServerGetUsageStatisticsInput.Type;
+
+export const ServerGetUsageStatisticsResult = ServerUsageStatisticsResult;
+export type ServerGetUsageStatisticsResult = typeof ServerGetUsageStatisticsResult.Type;
+
+export const ServerUsageStatisticsRequest = Schema.Struct({
+  /** 1-based position of this request in the session, counting requests retention dropped. */
+  sequence: NonNegativeInt,
+  timestamp: IsoDateTime,
+  model: TrimmedNonEmptyString,
+  tokens: NonNegativeInt,
+  inputTokens: NonNegativeInt,
+  outputTokens: NonNegativeInt,
+  cacheReadTokens: NonNegativeInt,
+  cacheWriteTokens: NonNegativeInt,
+});
+export type ServerUsageStatisticsRequest = typeof ServerUsageStatisticsRequest.Type;
+
+export const ServerGetUsageSessionDetailInput = Schema.Struct({
+  source: ServerUsageStatisticsSourceId,
+  sessionId: TrimmedNonEmptyString,
+  windowDays: Schema.optional(NonNegativeInt),
+});
+export type ServerGetUsageSessionDetailInput = typeof ServerGetUsageSessionDetailInput.Type;
+
+export const ServerGetUsageSessionDetailResult = Schema.Struct({
+  source: ServerUsageStatisticsSourceId,
+  sessionId: TrimmedNonEmptyString,
+  project: Schema.NullOr(TrimmedNonEmptyString),
+  tokens: NonNegativeInt,
+  responses: NonNegativeInt,
+  /** Requests dropped by retention, so the panel can say the list is partial. */
+  droppedRequests: NonNegativeInt,
+  requests: Schema.Array(ServerUsageStatisticsRequest),
+});
+export type ServerGetUsageSessionDetailResult = typeof ServerGetUsageSessionDetailResult.Type;
+
 export const ServerDiagnosticsMemory = Schema.Struct({
   rssBytes: NonNegativeInt,
   heapTotalBytes: NonNegativeInt,

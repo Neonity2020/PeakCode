@@ -44,6 +44,7 @@ import { ProviderAdapterRegistry } from "./provider/Services/ProviderAdapterRegi
 import { ProviderHealth } from "./provider/Services/ProviderHealth";
 import { ProviderService } from "./provider/Services/ProviderService";
 import { getProviderUsageSnapshot } from "./providerUsageSnapshot";
+import { getUsageSessionDetail, getUsageStatistics } from "./usageStatistics";
 import { listLocalUserSkills } from "./localSkills";
 import { isSkillEnabled, setSkillEnabled } from "@peakcode/agent-toolkit/skills/enablement";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
@@ -480,8 +481,12 @@ export const makeWsRpcLayer = () =>
           rpcEffect(workspaceEntries.search(input), "Failed to search workspace entries"),
         [WS_METHODS.projectsSearchLocalEntries]: (input) =>
           rpcEffect(workspaceEntries.searchLocal(input), "Failed to search local entries"),
+        [WS_METHODS.projectsReadFile]: (input) =>
+          rpcEffect(workspaceFileSystem.readFile(input), "Failed to read workspace file"),
         [WS_METHODS.projectsWriteFile]: (input) =>
           rpcEffect(workspaceFileSystem.writeFile(input), "Failed to write workspace file"),
+        [WS_METHODS.projectsListChangedFiles]: (input) =>
+          rpcEffect(workspaceEntries.listChangedFiles(input), "Failed to list changed files"),
         [WS_METHODS.filesystemBrowse]: (input) =>
           rpcEffect(workspaceEntries.browse(input), "Failed to browse filesystem"),
         [WS_METHODS.shellOpenInEditor]: (input) =>
@@ -634,6 +639,10 @@ export const makeWsRpcLayer = () =>
         [WS_METHODS.serverListWorktrees]: () => Effect.succeed({ worktrees: [] }),
         [WS_METHODS.serverGetProviderUsageSnapshot]: (input) =>
           rpcEffect(getProviderUsageSnapshot(input), "Failed to load provider usage"),
+        [WS_METHODS.serverGetUsageStatistics]: (input) =>
+          rpcEffect(getUsageStatistics(input), "Failed to load usage statistics"),
+        [WS_METHODS.serverGetUsageSessionDetail]: (input) =>
+          rpcEffect(getUsageSessionDetail(input), "Failed to load usage session detail"),
         [WS_METHODS.serverGetDiagnostics]: () =>
           rpcEffect(
             Effect.gen(function* () {

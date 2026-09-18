@@ -71,4 +71,15 @@ describe("settingsNavigation", () => {
     expect(modelProviders?.label).toBe("模型提供商");
     expect(modelProviders?.group).toBe("basics");
   });
+
+  it("lists the usage statistics section under the data group", () => {
+    const usage = buildSettingsNavItems(MESSAGES.zh).find((item) => item.id === "usage");
+
+    expect(usage?.label).toBe("使用统计");
+    expect(usage?.group).toBe("data");
+    expect(buildSettingsNavItems(MESSAGES.en).find((item) => item.id === "usage")?.label).toBe(
+      "Usage",
+    );
+    expect(normalizeSettingsSection("usage")).toBe("usage");
+  });
 });

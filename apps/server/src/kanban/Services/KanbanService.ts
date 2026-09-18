@@ -28,6 +28,8 @@ import type {
   ThreadId,
 } from "@peakcode/contracts";
 
+import type { KanbanThreadTaskRecord } from "../boardDocument.ts";
+
 /** Terminal outcome of a dispatched task run. */
 export type KanbanTaskRunOutcome = Exclude<KanbanAgentRunStatus, "running">;
 
@@ -110,6 +112,16 @@ export interface KanbanServiceShape {
   readonly getTaskDetail: (
     input: KanbanGetTaskDetailInput,
   ) => Effect.Effect<KanbanTaskDetail, Error>;
+
+  /**
+   * The card a conversation was dispatched from, with its timeline — resolved
+   * from the thread id alone, which is all a running agent has. Null when the
+   * conversation did not come from a board, so the caller can say so plainly
+   * instead of handing back an empty card.
+   */
+  readonly readTaskForThread: (input: {
+    readonly threadId: ThreadId;
+  }) => Effect.Effect<KanbanThreadTaskRecord | null, Error>;
 
   /**
    * Append a comment to a task. `steer` also injects the text into the running

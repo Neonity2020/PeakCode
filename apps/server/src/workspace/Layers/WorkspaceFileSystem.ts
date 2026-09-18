@@ -1,5 +1,7 @@
 import { Effect, FileSystem, Layer, Path } from "effect";
 
+import { PROJECT_READ_FILE_MAX_BYTES } from "@peakcode/contracts";
+import { classifyWorkspaceFileContents } from "../../workspaceFileContent";
 import {
   WorkspaceFileSystem,
   WorkspaceFileSystemError,
@@ -50,7 +52,66 @@ export const makeWorkspaceFileSystem = Effect.gen(function* () {
     return { relativePath: target.relativePath };
   });
 
-  return { writeFile } satisfies WorkspaceFileSystemShape;
+  const readFile: WorkspaceFileSystemShape["readFile"] = Effect.fn("WorkspaceFileSystem.readFile")(
+    function* (input) {
+      const target = yield* workspacePaths.resolveRelativePathWithinRoot({
+        workspaceRoot: input.cwd,
+        relativePath: input.relativePath,
+      });
+
+      const stats = yield* fileSystem.stat(target.absolutePath).pipe(
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceFileSystemError({
+              cwd: input.cwd,
+              relativePath: input.relativePath,
+              operation: "workspaceFileSystem.stat",
+              detail: cause.message,
+              cause,
+            }),
+        ),
+      );
+      if (stats.type === "Directory") {
+        return yield* new WorkspaceFileSystemError({
+          cwd: input.cwd,
+          relativePath: input.relativePath,
+          operation: "workspaceFileSystem.readFile",
+          detail: "Path is a directory.",
+        });
+      }
+
+      // Size-check before reading so an oversized file never reaches the buffer.
+      const byteLength = Number(stats.size);
+      if (byteLength > PROJECT_READ_FILE_MAX_BYTES) {
+        return {
+          relativePath: target.relativePath,
+          kind: "too-large" as const,
+          contents: "",
+          byteLength,
+        };
+      }
+
+      const bytes = yield* fileSystem.readFile(target.absolutePath).pipe(
+        Effect.mapError(
+          (cause) =>
+            new WorkspaceFileSystemError({
+              cwd: input.cwd,
+              relativePath: input.relativePath,
+              operation: "workspaceFileSystem.readFile",
+              detail: cause.message,
+              cause,
+            }),
+        ),
+      );
+
+      return {
+        relativePath: target.relativePath,
+        ...classifyWorkspaceFileContents({ bytes, byteLength }),
+      };
+    },
+  );
+
+  return { writeFile, readFile } satisfies WorkspaceFileSystemShape;
 });
 
 export const WorkspaceFileSystemLive = Layer.effect(WorkspaceFileSystem, makeWorkspaceFileSystem);

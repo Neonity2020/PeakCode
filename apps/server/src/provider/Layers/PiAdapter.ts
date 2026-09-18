@@ -46,7 +46,7 @@ import { buildThreadToolkitTools, threadConversationKey } from "../../agentToolk
 import { scheduleTaskFromConversation } from "../../automation/automationTool";
 import { browserControlConfigured, browserFromConversation } from "../../browser/browserTool";
 import { computerControlConfigured, computerFromConversation } from "../../computer/computerTool";
-import { commentOnTaskFromConversation } from "../../kanban/kanbanTool";
+import { commentOnTaskFromConversation, taskFromConversation } from "../../kanban/kanbanTool";
 import {
   BUNDLED_PLUGIN_MARKETPLACE,
   BUNDLED_PLUGIN_MARKETPLACE_PATH,
@@ -945,6 +945,9 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             // the host's call, and it answers either way (see kanbanTool.ts).
             onKanbanComment: (params) =>
               commentOnTaskFromConversation({ threadId: input.threadId, params }),
+            // The read side of the same card. Also registered everywhere: a chat that never
+            // came from the board gets told so instead of an empty card.
+            onKanbanTask: () => taskFromConversation({ threadId: input.threadId }),
             // Only present when this server was started with a browser pipe, which is what
             // the desktop app provides. Without it the tool is not registered at all, so a
             // headless session never sees a verb it could not carry out (see browserTool.ts).
@@ -1706,26 +1709,30 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       respondToRequest: (threadId, requestId, decision) =>
         Effect.gen(function* () {
           const context = yield* requireSession(threadId);
-          const settled = settleApproval(context, requestId, decision);
-          if (!settled) {
-            // A stale answer (the prompt timed out, or the session restarted) is not an
-            // error the user can act on; the panel has already cleared itself.
-            yield* Effect.logDebug("pi approval response had no pending request", {
-              threadId,
-              requestId,
-            });
+          if (settleApproval(context, requestId, decision)) {
+            return;
           }
+          // A stale answer (the prompt timed out, or the session restarted) has to fail:
+          // nothing else clears the panel, and the reactor turns this error into exactly
+          // the failure activity the client clears on. Answering quietly leaves the prompt
+          // on screen with nothing left that could settle it.
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "request/respond",
+            detail: `Unknown pending approval request: ${requestId}.`,
+          });
         }),
       respondToUserInput: (threadId, requestId, answers) =>
         Effect.gen(function* () {
           const context = yield* requireSession(threadId);
-          const settled = settleQuestion(context, requestId, answers);
-          if (!settled) {
-            yield* Effect.logDebug("pi user-input response had no pending request", {
-              threadId,
-              requestId,
-            });
+          if (settleQuestion(context, requestId, answers)) {
+            return;
           }
+          return yield* new ProviderAdapterRequestError({
+            provider: PROVIDER,
+            method: "user-input/respond",
+            detail: `Unknown pending user-input request: ${requestId}.`,
+          });
         }),
       stopSession,
       listSessions,

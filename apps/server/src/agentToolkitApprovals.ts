@@ -51,8 +51,10 @@ export interface ToolkitToolDecision {
  * Toolkit permission name → canonical request type.
  *
  * The mapping is lossy on purpose: the canonical set is what the UI's `requestKind`
- * derivation understands (`command` / `file-read` / `file-change`), and anything outside
- * it degrades to `dynamic_tool_call`, which still renders — just without a specialised label.
+ * derivation understands (`command` / `file-read` / `file-change`), and anything outside it
+ * degrades to `dynamic_tool_call`, which that derivation reads as the generic `tool` kind.
+ * A request with no specialised label is still a request the user has to be able to answer —
+ * the browser and computer tools arrive here, and an approval the UI drops hangs the turn.
  */
 export function canonicalRequestTypeFor(
   permission: string,

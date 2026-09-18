@@ -46,7 +46,11 @@ export type SidebarSide = typeof SidebarSide.Type;
 export const DEFAULT_SIDEBAR_SIDE: SidebarSide = "left";
 export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
-export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "manual";
+/**
+ * Newest project first: the one you just added is the one you are working in.
+ * Anyone who prefers their own order can pick 手动 in settings.
+ */
+export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "created_at";
 export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at"]);
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";

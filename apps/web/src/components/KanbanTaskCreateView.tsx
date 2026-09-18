@@ -55,6 +55,8 @@ import {
 } from "../lib/kanbanReactQuery";
 import { ArrowLeftIcon, LoaderIcon, PaperclipIcon, SparklesIcon } from "../lib/icons";
 import { cn } from "../lib/utils";
+import { isElectron } from "../env";
+import { useLeadingColumnTrafficLightGutterClassName } from "../hooks/useDesktopTopBarGutter";
 import { KanbanStatusGlyph } from "./KanbanPresentation";
 import { KanbanTaskAttachments } from "./KanbanTaskAttachments";
 import { SidebarInset } from "./ui/sidebar";
@@ -72,6 +74,9 @@ export function KanbanTaskCreateView(props: {
   const messages = useMessages();
   const navigate = useNavigate();
   const { settings } = useAppSettings();
+  // The kanban surface replaces the workspace sidebar, so this page's own header
+  // owns the window's left edge and has to clear the desktop traffic lights.
+  const leadingColumnGutter = useLeadingColumnTrafficLightGutterClassName();
 
   const projectsQuery = useKanbanProjectsQuery();
   const boardQuery = useKanbanBoardQuery(projectId);
@@ -320,7 +325,13 @@ export function KanbanTaskCreateView(props: {
   }, [leaveToBoard, submitDraft]);
 
   const renderHeader = () => (
-    <header className="flex shrink-0 items-center gap-3 border-b border-border/60 px-6 py-4">
+    <header
+      className={cn(
+        "flex shrink-0 items-center gap-3 border-b border-border/60 px-6 py-4",
+        isElectron && "drag-region",
+        leadingColumnGutter,
+      )}
+    >
       <button
         type="button"
         onClick={leaveToBoard}

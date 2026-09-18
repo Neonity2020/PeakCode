@@ -30,15 +30,30 @@ export function resolveDefaultWorkspaceRoot(homeDir: string | null | undefined):
   return [trimmedHomeDir, APP_HOME_DIRNAME, DEFAULT_WORKSPACE_DIRNAME].join(separator);
 }
 
+/**
+ * The same check as {@link isDefaultWorkspaceProject}, for callers that only hold
+ * a workspace root — the kanban's project summaries, for instance, carry the root
+ * but not the project kind.
+ */
+export function isDefaultWorkspaceRoot(
+  workspaceRoot: string | null | undefined,
+  homeDir: string | null | undefined,
+): boolean {
+  const expected = resolveDefaultWorkspaceRoot(homeDir);
+  if (!expected || !workspaceRoot) {
+    return false;
+  }
+  return workspaceRootsEqual(workspaceRoot, expected);
+}
+
 export function isDefaultWorkspaceProject(
   project: DefaultWorkspaceProjectLike | null | undefined,
   homeDir: string | null | undefined,
 ): boolean {
-  const workspaceRoot = resolveDefaultWorkspaceRoot(homeDir);
-  if (!project || !workspaceRoot || project.kind !== "project") {
+  if (!project || project.kind !== "project") {
     return false;
   }
-  return workspaceRootsEqual(project.cwd, workspaceRoot);
+  return isDefaultWorkspaceRoot(project.cwd, homeDir);
 }
 
 export function findDefaultWorkspaceProject<T extends DefaultWorkspaceProjectLike>(

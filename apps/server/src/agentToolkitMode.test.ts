@@ -66,6 +66,8 @@ const ALL_TOOLS = [
   "write_plan",
   "schedule_task",
   "kanban_comment",
+  // 读卡片是只读的：plan 模式要能看历史，所以它不在 WRITE_CAPABLE 里。
+  "kanban_task",
   "task",
   "checkpoint",
   "rewind",
@@ -129,6 +131,10 @@ describe("activeToolNamesForMode", () => {
     expect(active).toContain("crew_status");
     expect(active).not.toContain("crew_spawn");
     expect(active).not.toContain("crew_respond");
+    // 看板一写一读：写的那半属于"改工作区"被摘掉，读的那半留着 ——
+    // 出方案的人正是最需要先看卡片历史的人。
+    expect(active).not.toContain("kanban_comment");
+    expect(active).toContain("kanban_task");
   });
 
   test("goal：全套可用 + goal，但不给 write_plan", () => {

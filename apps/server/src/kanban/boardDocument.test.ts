@@ -350,6 +350,26 @@ describe("agent runs", () => {
     expect(prompt).toContain(BOARD_RUN_INSTRUCTIONS);
   });
 
+  it("names the card and its board so a run can read the history behind the brief", () => {
+    const prompt = buildTaskPrompt(
+      { title: "接上多端同步", description: "先把离线队列做出来。" },
+      { boardFilePath: "/tmp/peakcode/.kanban/board.json", taskId: "t_29b8116000" },
+    );
+
+    expect(prompt).toContain("`t_29b8116000`");
+    expect(prompt).toContain("`/tmp/peakcode/.kanban/board.json`");
+    // The path is only worth naming if the model is told what to do with it.
+    expect(prompt).toContain("kanban_task");
+    expect(prompt).toContain("git log");
+    // Still the brief first, the standing instructions last.
+    expect(prompt.startsWith("接上多端同步")).toBe(true);
+    expect(prompt.endsWith(BOARD_RUN_INSTRUCTIONS)).toBe(true);
+  });
+
+  it("leaves the prompt alone when the caller does not know the board", () => {
+    expect(buildTaskPrompt({ title: "写周报", description: "" })).not.toContain("kanban_task");
+  });
+
   it("keeps only resolvable image attachments and rejects path escapes", () => {
     const board = normalizeBoardDocument(
       {

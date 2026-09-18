@@ -3,7 +3,8 @@
 Peak Code ships some capabilities as **plugins**: a manifest plus one or more skills, listed
 in the `/plugins` view and referenceable from the composer with `@`.
 
-Two exist today — `browser-use` and `computer-use` — and they are the pattern to copy.
+Three exist today — `browser-use`, `computer-use` and `jev-ultrafast` — and they are the
+pattern to copy.
 
 ## What a plugin is here
 

@@ -8,16 +8,20 @@
 //          KANBAN_RUN_STATUS_CLASS, KANBAN_PRIORITY_BAR_COUNT,
 //          KANBAN_PRIORITY_ACCENT_CLASS, kanbanStatusLabel, kanbanRunStatusLabel,
 //          kanbanColumnAccent, kanbanTaskCode, kanbanProjectCode,
-//          kanbanAvatarColor, shortModelName, shortWorkspacePath
+//          kanbanAvatarColor, kanbanStampLabel, shortModelName, shortWorkspacePath,
+//          sortKanbanProjects
 
 import type {
+  KanbanProjectSummary,
   KanbanTaskPriority,
   KanbanTaskStatus,
   KanbanAgentRunStatus,
 } from "@peakcode/contracts";
 import { KANBAN_TASK_STATUSES } from "@peakcode/contracts";
 
+import { moveToEnd } from "./listOrder";
 import type { Messages } from "../i18n/messages";
+import type { Language } from "../i18n/language";
 
 /** Board columns carry their own dot; these are the colours used without one. */
 export const KANBAN_STATUS_ACCENT: Record<KanbanTaskStatus, string> = {
@@ -128,6 +132,28 @@ export function kanbanAvatarColor(name: string): string {
   return AVATAR_COLORS[sum % AVATAR_COLORS.length]!;
 }
 
+/** Midnight of the given date, for counting whole days between two stamps. */
+function startOfLocalDay(value: Date): number {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+}
+
+/**
+ * The date a card carries: `today` / `yesterday` for work that just moved, and a
+ * short `Aug 9` past that. A card's date is read at a glance next to its title,
+ * so a bare day is enough — the full stamp stays in the title attribute. The
+ * locale follows the UI language so one screen never mixes two of them.
+ */
+export function kanbanStampLabel(iso: string, language: Language): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const daysAgo = Math.round((startOfLocalDay(new Date()) - startOfLocalDay(date)) / 86_400_000);
+  if (daysAgo >= 0 && daysAgo <= 1) {
+    return new Intl.RelativeTimeFormat(language, { numeric: "auto" }).format(-daysAgo, "day");
+  }
+  return new Intl.DateTimeFormat(language, { month: "short", day: "numeric" }).format(date);
+}
+
 /** `claude-sonnet-4` out of `anthropic/claude-sonnet-4`, for chip-sized labels. */
 export function shortModelName(model: string): string {
   const trimmed = model.trim();
@@ -139,4 +165,28 @@ export function shortModelName(model: string): string {
 export function shortWorkspacePath(value: string): string {
   const match = /^\/Users\/[^/]+\/(.*)$/.exec(value);
   return match ? `~/${match[1]}` : value;
+}
+
+/**
+ * Projects as the board's picker lists them: the one added last sits on top,
+ * because that is the one being worked in. `pinnedLastProjectId` carries the
+ * app's built-in workspace, which belongs at the bottom.
+ */
+export function sortKanbanProjects(
+  projects: ReadonlyArray<KanbanProjectSummary>,
+  pinnedLastProjectId?: string | null,
+): ReadonlyArray<KanbanProjectSummary> {
+  const ordered = [...projects].toSorted((left, right) => {
+    const byCreated = toSortableTime(right.createdAt) - toSortableTime(left.createdAt);
+    if (byCreated !== 0) return byCreated;
+    return left.title.localeCompare(right.title);
+  });
+
+  if (!pinnedLastProjectId) return ordered;
+  return moveToEnd(ordered, (project) => project.projectId === pinnedLastProjectId);
+}
+
+function toSortableTime(iso: string): number {
+  const parsed = Date.parse(iso);
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
 }

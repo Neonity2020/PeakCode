@@ -109,8 +109,12 @@ import {
   ProviderReadPluginResult,
 } from "./providerDiscovery";
 import {
+  ProjectListChangedFilesInput,
+  ProjectListChangedFilesResult,
   ProjectListDirectoriesInput,
   ProjectListDirectoriesResult,
+  ProjectReadFileInput,
+  ProjectReadFileResult,
   ProjectSearchEntriesInput,
   ProjectSearchEntriesResult,
   ProjectSearchLocalEntriesInput,
@@ -125,6 +129,10 @@ import {
   ServerGetEnvironmentResult,
   ServerGetProviderUsageSnapshotInput,
   ServerGetProviderUsageSnapshotResult,
+  ServerGetUsageStatisticsInput,
+  ServerGetUsageStatisticsResult,
+  ServerGetUsageSessionDetailInput,
+  ServerGetUsageSessionDetailResult,
   ServerLifecycleStreamEvent,
   ServerGetSettingsResult,
   ServerListModelProvidersInput,
@@ -290,6 +298,18 @@ export const WsProjectsSearchLocalEntriesRpc = Rpc.make(WS_METHODS.projectsSearc
 export const WsProjectsWriteFileRpc = Rpc.make(WS_METHODS.projectsWriteFile, {
   payload: ProjectWriteFileInput,
   success: ProjectWriteFileResult,
+  error: WsRpcError,
+});
+
+export const WsProjectsReadFileRpc = Rpc.make(WS_METHODS.projectsReadFile, {
+  payload: ProjectReadFileInput,
+  success: ProjectReadFileResult,
+  error: WsRpcError,
+});
+
+export const WsProjectsListChangedFilesRpc = Rpc.make(WS_METHODS.projectsListChangedFiles, {
+  payload: ProjectListChangedFilesInput,
+  success: ProjectListChangedFilesResult,
   error: WsRpcError,
 });
 
@@ -549,6 +569,18 @@ export const WsServerGetProviderUsageSnapshotRpc = Rpc.make(
     error: WsRpcError,
   },
 );
+
+export const WsServerGetUsageStatisticsRpc = Rpc.make(WS_METHODS.serverGetUsageStatistics, {
+  payload: ServerGetUsageStatisticsInput,
+  success: ServerGetUsageStatisticsResult,
+  error: WsRpcError,
+});
+
+export const WsServerGetUsageSessionDetailRpc = Rpc.make(WS_METHODS.serverGetUsageSessionDetail, {
+  payload: ServerGetUsageSessionDetailInput,
+  success: ServerGetUsageSessionDetailResult,
+  error: WsRpcError,
+});
 
 export const WsServerGetDiagnosticsRpc = Rpc.make(WS_METHODS.serverGetDiagnostics, {
   payload: Schema.Struct({}),
@@ -812,6 +844,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsSearchEntriesRpc,
   WsProjectsSearchLocalEntriesRpc,
   WsProjectsWriteFileRpc,
+  WsProjectsReadFileRpc,
+  WsProjectsListChangedFilesRpc,
   WsFilesystemBrowseRpc,
   WsShellOpenInEditorRpc,
   WsGitStatusRpc,
@@ -854,6 +888,8 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRemovePiPackageRpc,
   WsServerListWorktreesRpc,
   WsServerGetProviderUsageSnapshotRpc,
+  WsServerGetUsageStatisticsRpc,
+  WsServerGetUsageSessionDetailRpc,
   WsServerGetDiagnosticsRpc,
   WsServerTranscribeVoiceRpc,
   WsServerUpsertKeybindingRpc,

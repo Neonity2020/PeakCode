@@ -51,6 +51,7 @@ import {
   type KanbanBoardContext,
   type KanbanStoredBoard,
   type KanbanStoredTask,
+  type KanbanThreadTaskRecord,
 } from "../boardDocument.ts";
 
 const BOARD_DIRECTORY_NAME = ".kanban";
@@ -78,7 +79,16 @@ interface PendingTaskRun {
   readonly taskId: string;
   readonly threadId: ThreadId;
   readonly threadTitle: string;
-  readonly prompt: string;
+  /**
+   * The requirement as it stood when the run was claimed. Kept as its parts
+   * rather than a finished prompt because the board's path — which the prompt
+   * names — is a property of the project, only known at dispatch.
+   */
+  readonly brief: {
+    readonly title: string;
+    readonly description: string;
+    readonly attachments: ReadonlyArray<KanbanTaskAttachment>;
+  };
   readonly previousStatus: KanbanTaskStatus;
   /** Explicit model for this task; null means "use the project default". */
   readonly modelSelection: ModelSelection | null;
@@ -239,6 +249,7 @@ const makeKanbanService = Effect.gen(function* () {
         title: project.title,
         workspaceRoot: project.workspaceRoot,
         defaultModelSelection: project.defaultModelSelection,
+        createdAt: project.createdAt,
         hasBoard: false,
         taskCount: 0,
         todoCount: 0,
@@ -436,7 +447,11 @@ const makeKanbanService = Effect.gen(function* () {
       taskId: task.id,
       threadId,
       threadTitle,
-      prompt: buildTaskPrompt(task),
+      brief: {
+        title: task.title,
+        description: task.description,
+        attachments: task.attachments,
+      },
       previousStatus,
       modelSelection: taskModelSelection(task),
     };
@@ -482,7 +497,10 @@ const makeKanbanService = Effect.gen(function* () {
         message: {
           messageId: newMessageId(),
           role: "user",
-          text: pending.prompt,
+          text: buildTaskPrompt(pending.brief, {
+            boardFilePath: boardFilePathOf(project.workspaceRoot),
+            taskId: pending.taskId,
+          }),
           attachments: [],
         },
         modelSelection,
@@ -785,6 +803,44 @@ const makeKanbanService = Effect.gen(function* () {
           }),
         );
         return written;
+      }),
+
+    /**
+     * The card a conversation was dispatched from, with its full timeline.
+     *
+     * Read side of {@link recordTaskRunComment}. It matches on `agentThreadId`
+     * alone rather than requiring a *running* run, because the history is most
+     * useful on a second pass: a card that was interrupted or blocked and later
+     * handed back to an agent still owns the notes and feedback from the first
+     * attempt, and that is what the next run should read before starting.
+     */
+    readTaskForThread: (input) =>
+      Effect.gen(function* () {
+        const thread = Option.getOrUndefined(
+          yield* projectQuery
+            .getThreadShellById(input.threadId)
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new Error(`Failed to read thread '${input.threadId}': ${describeCause(cause)}`),
+              ),
+            ),
+        );
+        if (!thread) {
+          return yield* Effect.fail(new Error(`Thread '${input.threadId}' was not found.`));
+        }
+
+        const project = yield* requireProject(thread.projectId);
+        const context = boardContextOf(project);
+        const document = yield* loadBoardDocument(context);
+        const task = document.tasks.find((entry) => entry.agentThreadId === input.threadId);
+        if (!task) return null;
+
+        return {
+          context,
+          task,
+          comments: commentsForTask(task, yield* threadMessagesOf(task.agentThreadId)),
+        } satisfies KanbanThreadTaskRecord;
       }),
 
     releaseStaleTaskRuns: () =>

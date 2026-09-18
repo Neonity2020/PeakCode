@@ -71,6 +71,7 @@ import { useTheme } from "../hooks/useTheme";
 import { useUIFont } from "../hooks/useUIFont";
 import { useNativeFontSmoothing } from "../hooks/useNativeFontSmoothing";
 import { invalidateGitQueries, invalidateGitQueriesForCwds } from "../lib/gitReactQuery";
+import { bumpWorkspaceRevision } from "../lib/workspaceRevision";
 import { hasLiveThreadsWithMissingProjects } from "../lib/desktopProjectRecovery";
 import { parseDiffRouteSearch } from "../diffRouteSearch";
 import { resolveSplitViewThreadIds, selectSplitView, useSplitViewStore } from "../splitViewStore";
@@ -825,6 +826,9 @@ function EventRouter() {
         // Invalidate workspace entry queries so the @-mention file picker
         // reflects files created, deleted, or restored during this turn.
         void queryClient.invalidateQueries({ queryKey: projectQueryKeys.all });
+        // The file explorer's lazy tree is not a query cache, so it listens for the same
+        // turn boundary instead of being invalidated through React Query.
+        bumpWorkspaceRevision();
       }
       if (needsBroadGitInvalidation) {
         needsBroadGitInvalidation = false;

@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  KANBAN_HIDDEN_STATUS_DEFAULT,
   KANBAN_UI_STATE_DEFAULT,
   parseKanbanUiState,
   persistKanbanUiState,
@@ -40,6 +41,7 @@ describe("parseKanbanUiState", () => {
       selectedProjectId: "p_1",
       viewMode: "board",
       sidebarVisible: true,
+      hiddenStatuses: KANBAN_HIDDEN_STATUS_DEFAULT,
     });
   });
 
@@ -49,6 +51,16 @@ describe("parseKanbanUiState", () => {
     expect(parseKanbanUiState(JSON.stringify({ sidebarVisible: false })).sidebarVisible).toBe(
       false,
     );
+  });
+
+  it("keeps only the column keys the board can draw", () => {
+    expect(
+      parseKanbanUiState(JSON.stringify({ hiddenStatuses: ["archived", "someday"] }))
+        .hiddenStatuses,
+    ).toEqual(["archived"]);
+    expect(
+      parseKanbanUiState(JSON.stringify({ hiddenStatuses: "archived" })).hiddenStatuses,
+    ).toEqual(KANBAN_HIDDEN_STATUS_DEFAULT);
   });
 });
 
@@ -70,17 +82,20 @@ describe("kanban ui state storage", () => {
       selectedProjectId: "p_1",
       viewMode: "list",
       sidebarVisible: true,
+      hiddenStatuses: KANBAN_HIDDEN_STATUS_DEFAULT,
     });
   });
 
   it("merges a patch instead of dropping the fields it does not mention", () => {
     persistKanbanUiState({ viewMode: "list", selectedProjectId: "p_1" });
     persistKanbanUiState({ sidebarVisible: false });
+    persistKanbanUiState({ hiddenStatuses: [] });
 
     expect(readKanbanUiState()).toEqual({
       selectedProjectId: "p_1",
       viewMode: "list",
       sidebarVisible: false,
+      hiddenStatuses: [],
     });
     expect(JSON.parse(storage.get(STORAGE_KEY)!)).toMatchObject({ selectedProjectId: "p_1" });
   });

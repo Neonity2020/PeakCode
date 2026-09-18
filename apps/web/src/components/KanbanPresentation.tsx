@@ -1,11 +1,14 @@
 // FILE: KanbanPresentation.tsx
-// Purpose: The kanban glyphs: the per-status dot, the priority meter, the agent
-//          run marker, and the agent / assignee chips that cards, columns, and
-//          the board's left menu all draw. Their colours and short labels come
-//          from lib/kanbanPresentation.
+// Purpose: The kanban glyphs: the per-status dot, the solid status badge the
+//          columns are headed by, the priority meter, the agent run marker, the
+//          agent / assignee chips, and the pill the card footer is built from.
+//          Their colours and short labels come from lib/kanbanPresentation.
 // Layer: Component
-// Exports: KanbanStatusGlyph, KanbanPriorityMeter, KanbanRunStatusMarker,
-//          KanbanAgentChip, KanbanAssigneeAvatar
+// Exports: KanbanStatusGlyph, KanbanStatusBadge, KanbanPill,
+//          KanbanPriorityMeter, KanbanRunStatusMarker, KanbanAgentChip,
+//          KanbanAssigneeAvatar
+
+import type { ReactNode } from "react";
 
 import {
   type KanbanAgentRunStatus,
@@ -118,8 +121,132 @@ export function KanbanStatusGlyph(props: {
   );
 }
 
-/** Three bars, lit per priority — the card-sized stand-in for a priority label. */
-export function KanbanPriorityMeter(props: {
+/**
+ * The column-head badge: the status colour as a solid rounded square with the
+ * state drawn through it in white. Reads as one family down the column headers,
+ * where the dot above is too quiet to carry the colour on its own.
+ */
+export function KanbanStatusBadge(props: {
+  readonly status: KanbanTaskStatus;
+  /** Board column colour; omitted means the status palette. */
+  readonly color?: string | undefined;
+  readonly className?: string;
+  readonly title?: string;
+}) {
+  const accent = props.color ?? KANBAN_STATUS_ACCENT[props.status];
+  const glyph = (() => {
+    switch (props.status) {
+      case "todo":
+        return (
+          <circle
+            cx="8"
+            cy="8"
+            r="4.1"
+            fill="none"
+            stroke="#FFFFFF"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeDasharray="2 2.1"
+          />
+        );
+      case "in_progress":
+        return (
+          <>
+            <circle
+              cx="8"
+              cy="8"
+              r="4.1"
+              fill="none"
+              stroke="#FFFFFF"
+              strokeOpacity="0.45"
+              strokeWidth="1.5"
+            />
+            <path d="M8 3.9A4.1 4.1 0 0 1 8 12.1Z" fill="#FFFFFF" />
+          </>
+        );
+      case "done":
+        return (
+          <path
+            d="M5.1 8.3 7 10.2 10.9 5.9"
+            fill="none"
+            stroke="#FFFFFF"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        );
+      case "blocked":
+        return (
+          <>
+            <circle cx="8" cy="8" r="4.1" fill="none" stroke="#FFFFFF" strokeWidth="1.5" />
+            <path
+              d="M6.3 6.3 9.7 9.7M9.7 6.3 6.3 9.7"
+              fill="none"
+              stroke="#FFFFFF"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          </>
+        );
+      case "archived":
+        return (
+          <>
+            <rect x="3.5" y="5.3" width="9" height="2.1" rx="1.05" fill="#FFFFFF" />
+            <path
+              d="M5 8.6v3M8 8.6v3M11 8.6v3"
+              stroke="#FFFFFF"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+            />
+          </>
+        );
+    }
+  })();
+
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className={cn("size-4 shrink-0", props.className)}
+      aria-hidden="true"
+      data-kanban-status-badge={props.status}
+    >
+      <rect x="0" y="0" width="16" height="16" rx="4.5" fill={accent} />
+      {glyph}
+      {props.title ? <title>{props.title}</title> : null}
+    </svg>
+  );
+}
+
+/**
+ * The card footer's unit: a hairline-outlined capsule around one fact. `danger`
+ * is the same shape in the failure colour, for a date or state that has gone
+ * wrong rather than a neutral one.
+ */
+export function KanbanPill(props: {
+  readonly children: ReactNode;
+  readonly icon?: ReactNode;
+  readonly tone?: "default" | "danger";
+  readonly className?: string;
+  readonly title?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex min-w-0 items-center gap-1.5 rounded-full border px-2 py-[3px] text-[11.5px] leading-4",
+        props.tone === "danger"
+          ? "border-destructive/35 text-destructive"
+          : "border-border/70 text-muted-foreground",
+        props.className,
+      )}
+      title={props.title}
+    >
+      {props.icon}
+      <span className="truncate">{props.children}</span>
+    </span>
+  );
+}
+
+/** Three bars, lit per priority — the card-sized stand-in for a priority label. */ export function KanbanPriorityMeter(props: {
   readonly priority: KanbanTaskPriority;
   readonly className?: string;
   readonly title?: string;

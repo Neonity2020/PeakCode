@@ -152,6 +152,39 @@ export function createKanbanCommentTool(ctx: ToolContext): BuiltTool {
 }
 
 /**
+ * `kanban_task`：读回这张卡片的历史。
+ *
+ * 派发时进提示词的只有**当前**这一版需求，而卡片上真正积累下来的东西 ——
+ * 需求改过几版、之前几轮怎么设计的、为什么被中断、用户反馈了什么 —— 都在评论区里。
+ * 所以：二次上手、被中断后重来、或需求看起来和现状对不上时，先读一次再动手。
+ *
+ * 和 `kanban_comment` 一样由宿主按会话反查卡片，模型不带任何 id；
+ * 只读，所以 Plan 模式下也能用。
+ */
+export function createKanbanTaskTool(ctx: ToolContext): BuiltTool {
+  return {
+    name: "kanban_task",
+    label: "Read the board card",
+    description:
+      "Read the kanban card this conversation was dispatched from: its original requirement, " +
+      "how that requirement changed, what earlier runs decided and did, and what the user wrote " +
+      "back on the card. Call it when you are picking up work someone else started — a card that " +
+      "was interrupted, blocked, or handed to an agent a second time — rather than assuming the " +
+      "prompt is the whole story. It also returns the board file path; that file is plain JSON " +
+      "committed with the project, so `git log` on it shows how the requirement evolved. " +
+      "Read-only, safe in any mode. Conversations that are not a board task are told so instead " +
+      "of getting an empty card.",
+    parameters: Type.Object({}),
+    execute: async () => {
+      if (!ctx.onKanbanTask) {
+        return errorResult("The board is not available in this session.");
+      }
+      return ctx.onKanbanTask();
+    },
+  };
+}
+
+/**
  * `task` 的子智能体类型。
  *
  * - `explore`：只读调研，自己读一堆文件，只回一段能自包含的结论；

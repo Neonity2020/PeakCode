@@ -40,7 +40,11 @@ import {
   createWriteFile,
 } from "./tools/writeTools.ts";
 
-import { createKanbanCommentTool, createScheduleTaskTool } from "./tools/integrationTools.ts";
+import {
+  createKanbanCommentTool,
+  createKanbanTaskTool,
+  createScheduleTaskTool,
+} from "./tools/integrationTools.ts";
 import { createWritePlan } from "./tools/interactionTools.ts";
 import { BuiltTool, ToolContext } from "./tools/toolSupport.ts";
 import path from "node:path";
@@ -130,6 +134,7 @@ export function buildAgentTools(ctx: ToolContext): BuiltTool[] {
     createGoalTool(ctx),
     createScheduleTaskTool(ctx),
     createKanbanCommentTool(ctx),
+    createKanbanTaskTool(ctx),
     // 浏览器只在宿主真的注入了面板回调时才注册：无头 / CLI 会话没有可驱动的
     // 浏览器面板，列出来只会让模型去调一个注定失败的动词（同 view_image 的理由）。
     // 它算写操作（点一下可能就提交了表单），所以 Plan 模式由模式过滤关掉，见 agentToolkitMode。

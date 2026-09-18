@@ -23,6 +23,7 @@ import {
   IconBug,
   IconCalendar,
   IconCamera,
+  IconChartBar,
   IconCheck,
   IconClock,
   IconChevronDown,
@@ -163,6 +164,7 @@ export const PaletteIcon = adaptIcon(IconPalette);
 export const PaperclipIcon = adaptIcon(IconPaperclip);
 export const AdjustmentsIcon = adaptIcon(IconAdjustments);
 export const ArchiveIcon = adaptIcon(IconArchive);
+export const ChartIcon = adaptIcon(IconChartBar);
 export const BrainIcon = adaptIcon(IconBrain);
 export const FileIcon = adaptIcon(IconFile);
 export const FilterIcon = adaptIcon(IconFilter);

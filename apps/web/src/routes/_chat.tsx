@@ -425,9 +425,12 @@ const SIDEBAR_INNER_CLASS = {
 function ChatRouteLayout() {
   const { settings } = useAppSettings();
   const side = settings.sidebarSide;
-  // Settings is a first-level surface with its own navigation column, so the
-  // workspace sidebar steps aside while it is open.
-  const isOnSettings = useLocation({ select: (location) => location.pathname === "/settings" });
+  // Settings and the kanban board are first-level surfaces with their own
+  // navigation column, so the workspace sidebar steps aside while one is open.
+  const pathname = useLocation({ select: (location) => location.pathname });
+  const isOnSettings = pathname === "/settings";
+  const isOnKanban = pathname === "/kanban" || pathname.startsWith("/kanban/");
+  const sidebarStandsAside = isOnSettings || isOnKanban;
 
   const sidebarElement = (
     <Sidebar
@@ -453,9 +456,9 @@ function ChatRouteLayout() {
     <SidebarProvider defaultOpen>
       <ThreadRetentionMaintenanceToast />
       <ChatRouteGlobalShortcuts />
-      {side === "left" && !isOnSettings ? sidebarElement : null}
+      {side === "left" && !sidebarStandsAside ? sidebarElement : null}
       <Outlet />
-      {side === "right" && !isOnSettings ? sidebarElement : null}
+      {side === "right" && !sidebarStandsAside ? sidebarElement : null}
     </SidebarProvider>
   );
 }

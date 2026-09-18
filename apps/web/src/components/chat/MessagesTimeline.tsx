@@ -1701,7 +1701,6 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
     return SquarePenIcon;
   }
   if (workEntry.itemType === "web_search") return GlobeIcon;
-  if (workEntry.requestKind === "file-read") return EyeIcon;
   if (workEntry.itemType === "image_generation") return ZapIcon;
   if (workEntry.itemType === "image_view") return EyeIcon;
 

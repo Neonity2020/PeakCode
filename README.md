@@ -288,6 +288,8 @@ Further reading: [`.docs/runtime-modes.md`](./.docs/runtime-modes.md),
 [`.docs/automations.md`](./.docs/automations.md),
 [`.docs/im-channels.md`](./.docs/im-channels.md),
 [`.docs/skills-and-workflow.md`](./.docs/skills-and-workflow.md),
+[`.docs/workspace-file-explorer.md`](./.docs/workspace-file-explorer.md),
+[`.docs/usage-statistics.md`](./.docs/usage-statistics.md),
 [`.docs/workspace-layout.md`](./.docs/workspace-layout.md),
 [REMOTE.md](./REMOTE.md) for self-hosting.
 

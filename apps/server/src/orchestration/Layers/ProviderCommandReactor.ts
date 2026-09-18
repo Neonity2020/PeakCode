@@ -41,7 +41,12 @@ import {
 } from "../../checkpointing/Utils.ts";
 import { CheckpointStore } from "../../checkpointing/Services/CheckpointStore.ts";
 import { GitCore } from "../../git/Services/GitCore.ts";
-import { ProviderAdapterRequestError, ProviderServiceError } from "../../provider/Errors.ts";
+import {
+  ProviderAdapterRequestError,
+  ProviderAdapterSessionClosedError,
+  ProviderAdapterSessionNotFoundError,
+  ProviderServiceError,
+} from "../../provider/Errors.ts";
 import {
   TextGeneration,
   type BranchNameGenerationInput,
@@ -160,6 +165,20 @@ function isUnknownPendingUserInputRequestError(cause: Cause.Cause<ProviderServic
     return error.detail.toLowerCase().includes("unknown pending user-input request");
   }
   return Cause.pretty(cause).toLowerCase().includes("unknown pending user-input request");
+}
+
+/**
+ * A prompt whose session is gone can never be answered: after a restart the adapter has no
+ * in-memory callback left, even while the projection still calls the session running. That
+ * is the same dead end as a request the session has forgotten, and the panel — which clears
+ * only on the stale wording — has to hear about it the same way.
+ */
+function isUnanswerablePendingRequestError(cause: Cause.Cause<ProviderServiceError>): boolean {
+  const error = Cause.squash(cause);
+  return (
+    Schema.is(ProviderAdapterSessionNotFoundError)(error) ||
+    Schema.is(ProviderAdapterSessionClosedError)(error)
+  );
 }
 
 function isStaleResumeError(error: unknown): boolean {
@@ -1411,11 +1430,13 @@ const make = Effect.gen(function* () {
     }
     const hasSession = providerThread.session && providerThread.session.status !== "stopped";
     if (!hasSession) {
+      // With no session bound the prompt can never be answered, which is the same dead end
+      // as a request the session has forgotten — so it reports, and clears, the same way.
       return yield* appendProviderFailureActivity({
         threadId: event.payload.threadId,
         kind: "provider.approval.respond.failed",
         summary: "Provider approval response failed",
-        detail: "No active provider session is bound to this thread.",
+        detail: stalePendingRequestDetail("approval", event.payload.requestId),
         turnId: null,
         createdAt: event.payload.createdAt,
         requestId: event.payload.requestId,
@@ -1435,9 +1456,11 @@ const make = Effect.gen(function* () {
               threadId: event.payload.threadId,
               kind: "provider.approval.respond.failed",
               summary: "Provider approval response failed",
-              detail: isUnknownPendingApprovalRequestError(cause)
-                ? stalePendingRequestDetail("approval", event.payload.requestId)
-                : Cause.pretty(cause),
+              detail:
+                isUnknownPendingApprovalRequestError(cause) ||
+                isUnanswerablePendingRequestError(cause)
+                  ? stalePendingRequestDetail("approval", event.payload.requestId)
+                  : Cause.pretty(cause),
               turnId: null,
               createdAt: event.payload.createdAt,
               requestId: event.payload.requestId,
@@ -1463,7 +1486,7 @@ const make = Effect.gen(function* () {
         threadId: event.payload.threadId,
         kind: "provider.user-input.respond.failed",
         summary: "Provider user input response failed",
-        detail: "No active provider session is bound to this thread.",
+        detail: stalePendingRequestDetail("user-input", event.payload.requestId),
         turnId: null,
         createdAt: event.payload.createdAt,
         requestId: event.payload.requestId,
@@ -1482,9 +1505,11 @@ const make = Effect.gen(function* () {
             threadId: event.payload.threadId,
             kind: "provider.user-input.respond.failed",
             summary: "Provider user input response failed",
-            detail: isUnknownPendingUserInputRequestError(cause)
-              ? stalePendingRequestDetail("user-input", event.payload.requestId)
-              : Cause.pretty(cause),
+            detail:
+              isUnknownPendingUserInputRequestError(cause) ||
+              isUnanswerablePendingRequestError(cause)
+                ? stalePendingRequestDetail("user-input", event.payload.requestId)
+                : Cause.pretty(cause),
             turnId: null,
             createdAt: event.payload.createdAt,
             requestId: event.payload.requestId,

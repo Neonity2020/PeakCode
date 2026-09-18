@@ -46,17 +46,19 @@ const KNOWN_PLUGIN_BRANDS: Record<string, { color: string; icon: typeof SiCanva 
  * Plugins shipped by Peak Code itself, drawn as app icons rather than left to the accent
  * tile and the fallback hammer.
  *
- * Both files are the draw.io "3D Icons" set `3d-dynamic-gradient` — CC0-1.0 public domain,
- * browsable at `icons.motucloud.com/collection/motu-diagrams-n-3d-dynamic-gradient` — kept at
- * the set's 128px render size so the 44px tile stays crisp on retina. `browser-use` uses the
- * set's link (the web URL); `computer-use` uses its desktop computer. To swap art, drop a new
- * file in `apps/web/public/plugin-icons/` and point the path at it.
+ * `browser-use` and `computer-use` are the draw.io "3D Icons" set `3d-dynamic-gradient` —
+ * CC0-1.0 public domain, browsable at `icons.motucloud.com/collection/motu-diagrams-n-3d-dynamic-gradient` —
+ * kept at the set's 128px render size so the 44px tile stays crisp on retina. They use the
+ * set's link (the web URL) and its desktop computer. The set has no bolt, so `jev-ultrafast`
+ * is authored for this repo at the same size, palette and visual weight. To swap art, drop a
+ * new file in `apps/web/public/plugin-icons/` and point the path at it.
  *
  * A provider that ships its own `interface.logo` still wins over this map.
  */
 const KNOWN_PLUGIN_APP_ICONS: Record<string, string> = {
   browseruse: "/plugin-icons/browser-use.png",
   computeruse: "/plugin-icons/computer-use.png",
+  jevultrafast: "/plugin-icons/jev-ultrafast.png",
 };
 
 // ── Utilities ──────────────────────────────────────────────────────────────

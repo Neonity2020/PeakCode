@@ -1,5 +1,6 @@
 import { Effect, Layer } from "effect";
 
+import { listWorkspaceChangedFiles } from "../../workspaceChangedFiles";
 import {
   browseWorkspaceEntries,
   clearWorkspaceIndexCache,
@@ -29,6 +30,11 @@ export const WorkspaceEntriesLive = Layer.succeed(WorkspaceEntries, {
     Effect.tryPromise({
       try: () => searchLocalEntries(input),
       catch: (cause) => toWorkspaceEntriesError("search local entries", cause),
+    }),
+  listChangedFiles: (input) =>
+    Effect.tryPromise({
+      try: () => listWorkspaceChangedFiles(input),
+      catch: (cause) => toWorkspaceEntriesError("list workspace changed files", cause),
     }),
   invalidate: (cwd) => Effect.sync(() => clearWorkspaceIndexCache(cwd)),
 });

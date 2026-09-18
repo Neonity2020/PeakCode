@@ -457,7 +457,9 @@ export function createWsNativeApi(): NativeApi {
       searchEntries: (input) => transport.request(WS_METHODS.projectsSearchEntries, input),
       searchLocalEntries: (input) =>
         transport.request(WS_METHODS.projectsSearchLocalEntries, input),
+      readFile: (input) => transport.request(WS_METHODS.projectsReadFile, input),
       writeFile: (input) => transport.request(WS_METHODS.projectsWriteFile, input),
+      listChangedFiles: (input) => transport.request(WS_METHODS.projectsListChangedFiles, input),
     },
     filesystem: {
       browse: (input) => transport.request(WS_METHODS.filesystemBrowse, input),
@@ -582,6 +584,9 @@ export function createWsNativeApi(): NativeApi {
       listWorktrees: () => transport.request(WS_METHODS.serverListWorktrees),
       getProviderUsageSnapshot: (input) =>
         transport.request(WS_METHODS.serverGetProviderUsageSnapshot, input),
+      getUsageStatistics: (input) => transport.request(WS_METHODS.serverGetUsageStatistics, input),
+      getUsageSessionDetail: (input) =>
+        transport.request(WS_METHODS.serverGetUsageSessionDetail, input),
       getDiagnostics: () => transport.request(WS_METHODS.serverGetDiagnostics),
       transcribeVoice: (input) => {
         if (window.desktopBridge?.server?.transcribeVoice) {

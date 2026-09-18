@@ -39,6 +39,9 @@ describe("decideToolCall：不需要授权的调用", () => {
       // Writes only the card the thread was dispatched from, and the model cannot point it
       // anywhere else — gating each progress line would defeat per-step board comments.
       "kanban_comment",
+      // Reading that card back is the same argument with nothing to undo: the point is to
+      // consult it before starting, so it must not cost an approval prompt each time.
+      "kanban_task",
     ]) {
       expect(call(tool, {})).toBeNull();
     }

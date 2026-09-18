@@ -38,6 +38,7 @@ import {
   type DiffPanelMode,
 } from "../components/DiffPanelShell";
 import { useComposerDraftStore } from "../composerDraftStore";
+import { useFilesExplorerStore } from "../filesExplorerStore";
 import {
   type ChatRightPanel,
   type DiffRouteSearch,
@@ -93,6 +94,7 @@ import { cn } from "~/lib/utils";
 import { Sidebar, SidebarInset, SidebarProvider, SidebarRail } from "~/components/ui/sidebar";
 
 const DiffPanel = lazy(() => import("../components/DiffPanel"));
+const FileViewerPanel = lazy(() => import("../components/FileViewerPanel"));
 const DIFF_INLINE_LAYOUT_MEDIA_QUERY = "(max-width: 1180px)";
 // Keep the inline diff visually near half of the chat area after the fixed left sidebar is counted.
 const DIFF_INLINE_DEFAULT_WIDTH = "clamp(28rem, calc(50vw - 8rem), 44rem)";
@@ -277,7 +279,9 @@ const PanePanelInlineSidebar = (props: {
   const inlineSidebarStorageKey =
     panel === "browser"
       ? `${RIGHT_PANEL_SIDEBAR_WIDTH_STORAGE_KEY}:browser`
-      : `${RIGHT_PANEL_SIDEBAR_WIDTH_STORAGE_KEY}:diff`;
+      : panel === "files"
+        ? `${RIGHT_PANEL_SIDEBAR_WIDTH_STORAGE_KEY}:files`
+        : `${RIGHT_PANEL_SIDEBAR_WIDTH_STORAGE_KEY}:diff`;
   const onOpenChange = useCallback(
     (open: boolean) => {
       if (open) {
@@ -413,13 +417,17 @@ const PanePanelInlineSidebar = (props: {
         }}
       >
         {renderPanelContent && threadId ? (
-          <LazyDiffPanel
-            mode="sidebar"
-            threadId={threadId}
-            onClosePanel={onClosePanel}
-            {...(panelState ? { panelState } : {})}
-            {...(onUpdatePanelState ? { onUpdatePanelState } : {})}
-          />
+          panel === "files" ? (
+            <FileViewerPanel mode="sidebar" threadId={threadId} onClosePanel={onClosePanel} />
+          ) : (
+            <LazyDiffPanel
+              mode="sidebar"
+              threadId={threadId}
+              onClosePanel={onClosePanel}
+              {...(panelState ? { panelState } : {})}
+              {...(onUpdatePanelState ? { onUpdatePanelState } : {})}
+            />
+          )
         ) : null}
         <SidebarRail />
       </Sidebar>
@@ -445,7 +453,13 @@ function SplitPaneEmbeddedPanel(props: {
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const panelWidthStorageKey =
-    props.panel === "browser" ? "browser" : props.panel === "diff" ? "diff" : "panel";
+    props.panel === "browser"
+      ? "browser"
+      : props.panel === "diff"
+        ? "diff"
+        : props.panel === "files"
+          ? "files"
+          : "panel";
   const storageKey = `${RIGHT_PANEL_SIDEBAR_WIDTH_STORAGE_KEY}:${props.splitViewId}:${props.paneId}:${panelWidthStorageKey}`;
   const defaultPanelWidth =
     props.panel === "browser"
@@ -543,6 +557,12 @@ function SplitPaneEmbeddedPanel(props: {
       />
       {props.panel === "browser" ? (
         <BrowserPanel mode="sidebar" threadId={props.threadId} onClosePanel={props.onClosePanel} />
+      ) : props.panel === "files" ? (
+        <FileViewerPanel
+          mode="sidebar"
+          threadId={props.threadId}
+          onClosePanel={props.onClosePanel}
+        />
       ) : (
         <LazyDiffPanel
           mode="sidebar"
@@ -569,6 +589,9 @@ function normalizeSingleSearchFromPane(
 ): DiffRouteSearch {
   if (panelState.panel === "browser") {
     return { panel: "browser" };
+  }
+  if (panelState.panel === "files") {
+    return { panel: "files" };
   }
   if (panelState.panel === "diff") {
     return {
@@ -1165,7 +1188,7 @@ function SplitChatSurface(props: { splitViewId: SplitViewId; routeThreadId: Thre
         ...patch,
         hasOpenedPanel: leaf.panel.hasOpenedPanel || nextPanel !== null,
         lastOpenPanel:
-          patch.panel === "browser" || patch.panel === "diff"
+          patch.panel === "browser" || patch.panel === "diff" || patch.panel === "files"
             ? patch.panel
             : leaf.panel.lastOpenPanel,
       });
@@ -1562,7 +1585,7 @@ function SingleChatSurface(props: {
         ...patch,
         hasOpenedPanel: panelState.hasOpenedPanel || nextPanel !== null,
         lastOpenPanel:
-          patch.panel === "browser" || patch.panel === "diff"
+          patch.panel === "browser" || patch.panel === "diff" || patch.panel === "files"
             ? patch.panel
             : panelState.lastOpenPanel,
       });
@@ -1644,6 +1667,16 @@ function SingleChatSurface(props: {
       search: (previous) => stripDiffSearchParams(previous),
     });
   }, [navigate, props.search, props.threadId, updatePanelState]);
+
+  // Deep links carry the file to reveal; tab state itself lives in the explorer store.
+  const routeFilePath = props.search.panel === "files" ? props.search.filePath : undefined;
+  const openExplorerFile = useFilesExplorerStore((store) => store.openFile);
+  useEffect(() => {
+    if (!routeFilePath) {
+      return;
+    }
+    openExplorerFile(props.threadId, routeFilePath);
+  }, [openExplorerFile, props.threadId, routeFilePath]);
 
   useEffect(() => {
     const onMenuAction = window.desktopBridge?.onMenuAction;
@@ -1779,13 +1812,17 @@ function SingleChatSurface(props: {
       </ChatPaneDropOverlay>
       <RightPanelSheet panelOpen={panelOpen} onClosePanel={closePanel}>
         {shouldRenderPanelContent ? (
-          <LazyDiffPanel
-            mode="sheet"
-            threadId={props.threadId}
-            panelState={panelState}
-            onUpdatePanelState={updatePanelState}
-            onClosePanel={closePanel}
-          />
+          activePanel === "files" ? (
+            <FileViewerPanel mode="sheet" threadId={props.threadId} onClosePanel={closePanel} />
+          ) : (
+            <LazyDiffPanel
+              mode="sheet"
+              threadId={props.threadId}
+              panelState={panelState}
+              onUpdatePanelState={updatePanelState}
+              onClosePanel={closePanel}
+            />
+          )
         ) : null}
       </RightPanelSheet>
     </>

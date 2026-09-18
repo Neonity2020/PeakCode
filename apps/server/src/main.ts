@@ -429,10 +429,10 @@ const makeServerProgram = (input: CliInput) =>
           }
         }
 
-        // Skills that belong to a bundled plugin (browser-use, computer-use) ride the same
-        // installer and the same library. A plugin's manifest is served from the embedded
-        // registry, but its skill has to be on disk for the agent to read it and for the
-        // composer to offer it, so it is written exactly like any other bundled skill.
+        // Skills that belong to a bundled plugin ride the same installer and the same
+        // library. A plugin's manifest is served from the embedded registry, but its skill
+        // has to be on disk for the agent to read it and for the composer to offer it, so it
+        // is written exactly like any other bundled skill.
         for (const result of installBundledSkills({ skills: bundledPluginSkills() })) {
           if (result.status === "installed") {
             yield* Effect.logInfo("bundled plugin skill installed", { skill: result.skill });

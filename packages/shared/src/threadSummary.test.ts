@@ -221,4 +221,38 @@ describe("deriveThreadSummaryMetadata", () => {
       hasActionableProposedPlan: false,
     });
   });
+
+  it("counts a tool approval the request type cannot classify", () => {
+    // The browser and computer tools ask as `dynamic_tool_call`. While the sidebar dropped
+    // it, a thread parked on that approval looked idle: no badge, and nothing to answer.
+    const activities: OrchestrationThreadActivity[] = [
+      {
+        id: EventId.makeUnsafe("activity-1"),
+        tone: "approval",
+        kind: "approval.requested",
+        summary: "Approval requested",
+        payload: {
+          requestId: "approval-1",
+          requestType: "dynamic_tool_call",
+        },
+        sequence: 1,
+        turnId: TurnId.makeUnsafe("turn-1"),
+        createdAt: "2026-02-27T00:01:00.000Z",
+      },
+    ];
+
+    expect(
+      deriveThreadSummaryMetadata({
+        messages: [],
+        activities,
+        proposedPlans: [],
+        latestTurn: null,
+      }),
+    ).toEqual({
+      latestUserMessageAt: null,
+      hasPendingApprovals: true,
+      hasPendingUserInput: false,
+      hasActionableProposedPlan: false,
+    });
+  });
 });

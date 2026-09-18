@@ -7,6 +7,7 @@ import { Layer } from "effect";
 import * as nodeFs from "node:fs/promises";
 import * as nodePath from "node:path";
 
+import type { ProjectChangedFileStatus } from "@peakcode/contracts";
 import { GitCommandError } from "./Errors.ts";
 import { GitCore } from "./Services/GitCore.ts";
 
@@ -126,6 +127,102 @@ export function parsePorcelainPath(line: string): string | null {
   const parts = line.trim().split(/\s+/g);
   const filePath = parts.at(-1) ?? "";
   return filePath.length > 0 ? filePath : null;
+}
+
+export interface ParsedChangedFile {
+  path: string;
+  status: ProjectChangedFileStatus;
+}
+
+// Porcelain v2 entry shapes differ only in how many single-token fields precede the path.
+// The path itself may contain spaces, so it is everything left after those tokens.
+const PORCELAIN_V2_ORDINARY_LEADING_TOKENS = 8;
+const PORCELAIN_V2_RENAMED_LEADING_TOKENS = 9;
+const PORCELAIN_V2_UNMERGED_LEADING_TOKENS = 10;
+
+function resolvePorcelainV2Status(xy: string): ProjectChangedFileStatus {
+  // Unmerged entries report `u`; their XY pairs always contain a `U` or a duplicate side.
+  if (xy.includes("U")) {
+    return "conflicted";
+  }
+  if (xy.includes("R") || xy.includes("C")) {
+    return "renamed";
+  }
+  if (xy.includes("D")) {
+    return "deleted";
+  }
+  if (xy.includes("A")) {
+    return "added";
+  }
+  return "modified";
+}
+
+function parsePorcelainV2Path(field: string, leadingTokenCount: number): string | null {
+  let pathStart = 0;
+  for (let token = 0; token < leadingTokenCount; token += 1) {
+    const nextSeparator = field.indexOf(" ", pathStart);
+    if (nextSeparator === -1) {
+      return null;
+    }
+    pathStart = nextSeparator + 1;
+  }
+  return pathStart < field.length ? field.slice(pathStart) : null;
+}
+
+/**
+ * Parse `git status --porcelain=v2 -z` output. Paths are emitted raw (no quoting) and
+ * NUL-separated, and renamed entries carry their original path as the following field.
+ * Callers get one entry per current path with its index/worktree status collapsed into
+ * a single label.
+ */
+export function parsePorcelainV2ChangedFiles(stdout: string): ParsedChangedFile[] {
+  const fields = stdout.split("\0");
+  const changedFiles: ParsedChangedFile[] = [];
+
+  for (let index = 0; index < fields.length; index += 1) {
+    const field = fields[index];
+    if (!field || field.startsWith("#")) {
+      continue;
+    }
+
+    const marker = field.slice(0, 2);
+    if (marker === "? " || marker === "! ") {
+      const path = field.slice(2);
+      // Ignored entries are excluded from the index but are not user-visible changes.
+      if (marker === "? " && path.length > 0) {
+        changedFiles.push({ path, status: "untracked" });
+      }
+      continue;
+    }
+
+    const isOrdinary = marker === "1 ";
+    const isRenamed = marker === "2 ";
+    const isUnmerged = marker === "u ";
+    if (!isOrdinary && !isRenamed && !isUnmerged) {
+      continue;
+    }
+
+    const fieldCount = isRenamed
+      ? PORCELAIN_V2_RENAMED_LEADING_TOKENS
+      : isUnmerged
+        ? PORCELAIN_V2_UNMERGED_LEADING_TOKENS
+        : PORCELAIN_V2_ORDINARY_LEADING_TOKENS;
+    const path = parsePorcelainV2Path(field, fieldCount);
+    if (path) {
+      const xy = field.slice(2, 4);
+      changedFiles.push({
+        path,
+        status: isUnmerged ? "conflicted" : resolvePorcelainV2Status(xy),
+      });
+    }
+
+    if (isRenamed) {
+      // Skip the trailing original-path field that belongs to this record.
+      index += 1;
+    }
+  }
+
+  return changedFiles;
 }
 
 export function countTextLines(contents: Uint8Array): number {

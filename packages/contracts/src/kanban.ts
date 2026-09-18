@@ -151,6 +151,8 @@ export const KanbanProjectSummary = Schema.Struct({
   workspaceRoot: TrimmedNonEmptyString,
   /** Model a task uses when it does not name one itself. */
   defaultModelSelection: Schema.NullOr(ModelSelection),
+  /** When the project was added, which is what the board's picker orders by. */
+  createdAt: IsoDateTime,
   hasBoard: Schema.Boolean,
   taskCount: NonNegativeInt,
   todoCount: NonNegativeInt,

@@ -6,6 +6,7 @@ import type { KeybindingCommand, ProjectId, ThreadId } from "@peakcode/contracts
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "../appSettings";
 import type { ChatMessage, Project, SidebarThreadSummary, Thread } from "../types";
 import { cn } from "../lib/utils";
+import { moveToEnd } from "../lib/listOrder";
 import { resolveCurrentProjectTargetId } from "../lib/projectShortcutTargets";
 import { isDuplicateProjectCreateError } from "../lib/projectCreateRecovery";
 import { workspaceRootsEqual } from "@peakcode/shared/threadWorkspace";
@@ -924,6 +925,16 @@ export function getProjectSortTimestamp(
   projectThreads: readonly SidebarThreadSortInput[],
   sortOrder: Exclude<SidebarProjectSortOrder, "manual">,
 ): number {
+  // "Recently added" is a fact about the project itself. Asking its threads
+  // would turn it into a second activity ordering, which is the other option.
+  if (sortOrder === "created_at") {
+    return (
+      toSortableTimestamp(project.createdAt) ??
+      toSortableTimestamp(project.updatedAt) ??
+      Number.NEGATIVE_INFINITY
+    );
+  }
+
   if (projectThreads.length > 0) {
     return projectThreads.reduce(
       (latest, thread) => Math.max(latest, getThreadSortTimestamp(thread, sortOrder)),
@@ -931,12 +942,17 @@ export function getProjectSortTimestamp(
     );
   }
 
-  if (sortOrder === "created_at") {
-    return toSortableTimestamp(project.createdAt) ?? Number.NEGATIVE_INFINITY;
-  }
   return toSortableTimestamp(project.updatedAt ?? project.createdAt) ?? Number.NEGATIVE_INFINITY;
 }
 
+/**
+ * Orders the sidebar's project groups.
+ *
+ * `pinnedLastProjectId` is the built-in workspace: it is a scratch container the
+ * app creates for itself, not a project anybody added, so it belongs at the
+ * bottom in every mode — including `manual`, where dragging it up would only
+ * mean losing it again on the next launch.
+ */
 export function sortProjectsForSidebar<
   TProject extends SidebarProject,
   TThread extends { projectId: Thread["projectId"] } & SidebarThreadSortInput,
@@ -944,11 +960,23 @@ export function sortProjectsForSidebar<
   projects: readonly TProject[],
   threads: readonly TThread[],
   sortOrder: SidebarProjectSortOrder,
+  pinnedLastProjectId?: string | null,
 ): TProject[] {
-  if (sortOrder === "manual") {
-    return [...projects];
-  }
+  const ordered =
+    sortOrder === "manual" ? [...projects] : sortProjectsByTimestamp(projects, threads, sortOrder);
 
+  if (!pinnedLastProjectId) return ordered;
+  return moveToEnd(ordered, (project) => project.id === pinnedLastProjectId);
+}
+
+function sortProjectsByTimestamp<
+  TProject extends SidebarProject,
+  TThread extends { projectId: Thread["projectId"] } & SidebarThreadSortInput,
+>(
+  projects: readonly TProject[],
+  threads: readonly TThread[],
+  sortOrder: Exclude<SidebarProjectSortOrder, "manual">,
+): TProject[] {
   const threadsByProjectId = new Map<string, TThread[]>();
   for (const thread of threads) {
     const existing = threadsByProjectId.get(thread.projectId) ?? [];

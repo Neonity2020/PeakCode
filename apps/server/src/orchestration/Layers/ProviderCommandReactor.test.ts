@@ -18,7 +18,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deriveServerPaths, ServerConfig } from "../../config.ts";
 import { TextGenerationError } from "../../git/Errors.ts";
-import { ProviderAdapterRequestError } from "../../provider/Errors.ts";
+import {
+  ProviderAdapterRequestError,
+  ProviderAdapterSessionClosedError,
+  ProviderAdapterSessionNotFoundError,
+} from "../../provider/Errors.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
@@ -2248,6 +2252,48 @@ describe("ProviderCommandReactor", () => {
     expect(resolvedActivity).toBeUndefined();
   });
 
+  it("reports an approval with no session bound as stale, so the panel can clear", async () => {
+    // The same dead end as a question with no session: the answer cannot be delivered, and
+    // the panel only clears on the stale wording the web client matches.
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.approval.respond",
+        commandId: CommandId.makeUnsafe("cmd-approval-respond-no-session"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        requestId: asApprovalRequestId("approval-request-no-session"),
+        decision: "accept",
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return Boolean(
+        thread?.activities.some((activity) => activity.kind === "provider.approval.respond.failed"),
+      );
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const failureActivity = thread?.activities.find(
+      (activity) => activity.kind === "provider.approval.respond.failed",
+    );
+
+    expect(failureActivity?.payload).toMatchObject({
+      requestId: "approval-request-no-session",
+      detail: expect.stringContaining(
+        "Stale pending approval request: approval-request-no-session",
+      ),
+    });
+    expect(harness.respondToRequest).not.toHaveBeenCalled();
+  });
+
   it("surfaces stale provider user-input failures without faking user-input resolution", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
@@ -2357,6 +2403,170 @@ describe("ProviderCommandReactor", () => {
         (activity.payload as Record<string, unknown>).requestId === "user-input-request-1",
     );
     expect(resolvedActivity).toBeUndefined();
+  });
+
+  it("reports an answer with no session bound as stale, so the prompt can clear", async () => {
+    // A question answered after its session went away (an app restart, a reaped session) can
+    // never be delivered. It has to come back as the stale failure the panel clears on —
+    // otherwise the composer stays in answer mode with nothing left to answer, which is how
+    // a restarted app traps a thread behind a dead question.
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.activity.append",
+        commandId: CommandId.makeUnsafe("cmd-user-input-requested-no-session"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        activity: {
+          id: EventId.makeUnsafe("activity-user-input-requested-no-session"),
+          tone: "info",
+          kind: "user-input.requested",
+          summary: "User input requested",
+          payload: {
+            requestId: "user-input-request-no-session",
+            questions: [
+              {
+                id: "0",
+                header: "如何打开百度",
+                question: "刚才的浏览器导航被拒绝了。你希望怎么做？",
+                options: [
+                  { label: "用内置浏览器窗格打开", description: "重新发起 browser 工具调用" },
+                ],
+              },
+            ],
+          },
+          turnId: null,
+          createdAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.user-input.respond",
+        commandId: CommandId.makeUnsafe("cmd-user-input-respond-no-session"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        requestId: asApprovalRequestId("user-input-request-no-session"),
+        answers: { "0": "用内置浏览器窗格打开" },
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return Boolean(
+        thread?.activities.some(
+          (activity) => activity.kind === "provider.user-input.respond.failed",
+        ),
+      );
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const failureActivity = thread?.activities.find(
+      (activity) => activity.kind === "provider.user-input.respond.failed",
+    );
+
+    // The wording is load-bearing: `isStalePendingRequestFailureDetail` is what the web
+    // client matches on to drop the pending question, so a generic failure keeps it on screen.
+    expect(failureActivity?.payload).toMatchObject({
+      requestId: "user-input-request-no-session",
+      detail: expect.stringContaining(
+        "Stale pending user-input request: user-input-request-no-session",
+      ),
+    });
+    // With no session bound there is nothing to hand the answer to.
+    expect(harness.respondToUserInput).not.toHaveBeenCalled();
+  });
+
+  it("treats a prompt whose session is gone as stale, for approvals and questions alike", async () => {
+    // What an app restart leaves behind: the projection still calls the session running, while
+    // the adapter's in-memory callback table is empty. Neither answer can be delivered, and
+    // both have to come back as the stale wording the panel clears on.
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    harness.respondToRequest.mockImplementation(() =>
+      Effect.fail(
+        new ProviderAdapterSessionNotFoundError({ provider: "pi", threadId: "thread-1" }),
+      ),
+    );
+    harness.respondToUserInput.mockImplementation(() =>
+      Effect.fail(new ProviderAdapterSessionClosedError({ provider: "pi", threadId: "thread-1" })),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-for-gone-session"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "pi",
+          runtimeMode: "approval-required",
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.approval.respond",
+        commandId: CommandId.makeUnsafe("cmd-approval-respond-gone-session"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        requestId: asApprovalRequestId("approval-request-gone-session"),
+        decision: "accept",
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.user-input.respond",
+        commandId: CommandId.makeUnsafe("cmd-user-input-respond-gone-session"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        requestId: asApprovalRequestId("user-input-request-gone-session"),
+        answers: { "0": "用内置浏览器窗格打开" },
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      const kinds = new Set(thread?.activities.map((activity) => activity.kind));
+      return (
+        kinds.has("provider.approval.respond.failed") &&
+        kinds.has("provider.user-input.respond.failed")
+      );
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const payloadOf = (kind: string) =>
+      thread?.activities.find((activity) => activity.kind === kind)?.payload;
+
+    expect(payloadOf("provider.approval.respond.failed")).toMatchObject({
+      requestId: "approval-request-gone-session",
+      detail: expect.stringContaining(
+        "Stale pending approval request: approval-request-gone-session",
+      ),
+    });
+    expect(payloadOf("provider.user-input.respond.failed")).toMatchObject({
+      requestId: "user-input-request-gone-session",
+      detail: expect.stringContaining(
+        "Stale pending user-input request: user-input-request-gone-session",
+      ),
+    });
   });
 
   it("reacts to thread.session.stop by stopping provider session and clearing thread session state", async () => {

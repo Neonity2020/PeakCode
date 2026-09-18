@@ -159,7 +159,7 @@ export function orchestrationSessionStatusFromRuntimeState(
 
 export function requestKindFromCanonicalRequestType(
   requestType: string | undefined,
-): "command" | "file-read" | "file-change" | undefined {
+): "command" | "file-read" | "file-change" | "tool" | undefined {
   switch (requestType) {
     case "command_execution_approval":
     case "exec_command_approval":
@@ -169,6 +169,10 @@ export function requestKindFromCanonicalRequestType(
     case "file_change_approval":
     case "apply_patch_approval":
       return "file-change";
+    // A tool call that is neither a command nor a file change still has to be answerable:
+    // the web client drops an approval it cannot classify, and the turn then waits forever.
+    case "dynamic_tool_call":
+      return "tool";
     default:
       return undefined;
   }

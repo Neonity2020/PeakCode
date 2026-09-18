@@ -1,4 +1,6 @@
 import type {
+  ProjectListChangedFilesResult,
+  ProjectReadFileResult,
   ProjectSearchEntriesResult,
   ProjectSearchLocalEntriesResult,
 } from "@peakcode/contracts";
@@ -11,12 +13,22 @@ export const projectQueryKeys = {
     ["projects", "search-entries", cwd, query, limit] as const,
   searchLocalEntries: (rootPath: string | null, query: string, limit: number) =>
     ["projects", "search-local-entries", rootPath, query, limit] as const,
+  readFile: (cwd: string | null, relativePath: string | null) =>
+    ["projects", "read-file", cwd, relativePath] as const,
+  changedFiles: (cwd: string | null) => ["projects", "changed-files", cwd] as const,
 };
 
 const DEFAULT_SEARCH_ENTRIES_LIMIT = 80;
 const DEFAULT_SEARCH_ENTRIES_STALE_TIME = 15_000;
 const DEFAULT_SEARCH_LOCAL_ENTRIES_LIMIT = 50;
 const DEFAULT_SEARCH_LOCAL_ENTRIES_STALE_TIME = 10_000;
+const READ_FILE_STALE_TIME = 5_000;
+const CHANGED_FILES_STALE_TIME = 5_000;
+const CHANGED_FILES_REFETCH_INTERVAL_MS = 15_000;
+const EMPTY_CHANGED_FILES_RESULT: ProjectListChangedFilesResult = {
+  isGitRepository: false,
+  files: [],
+};
 const EMPTY_SEARCH_ENTRIES_RESULT: ProjectSearchEntriesResult = {
   entries: [],
   truncated: false,
@@ -80,5 +92,49 @@ export function projectSearchLocalEntriesQueryOptions(input: {
     enabled: (input.enabled ?? true) && input.rootPath !== null && trimmedQuery.length >= 2,
     staleTime: input.staleTime ?? DEFAULT_SEARCH_LOCAL_ENTRIES_STALE_TIME,
     placeholderData: (previous) => previous ?? EMPTY_SEARCH_LOCAL_ENTRIES_RESULT,
+  });
+}
+
+export function projectReadFileQueryOptions(input: {
+  cwd: string | null;
+  relativePath: string | null;
+  enabled?: boolean;
+}) {
+  return queryOptions({
+    // The file panel reads its own file path, so keep the key per path to allow tab switches
+    // to hit already-cached contents instead of refetching.
+    queryKey: projectQueryKeys.readFile(input.cwd, input.relativePath),
+    queryFn: async (): Promise<ProjectReadFileResult> => {
+      const api = ensureNativeApi();
+      if (!input.cwd || !input.relativePath) {
+        throw new Error("Workspace file contents are unavailable.");
+      }
+      return api.projects.readFile({ cwd: input.cwd, relativePath: input.relativePath });
+    },
+    enabled: (input.enabled ?? true) && input.cwd !== null && input.relativePath !== null,
+    staleTime: READ_FILE_STALE_TIME,
+    refetchOnWindowFocus: false,
+  });
+}
+
+export function projectChangedFilesQueryOptions(input: {
+  cwd: string | null;
+  enabled?: boolean;
+  refetchInterval?: number | false;
+}) {
+  return queryOptions({
+    queryKey: projectQueryKeys.changedFiles(input.cwd),
+    queryFn: async (): Promise<ProjectListChangedFilesResult> => {
+      const api = ensureNativeApi();
+      if (!input.cwd) {
+        throw new Error("Changed files are unavailable.");
+      }
+      return api.projects.listChangedFiles({ cwd: input.cwd });
+    },
+    enabled: (input.enabled ?? true) && input.cwd !== null,
+    staleTime: CHANGED_FILES_STALE_TIME,
+    refetchInterval: input.refetchInterval ?? CHANGED_FILES_REFETCH_INTERVAL_MS,
+    refetchOnWindowFocus: true,
+    placeholderData: (previous) => previous ?? EMPTY_CHANGED_FILES_RESULT,
   });
 }

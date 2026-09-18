@@ -8,6 +8,54 @@
 
 import type { Language } from "./language";
 
+// Workspace file explorer: the sidebar tree plus the file preview panel.
+export type FilesMessages = {
+  showFiles: string;
+  backToTasks: string;
+  refresh: string;
+  searchLabel: string;
+  searchPlaceholder: string;
+  clearSearch: string;
+  changedOnly: string;
+  showAll: string;
+  emptyDirectory: string;
+  loadingDirectory: string;
+  searching: string;
+  noResults: string;
+  readFailed: string;
+  workspaceUnavailable: string;
+  workspacePending: string;
+  changedFilesCount: (count: number) => string;
+  copyRelativePath: string;
+  copyAbsolutePath: string;
+  copyPathFailed: string;
+  openInEditor: string;
+  openInEditorFailed: string;
+  revealInFileManager: string;
+  revealInFileManagerFailed: string;
+  statusModified: string;
+  statusAdded: string;
+  statusDeleted: string;
+  statusRenamed: string;
+  statusUntracked: string;
+  statusConflicted: string;
+  viewer: {
+    browseFiles: string;
+    closeTab: string;
+    closePanel: string;
+    loading: string;
+    loadFailed: string;
+    fileMissing: string;
+    binary: string;
+    tooLarge: string;
+    empty: string;
+    previewMode: string;
+    sourceMode: string;
+    wrapLines: string;
+    lineCount: (count: number) => string;
+  };
+};
+
 export type Messages = {
   common: {
     cancel: string;
@@ -167,6 +215,7 @@ export type Messages = {
       copyPath: string;
       copyPathFailed: string;
     };
+    files: FilesMessages;
     update: {
       availableTitle: string;
       availableDescription: (version: string) => string;
@@ -612,6 +661,18 @@ export type Messages = {
     addTaskIn: (column: string) => string;
     taskCount: (count: number) => string;
     showingCount: (count: number) => string;
+    boardTab: string;
+    listTab: string;
+    refreshBoard: string;
+    switchProject: string;
+    backToAgents: string;
+    hiddenColumns: string;
+    hiddenColumnsEmpty: string;
+    columnActions: (column: string) => string;
+    hideColumn: string;
+    showAllColumns: string;
+    revealColumn: (column: string) => string;
+    createdLabel: string;
     sections: {
       projects: string;
     };
@@ -685,6 +746,7 @@ export type Messages = {
       modelProviders: { label: string; description: string };
       advanced: { label: string; description: string };
       channels: { label: string; description: string };
+      usage: { label: string; description: string };
     };
     groups: {
       basics: string;
@@ -1238,6 +1300,83 @@ export type Messages = {
         openHint: string;
       };
     };
+    usage: {
+      badge: string;
+      scope: (days: string) => string;
+      refresh: string;
+      loading: string;
+      errorTitle: string;
+      emptyTitle: string;
+      emptyDescription: string;
+      generatedAt: (time: string) => string;
+      filter: {
+        label: string;
+        all: string;
+      };
+      stats: {
+        cumulativeTokens: string;
+        peakTokens: string;
+        longestChat: string;
+        currentStreak: string;
+        longestStreak: string;
+      };
+      mix: {
+        title: string;
+        input: string;
+        output: string;
+        cacheRead: string;
+        cacheWrite: string;
+      };
+      tools: {
+        title: string;
+        description: string;
+        inactive: string;
+        sessions: (count: string) => string;
+        models: (count: string) => string;
+        lastUsed: (time: string) => string;
+      };
+      activity: {
+        title: string;
+        daily: string;
+        weekly: string;
+        cumulative: string;
+        tokensUnit: string;
+        responses: (count: string) => string;
+        weekTotal: (tokens: string) => string;
+        cumulativeTotal: (tokens: string) => string;
+      };
+      range: {
+        label: string;
+        last7: string;
+        last30: string;
+      };
+      trend: {
+        title: string;
+      };
+      models: {
+        title: string;
+        other: string;
+      };
+      sessions: {
+        title: string;
+        project: string;
+        duration: string;
+        requests: string;
+        requestCount: (count: string) => string;
+        detail: string;
+        detailTitle: string;
+        detailEmpty: string;
+        dropped: (count: string) => string;
+        unavailable: string;
+        time: string;
+        model: string;
+        input: string;
+        output: string;
+        cache: string;
+        total: string;
+        close: string;
+      };
+    };
     piPackages: {
       heading: string;
       description: string;
@@ -1756,6 +1895,52 @@ const en: Messages = {
       copyPath: "Path copied",
       copyPathFailed: "Failed to copy path",
     },
+    files: {
+      showFiles: "Show files",
+      backToTasks: "Back to tasks",
+      refresh: "Refresh file tree",
+      searchLabel: "Search files",
+      searchPlaceholder: "Search files…",
+      clearSearch: "Clear file search",
+      changedOnly: "Only show changed files",
+      showAll: "Show all files",
+      emptyDirectory: "This directory is empty.",
+      loadingDirectory: "Loading files…",
+      searching: "Searching…",
+      noResults: "No matching files.",
+      readFailed: "Failed to read this directory.",
+      workspaceUnavailable: "This chat has no workspace folder to browse.",
+      workspacePending: "The worktree for this chat is still being prepared.",
+      changedFilesCount: (count) => (count === 1 ? "1 changed file" : `${count} changed files`),
+      copyRelativePath: "Copy relative path",
+      copyAbsolutePath: "Copy absolute path",
+      copyPathFailed: "Failed to copy path",
+      openInEditor: "Open in editor",
+      openInEditorFailed: "Failed to open in editor",
+      revealInFileManager: "Reveal in file manager",
+      revealInFileManagerFailed: "Failed to reveal in file manager",
+      statusModified: "Modified",
+      statusAdded: "Added",
+      statusDeleted: "Deleted",
+      statusRenamed: "Renamed",
+      statusUntracked: "Untracked",
+      statusConflicted: "Conflicted",
+      viewer: {
+        browseFiles: "Browse files",
+        closeTab: "Close tab",
+        closePanel: "Close file panel",
+        loading: "Loading file…",
+        loadFailed: "Failed to read this file.",
+        fileMissing: "This file no longer exists.",
+        binary: "This file looks like binary data and cannot be previewed here.",
+        tooLarge: "This file is too large to preview here. Open it in an editor instead.",
+        empty: "This file is empty.",
+        previewMode: "Preview",
+        sourceMode: "Source",
+        wrapLines: "Wrap lines",
+        lineCount: (count) => (count === 1 ? "1 line" : `${count} lines`),
+      },
+    },
     update: {
       availableTitle: "Update available",
       availableDescription: (version) => `Peak Code ${version} is available.`,
@@ -2210,6 +2395,18 @@ const en: Messages = {
     addTaskIn: (column) => `New task in ${column}`,
     taskCount: (count) => (count === 1 ? "1 task" : `${count} tasks`),
     showingCount: (count) => (count === 1 ? "1 shown" : `${count} shown`),
+    boardTab: "Board",
+    listTab: "List",
+    refreshBoard: "Refresh board",
+    switchProject: "Switch project",
+    backToAgents: "Back to agents",
+    hiddenColumns: "Hidden columns",
+    hiddenColumnsEmpty: "Every column is on the board.",
+    columnActions: (column) => `Column actions for ${column}`,
+    hideColumn: "Hide this column",
+    showAllColumns: "Show all columns",
+    revealColumn: (column) => `Show ${column} on the board`,
+    createdLabel: "Created",
     sections: {
       projects: "Projects",
     },
@@ -2321,6 +2518,10 @@ const en: Messages = {
       channels: {
         label: "Channels",
         description: "Drive the agent from WeChat, Feishu/Lark, QQ, or a webhook.",
+      },
+      usage: {
+        label: "Usage",
+        description: "Analyze the tokens every coding agent on this machine has consumed.",
       },
     },
     groups: {
@@ -2926,6 +3127,85 @@ const en: Messages = {
         openHint: "Scan the code below to open this workspace on the phone.",
       },
     },
+    usage: {
+      badge: "Local usage",
+      scope: (days) =>
+        `Counts the local session records of every coding agent on this machine, last ${days} days.`,
+      refresh: "Refresh",
+      loading: "Reading local usage logs…",
+      errorTitle: "Could not load usage statistics",
+      emptyTitle: "No usage recorded yet",
+      emptyDescription:
+        "Run a session in any coding agent on this machine and its token usage shows up here.",
+      generatedAt: (time) => `Updated ${time}`,
+      filter: {
+        label: "Tool",
+        all: "All tools",
+      },
+      stats: {
+        cumulativeTokens: "Total tokens",
+        peakTokens: "Peak day",
+        longestChat: "Longest chat",
+        currentStreak: "Current streak",
+        longestStreak: "Longest streak",
+      },
+      mix: {
+        title: "Token mix",
+        input: "Input",
+        output: "Output",
+        cacheRead: "Cache read",
+        cacheWrite: "Cache write",
+      },
+      tools: {
+        title: "Tool usage",
+        description: "Every tool's share of this machine's tokens.",
+        inactive: "No records found",
+        sessions: (count) => `${count} sessions`,
+        models: (count) => `${count} models`,
+        lastUsed: (time) => `Last used ${time}`,
+      },
+      activity: {
+        title: "Token activity",
+        daily: "Daily",
+        weekly: "Weekly",
+        cumulative: "Cumulative",
+        tokensUnit: "tokens",
+        responses: (count) => `${count} ${count === "1" ? "response" : "responses"}`,
+        weekTotal: (tokens) => `Week ${tokens} tokens`,
+        cumulativeTotal: (tokens) => `Running total ${tokens} tokens`,
+      },
+      range: {
+        label: "Time range",
+        last7: "Last 7 days",
+        last30: "Last 30 days",
+      },
+      trend: {
+        title: "Daily token trend",
+      },
+      models: {
+        title: "Model usage",
+        other: "Other",
+      },
+      sessions: {
+        title: "Recent sessions",
+        project: "Project",
+        duration: "Duration",
+        requests: "Requests",
+        requestCount: (count) => `${count} req`,
+        detail: "Requests",
+        detailTitle: "Session requests",
+        detailEmpty: "This session has no request rows to show.",
+        dropped: (count) => `Showing the most recent requests; ${count} older ones were released.`,
+        unavailable: "Request detail for this session has been released.",
+        time: "Time",
+        model: "Model",
+        input: "Input",
+        output: "Output",
+        cache: "Cache r/w",
+        total: "Total",
+        close: "Close",
+      },
+    },
     piPackages: {
       heading: "Pi Packages",
       description:
@@ -3457,6 +3737,52 @@ const zh: Messages = {
       copyPath: "路径已复制",
       copyPathFailed: "复制路径失败",
     },
+    files: {
+      showFiles: "查看文件",
+      backToTasks: "返回任务",
+      refresh: "刷新文件树",
+      searchLabel: "搜索文件",
+      searchPlaceholder: "搜索文件...",
+      clearSearch: "清空文件搜索",
+      changedOnly: "仅显示变更文件",
+      showAll: "显示全部文件",
+      emptyDirectory: "当前目录为空。",
+      loadingDirectory: "正在读取文件列表...",
+      searching: "正在搜索...",
+      noResults: "没有匹配的文件。",
+      readFailed: "读取目录失败。",
+      workspaceUnavailable: "该任务没有可浏览的工作区目录。",
+      workspacePending: "该任务的工作树尚在准备中。",
+      changedFilesCount: (count) => `${count} 个变更文件`,
+      copyRelativePath: "复制相对路径",
+      copyAbsolutePath: "复制绝对路径",
+      copyPathFailed: "复制路径失败",
+      openInEditor: "在编辑器中打开",
+      openInEditorFailed: "无法在编辑器中打开",
+      revealInFileManager: "在文件管理器中显示",
+      revealInFileManagerFailed: "无法在文件管理器中显示",
+      statusModified: "已修改",
+      statusAdded: "已新增",
+      statusDeleted: "已删除",
+      statusRenamed: "已重命名",
+      statusUntracked: "未跟踪",
+      statusConflicted: "有冲突",
+      viewer: {
+        browseFiles: "浏览文件",
+        closeTab: "关闭标签页",
+        closePanel: "关闭文件面板",
+        loading: "正在读取文件...",
+        loadFailed: "读取文件失败。",
+        fileMissing: "该文件已不存在。",
+        binary: "当前文件看起来像二进制内容，暂不支持预览。",
+        tooLarge: "文件过大，无法在此预览。请使用编辑器打开。",
+        empty: "文件为空",
+        previewMode: "预览",
+        sourceMode: "源码",
+        wrapLines: "自动换行",
+        lineCount: (count) => `${count} 行`,
+      },
+    },
     update: {
       availableTitle: "有新版本可用",
       availableDescription: (version) => `Peak Code ${version} 已可更新。`,
@@ -3907,6 +4233,18 @@ const zh: Messages = {
     addTaskIn: (column) => `在「${column}」新建任务`,
     taskCount: (count) => `共 ${count} 个任务`,
     showingCount: (count) => `显示 ${count} 条`,
+    boardTab: "看板",
+    listTab: "列表",
+    refreshBoard: "刷新看板",
+    switchProject: "切换项目",
+    backToAgents: "返回智能体",
+    hiddenColumns: "隐藏列",
+    hiddenColumnsEmpty: "所有列都已在看板上。",
+    columnActions: (column) => `「${column}」列操作`,
+    hideColumn: "隐藏该列",
+    showAllColumns: "显示全部列",
+    revealColumn: (column) => `在板上显示「${column}」`,
+    createdLabel: "创建于",
     sections: {
       projects: "项目",
     },
@@ -4013,6 +4351,10 @@ const zh: Messages = {
       channels: {
         label: "频道",
         description: "在微信、飞书/Lark、QQ 或 webhook 里直接给 Agent 派活。",
+      },
+      usage: {
+        label: "使用统计",
+        description: "归口统计本机各编码工具消耗的 Token。",
       },
     },
     groups: {
@@ -4589,6 +4931,83 @@ const zh: Messages = {
         binaryPathHint: "默认为 PATH 里的 cloudflared（macOS: brew install cloudflared）。",
         lastUrl: "上次的地址",
         openHint: "扫下方的二维码，在手机上打开这个工作区。",
+      },
+    },
+    usage: {
+      badge: "本机用量",
+      scope: (days) => `统计范围：本机各编码工具的本地会话记录，最近 ${days} 天。`,
+      refresh: "刷新",
+      loading: "正在读取本地用量日志…",
+      errorTitle: "加载使用统计失败",
+      emptyTitle: "还没有用量记录",
+      emptyDescription: "在本机任意一个编码工具里跑一次会话，这里就会显示它的 Token 消耗。",
+      generatedAt: (time) => `更新于 ${time}`,
+      filter: {
+        label: "工具",
+        all: "全部工具",
+      },
+      stats: {
+        cumulativeTokens: "累计 Token 数",
+        peakTokens: "峰值 Token 数",
+        longestChat: "最长聊天时长",
+        currentStreak: "当前连续天数",
+        longestStreak: "最长连续天数",
+      },
+      mix: {
+        title: "Token 构成",
+        input: "输入",
+        output: "输出",
+        cacheRead: "缓存读",
+        cacheWrite: "缓存写",
+      },
+      tools: {
+        title: "工具用量",
+        description: "本机各工具的 Token 占比。",
+        inactive: "未检测到记录",
+        sessions: (count) => `${count} 个会话`,
+        models: (count) => `${count} 个模型`,
+        lastUsed: (time) => `最后使用 ${time}`,
+      },
+      activity: {
+        title: "Token 活动",
+        daily: "每日",
+        weekly: "每周",
+        cumulative: "累计",
+        tokensUnit: "tokens",
+        responses: (count) => `${count} 轮消息`,
+        weekTotal: (tokens) => `本周 ${tokens} tokens`,
+        cumulativeTotal: (tokens) => `累计 ${tokens} tokens`,
+      },
+      range: {
+        label: "时间范围",
+        last7: "近 7 日",
+        last30: "近 30 日",
+      },
+      trend: {
+        title: "每日 Token 趋势图",
+      },
+      models: {
+        title: "模型用量",
+        other: "其他",
+      },
+      sessions: {
+        title: "最近会话",
+        project: "项目",
+        duration: "时长",
+        requests: "请求数",
+        requestCount: (count) => `${count} 次请求`,
+        detail: "请求明细",
+        detailTitle: "会话请求明细",
+        detailEmpty: "这个会话没有可展示的请求记录。",
+        dropped: (count) => `仅显示最近的请求，另有 ${count} 条较早的请求已释放。`,
+        unavailable: "该会话的请求明细已超出保留范围。",
+        time: "时间",
+        model: "模型",
+        input: "输入",
+        output: "输出",
+        cache: "缓存读/写",
+        total: "合计",
+        close: "关闭",
       },
     },
     piPackages: {

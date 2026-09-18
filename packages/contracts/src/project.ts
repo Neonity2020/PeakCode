@@ -1,10 +1,17 @@
 import { Schema } from "effect";
-import { PositiveInt, TrimmedNonEmptyString } from "./baseSchemas";
+import { NonNegativeInt, PositiveInt, TrimmedNonEmptyString } from "./baseSchemas";
 
 const PROJECT_SEARCH_ENTRIES_MAX_LIMIT = 200;
 const PROJECT_SEARCH_LOCAL_ENTRIES_MAX_LIMIT = 100;
 const PROJECT_WRITE_FILE_PATH_MAX_LENGTH = 512;
+const PROJECT_READ_FILE_PATH_MAX_LENGTH = 1024;
 const PROJECT_DIRECTORY_LIST_MAX_DEPTH = 32;
+
+/**
+ * Preview budget for `projects.readFile`. Larger files are reported as `too-large`
+ * instead of being streamed so the file panel never buffers an unbounded payload.
+ */
+export const PROJECT_READ_FILE_MAX_BYTES = 256 * 1024;
 
 export const ProjectKind = Schema.Literals(["project", "chat"]);
 export type ProjectKind = typeof ProjectKind.Type;
@@ -98,3 +105,52 @@ export const ProjectWriteFileResult = Schema.Struct({
   relativePath: TrimmedNonEmptyString,
 });
 export type ProjectWriteFileResult = typeof ProjectWriteFileResult.Type;
+
+/**
+ * `binary` and `too-large` results carry no payload; callers surface a placeholder
+ * instead of the raw bytes so preview surfaces stay allocation-cheap.
+ */
+export const ProjectReadFileKind = Schema.Literals(["text", "binary", "too-large"]);
+export type ProjectReadFileKind = typeof ProjectReadFileKind.Type;
+
+export const ProjectReadFileInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  relativePath: TrimmedNonEmptyString.check(Schema.isMaxLength(PROJECT_READ_FILE_PATH_MAX_LENGTH)),
+});
+export type ProjectReadFileInput = typeof ProjectReadFileInput.Type;
+
+export const ProjectReadFileResult = Schema.Struct({
+  relativePath: TrimmedNonEmptyString,
+  kind: ProjectReadFileKind,
+  contents: Schema.String,
+  byteLength: NonNegativeInt,
+});
+export type ProjectReadFileResult = typeof ProjectReadFileResult.Type;
+
+export const ProjectChangedFileStatus = Schema.Literals([
+  "modified",
+  "added",
+  "deleted",
+  "renamed",
+  "untracked",
+  "conflicted",
+]);
+export type ProjectChangedFileStatus = typeof ProjectChangedFileStatus.Type;
+
+export const ProjectChangedFile = Schema.Struct({
+  // POSIX path relative to the requested workspace root.
+  path: TrimmedNonEmptyString,
+  status: ProjectChangedFileStatus,
+});
+export type ProjectChangedFile = typeof ProjectChangedFile.Type;
+
+export const ProjectListChangedFilesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+});
+export type ProjectListChangedFilesInput = typeof ProjectListChangedFilesInput.Type;
+
+export const ProjectListChangedFilesResult = Schema.Struct({
+  isGitRepository: Schema.Boolean,
+  files: Schema.Array(ProjectChangedFile),
+});
+export type ProjectListChangedFilesResult = typeof ProjectListChangedFilesResult.Type;

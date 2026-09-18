@@ -3,11 +3,12 @@
 // Layer: Chat/home filesystem UI helper
 // Exports: DirectoryTreeBrowser for inline and popover-based local file/folder navigation.
 
-import type { ProjectDirectoryEntry, ProjectFileSystemEntry } from "@peakcode/contracts";
+import type { ProjectFileSystemEntry } from "@peakcode/contracts";
 import type { ReactNode } from "react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 import { ChevronDownIcon, ChevronRightIcon, FileIcon, FolderIcon } from "~/lib/icons";
-import { readNativeApi } from "~/nativeApi";
+import { joinWorkspacePath } from "~/lib/workspaceFileTree";
+import { useWorkspaceFileTree } from "~/hooks/useWorkspaceFileTree";
 import { cn } from "~/lib/utils";
 
 interface DirectoryTreeBrowserProps {
@@ -21,16 +22,6 @@ interface DirectoryTreeBrowserProps {
   onSelectEntry: (absolutePath: string, entry: ProjectFileSystemEntry) => Promise<void> | void;
 }
 
-type DirectoryEntriesByParent = Record<string, readonly ProjectFileSystemEntry[] | undefined>;
-
-function joinDirectoryPath(rootPath: string, relativePath: string): string {
-  if (!relativePath) return rootPath;
-  const separator = rootPath.includes("\\") ? "\\" : "/";
-  const normalizedRoot = rootPath.endsWith(separator) ? rootPath.slice(0, -1) : rootPath;
-  const normalizedRelative = relativePath.split(/[\\/]+/).join(separator);
-  return `${normalizedRoot}${separator}${normalizedRelative}`;
-}
-
 export const DirectoryTreeBrowser = memo(function DirectoryTreeBrowser({
   rootPath,
   emptyLabel = "No folders found",
@@ -41,75 +32,9 @@ export const DirectoryTreeBrowser = memo(function DirectoryTreeBrowser({
   query = "",
   onSelectEntry,
 }: DirectoryTreeBrowserProps) {
-  const [entriesByParent, setEntriesByParent] = useState<DirectoryEntriesByParent>({});
-  const [expandedPaths, setExpandedPaths] = useState<ReadonlySet<string>>(() => new Set());
-  const [loadingPaths, setLoadingPaths] = useState<ReadonlySet<string>>(() => new Set());
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { entriesByParent, expandedPaths, loadingPaths, errorMessage, toggleDirectory } =
+    useWorkspaceFileTree({ rootPath, includeFiles });
   const rootEntries = useMemo(() => entriesByParent[""] ?? [], [entriesByParent]);
-
-  // Lazily loads one directory level at a time so deep local browsing stays responsive.
-  const loadDirectory = useCallback(
-    async (relativePath = "") => {
-      const api = readNativeApi();
-      if (!api || !rootPath) {
-        return;
-      }
-      if (entriesByParent[relativePath]) {
-        return;
-      }
-
-      setLoadingPaths((current) => new Set(current).add(relativePath));
-      setErrorMessage(null);
-      try {
-        const result = await api.projects.listDirectories({
-          cwd: rootPath,
-          ...(includeFiles ? { includeFiles: true } : {}),
-          ...(relativePath ? { relativePath } : {}),
-        });
-        setEntriesByParent((current) => ({
-          ...current,
-          [relativePath]: result.entries,
-        }));
-      } catch (error) {
-        setErrorMessage(error instanceof Error ? error.message : "Unable to load folders.");
-      } finally {
-        setLoadingPaths((current) => {
-          const next = new Set(current);
-          next.delete(relativePath);
-          return next;
-        });
-      }
-    },
-    [entriesByParent, includeFiles, rootPath],
-  );
-
-  const handleEnsureRootLoaded = useCallback(() => {
-    if (rootEntries.length === 0 && !loadingPaths.has("")) {
-      void loadDirectory();
-    }
-  }, [loadDirectory, loadingPaths, rootEntries.length]);
-
-  useEffect(() => {
-    handleEnsureRootLoaded();
-  }, [handleEnsureRootLoaded]);
-
-  const toggleDirectory = useCallback(
-    (entry: ProjectDirectoryEntry) => {
-      setExpandedPaths((current) => {
-        const next = new Set(current);
-        if (next.has(entry.path)) {
-          next.delete(entry.path);
-          return next;
-        }
-        next.add(entry.path);
-        return next;
-      });
-      if (entry.hasChildren && !entriesByParent[entry.path]) {
-        void loadDirectory(entry.path);
-      }
-    },
-    [entriesByParent, loadDirectory],
-  );
 
   const renderedTree = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
@@ -148,7 +73,7 @@ export const DirectoryTreeBrowser = memo(function DirectoryTreeBrowser({
               )}
               onClick={() => {
                 if (isDirectory && entry.hasChildren) {
-                  toggleDirectory(entry as ProjectDirectoryEntry);
+                  toggleDirectory(entry.path, { hasChildren: entry.hasChildren });
                 }
               }}
             >
@@ -165,7 +90,7 @@ export const DirectoryTreeBrowser = memo(function DirectoryTreeBrowser({
               className="flex min-w-0 flex-1 items-center gap-2 rounded-md py-1 text-left"
               onClick={() => {
                 if (!rootPath) return;
-                void onSelectEntry(joinDirectoryPath(rootPath, entry.path), entry);
+                void onSelectEntry(joinWorkspacePath(rootPath, entry.path), entry);
               }}
             >
               {isDirectory ? (
@@ -196,7 +121,7 @@ export const DirectoryTreeBrowser = memo(function DirectoryTreeBrowser({
   ]);
 
   return (
-    <div className={className} onMouseEnter={handleEnsureRootLoaded}>
+    <div className={className}>
       {!rootPath ? (
         <div className="px-2 py-8 text-center text-sm text-muted-foreground/60">
           {unavailableLabel}

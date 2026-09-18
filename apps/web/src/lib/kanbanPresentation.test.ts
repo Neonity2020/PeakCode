@@ -11,6 +11,7 @@ import {
   kanbanColumnAccent,
   kanbanProjectCode,
   kanbanRunStatusLabel,
+  kanbanStampLabel,
   kanbanStatusLabel,
   kanbanTaskCode,
   shortModelName,
@@ -77,5 +78,31 @@ describe("labels", () => {
     expect(kanbanStatusLabel(MESSAGES.zh, "blocked")).toBe("已阻塞");
     expect(kanbanRunStatusLabel(MESSAGES.en, "running")).toBe("Running");
     expect(kanbanRunStatusLabel(MESSAGES.zh, null)).toBe(MESSAGES.zh.kanban.agentRunUnknown);
+  });
+});
+
+/** An ISO stamp `daysAgo` before now, at the same time of day. */
+function stampDaysAgo(daysAgo: number): string {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  return date.toISOString();
+}
+
+describe("kanbanStampLabel", () => {
+  it("names the days a card is most likely to carry", () => {
+    expect(kanbanStampLabel(stampDaysAgo(0), "en")).toMatch(/today/i);
+    expect(kanbanStampLabel(stampDaysAgo(1), "en")).toMatch(/yesterday/i);
+    expect(kanbanStampLabel(stampDaysAgo(0), "zh")).toBe("今天");
+    expect(kanbanStampLabel(stampDaysAgo(1), "zh")).toBe("昨天");
+  });
+
+  it("drops to a short day once the card is older than that", () => {
+    const older = kanbanStampLabel(stampDaysAgo(30), "en");
+    expect(older).not.toMatch(/today|yesterday/i);
+    expect(older.length).toBeGreaterThan(0);
+  });
+
+  it("renders nothing for a stamp it cannot read", () => {
+    expect(kanbanStampLabel("not a date", "en")).toBe("");
   });
 });

@@ -157,6 +157,7 @@ export interface ThreadToolkitToolsInput {
         | "onWritePlan"
         | "onScheduleTask"
         | "onKanbanComment"
+        | "onKanbanTask"
         | "onBrowser"
         | "onComputer"
       >

@@ -255,6 +255,8 @@ Peak Code 是一个 Bun monorepo（`bun@1.3.9`，Turborepo，全面使用 Effect
 [`.docs/automations.md`](./.docs/automations.md)、
 [`.docs/im-channels.md`](./.docs/im-channels.md)、
 [`.docs/skills-and-workflow.md`](./.docs/skills-and-workflow.md)、
+[`.docs/workspace-file-explorer.md`](./.docs/workspace-file-explorer.md)、
+[`.docs/usage-statistics.md`](./.docs/usage-statistics.md)、
 [`.docs/workspace-layout.md`](./.docs/workspace-layout.md)，自托管请看 [REMOTE.md](./REMOTE.md)。
 
 ## 开发

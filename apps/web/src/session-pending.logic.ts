@@ -29,6 +29,11 @@ export function requestKindFromRequestType(
     case "file_change_approval":
     case "apply_patch_approval":
       return "file-change";
+    // A harness tool call (the browser, the computer) asks for approval as a dynamic tool
+    // call. It is not a command or a file change, but it is just as answerable — a request
+    // the panel cannot label is still a request the user has to be able to see.
+    case "dynamic_tool_call":
+      return "tool";
     default:
       return null;
   }
@@ -67,7 +72,8 @@ export function derivePendingApprovals(
       payload &&
       (payload.requestKind === "command" ||
         payload.requestKind === "file-read" ||
-        payload.requestKind === "file-change")
+        payload.requestKind === "file-change" ||
+        payload.requestKind === "tool")
         ? payload.requestKind
         : payload
           ? requestKindFromRequestType(payload.requestType)

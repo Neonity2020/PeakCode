@@ -1,0 +1,16 @@
+{
+  "name": "jev-ultrafast",
+  "displayName": "Jev Ultrafast",
+  "shortDescription": "Run a browser goal as a tight loop: one numbered element table, one decision, one action.",
+  "longDescription": "A long browser run is usually slow for one reason: every step re-observes the page, re-decides, and acts on a target chosen from a stale reading. This plugin adds the decision policy of browser-use's Jev Ultrafast on top of the in-app browser. After each snapshot the agent writes the candidates out as a numbered table with the values they currently hold, chooses the operation and its target together in one step, and then acts once. The rules that come with it are what keep a run short: never type into a field that already holds the value, never type into a control that is not a text field, wait on the condition you actually need instead of on a timer, and treat a finished state as something to verify rather than something to claim. Reach for it on goals that take many steps — filling and submitting a form, searching with filters, or walking a checkout until the confirmation is on screen.",
+  "developerName": "Peak Code",
+  "category": "developer-tools",
+  "capabilities": ["browser", "decision-policy", "form-filling", "page-verification"],
+  "websiteUrl": "https://github.com/browser-use/jev-ultrafast",
+  "defaultPrompt": [
+    "Search flights from Zürich to London on 20 September 2026 for one adult in economy, and stop when the options are visible.",
+    "Fill in the form on this page, submit it, and tell me what the page says afterwards."
+  ],
+  "skills": ["jev-ultrafast"],
+  "brandColor": "#F59E0B"
+}

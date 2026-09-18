@@ -559,11 +559,14 @@ describe("kanban task dispatch", () => {
       expect(create.projectId).toBe(PROJECT_ID);
       expect(create.title).toBe("集成看板");
       expect(turnStart.threadId).toBe(task.agentThreadId);
-      // The brief, then the board's standing instructions (which is what makes the run
-      // report each step back onto the card).
-      expect(turnStart.message.text).toBe(
-        `集成看板\n\n拖到进行中就开始执行\n\n${BOARD_RUN_INSTRUCTIONS}`,
-      );
+      // The brief, then where the card lives, then the board's standing
+      // instructions (which is what makes the run report each step back). The
+      // board block is how a run finds the card's own history.
+      const prompt = turnStart.message.text;
+      expect(prompt.startsWith("集成看板\n\n拖到进行中就开始执行\n\n")).toBe(true);
+      expect(prompt).toContain(`卡片：\`${task.taskId}\``);
+      expect(prompt).toContain(".kanban/board.json");
+      expect(prompt.endsWith(BOARD_RUN_INSTRUCTIONS)).toBe(true);
 
       // The claim is persisted, so a board reload still knows about the run.
       const reloaded = await harness.run(
@@ -1528,6 +1531,123 @@ describe("stale run release", () => {
         status: "in_progress",
         agentRunStatus: "running",
       });
+    } finally {
+      await harness.dispose();
+    }
+  });
+});
+
+describe("kanban task read-back", () => {
+  /** A card that ran, was written back to, and now sits in a terminal column. */
+  const seedRecordedTask = async (harness: Harness, threadId: ThreadId) => {
+    await mkdir(join(harness.workspaceRoot, ".kanban"), { recursive: true });
+    await writeFile(
+      harness.boardFilePath,
+      JSON.stringify({
+        version: 1,
+        name: "Peak Code 看板",
+        projectId: PROJECT_ID,
+        tasks: [
+          {
+            id: "t_recorded",
+            title: "接上多端同步",
+            description: "先把离线队列做出来。",
+            status: "in_progress",
+            priority: "high",
+            agentThreadId: threadId,
+            agentRunStatus: "interrupted",
+            comments: [
+              {
+                commentId: "c_1",
+                author: "agent",
+                kind: "note",
+                body: "第一版只做了本地队列。",
+                createdAt: "2026-09-16T05:00:00Z",
+              },
+              {
+                commentId: "c_2",
+                author: "user",
+                kind: "note",
+                body: "两台设备同时改会互相覆盖，先解决这个。",
+                createdAt: "2026-09-17T01:00:00Z",
+              },
+            ],
+          },
+          { id: "t_other", title: "别的任务", status: "todo" },
+        ],
+      }),
+      "utf8",
+    );
+  };
+
+  const readBack = (harness: Harness, threadId: ThreadId) =>
+    harness.run(
+      Effect.gen(function* () {
+        const kanban = yield* KanbanService;
+        return yield* kanban.readTaskForThread({ threadId });
+      }),
+    );
+
+  it("reads the card back with the requirement and the whole timeline", async () => {
+    const threadId = ThreadId.makeUnsafe("thread_recorded");
+    const harness = await makeHarness({ threads: [threadShell(threadId)] });
+    try {
+      await seedRecordedTask(harness, threadId);
+
+      const record = await readBack(harness, threadId);
+
+      expect(record?.task.title).toBe("接上多端同步");
+      expect(record?.task.description).toBe("先把离线队列做出来。");
+      expect(record?.context.boardFilePath).toBe(harness.boardFilePath);
+      expect(record?.comments.map((comment) => comment.body)).toEqual([
+        "第一版只做了本地队列。",
+        "两台设备同时改会互相覆盖，先解决这个。",
+      ]);
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it("still finds the card after the run that owned it ended", async () => {
+    // The point of reading is the second attempt: the first one was interrupted,
+    // and its notes are exactly what the next run needs. A "running" filter here
+    // would hide the card from every run that could actually use it.
+    const threadId = ThreadId.makeUnsafe("thread_recorded");
+    const harness = await makeHarness({ threads: [threadShell(threadId)] });
+    try {
+      await seedRecordedTask(harness, threadId);
+
+      const record = await readBack(harness, threadId);
+
+      expect(record?.task.agentRunStatus).toBe("interrupted");
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it("reports nothing for a conversation that never came from a board", async () => {
+    const harness = await makeHarness({
+      threads: [threadShell(ThreadId.makeUnsafe("thread_plain"))],
+    });
+    try {
+      await seedRecordedTask(harness, ThreadId.makeUnsafe("thread_recorded"));
+
+      expect(await readBack(harness, ThreadId.makeUnsafe("thread_plain"))).toBeNull();
+    } finally {
+      await harness.dispose();
+    }
+  });
+
+  it("leaves the board alone", async () => {
+    const threadId = ThreadId.makeUnsafe("thread_recorded");
+    const harness = await makeHarness({ threads: [threadShell(threadId)] });
+    try {
+      await seedRecordedTask(harness, threadId);
+      const before = await readFile(harness.boardFilePath, "utf8");
+
+      await readBack(harness, threadId);
+
+      expect(await readFile(harness.boardFilePath, "utf8")).toBe(before);
     } finally {
       await harness.dispose();
     }

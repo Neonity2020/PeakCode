@@ -5,6 +5,7 @@
 
 import {
   AdjustmentsIcon,
+  ChartIcon,
   DeviceMobileIcon,
   ArchiveIcon,
   BellIcon,
@@ -30,6 +31,7 @@ export const SETTINGS_SECTION_IDS = [
   "modelProviders",
   "worktrees",
   "archived",
+  "usage",
   "advanced",
 ] as const;
 
@@ -122,6 +124,13 @@ const SETTINGS_NAV_ITEM_SPECS_INTERNAL: readonly SettingsNavItemSpec[] = [
     icon: ArchiveIcon,
     labelKey: "archived",
     descriptionKey: "archived",
+  },
+  {
+    id: "usage",
+    group: "data",
+    icon: ChartIcon,
+    labelKey: "usage",
+    descriptionKey: "usage",
   },
   {
     id: "advanced",
