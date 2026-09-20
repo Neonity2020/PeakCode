@@ -16,6 +16,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { cn } from "~/lib/utils";
 import { useMessages } from "../i18n";
+import { useUnsavedChangesGuard } from "../hooks/useUnsavedChangesGuard";
 import { imApi, imApiErrorMessage } from "../lib/imApi";
 import {
   useDisconnectWechatMutation,
@@ -98,7 +99,16 @@ export function ImChannelsSettingsPanel() {
   const settingsQuery = useQuery(serverSettingsQueryOptions());
   const projects = useStore((store) => store.projects);
   const [editing, setEditing] = useState<ImChannelId | null>(null);
-  const [draft, setDraft] = useState<FieldValues>({});
+  /**
+   * Typed-but-unsaved values, kept per channel.
+   *
+   * A single draft used to be cleared whenever another channel was opened, so the secrets
+   * typed into one card disappeared the moment the user touched a second one. Keying them
+   * by channel means switching cards — or coming back to one — never destroys an edit;
+   * only Save and its explicit Cancel do.
+   */
+  const [drafts, setDrafts] = useState<Partial<Record<ImChannelId, FieldValues>>>({});
+  const [binaryPathDraft, setBinaryPathDraft] = useState<string | null>(null);
   const [savingChannel, setSavingChannel] = useState<ImChannelId | null>(null);
 
   const settings = settingsQuery.data;
@@ -106,6 +116,30 @@ export function ImChannelsSettingsPanel() {
   const statusById = new Map<ImChannelId, ImChannelStatus>(
     (statusQuery.data?.channels ?? []).map((channel) => [channel.id, channel]),
   );
+  const draft = editing ? (drafts[editing] ?? {}) : {};
+  const patchDraft = (channel: ImChannelId, field: string, value: string) =>
+    setDrafts((previous) => ({ ...previous, [channel]: { ...previous[channel], [field]: value } }));
+  const clearDraft = (channel: ImChannelId) =>
+    setDrafts((previous) => {
+      const next = { ...previous };
+      delete next[channel];
+      return next;
+    });
+
+  const unsavedInput =
+    Object.values(drafts).some((values) =>
+      Object.values(values ?? {}).some((value) => value.length > 0),
+    ) ||
+    (binaryPathDraft !== null &&
+      binaryPathDraft.trim() !== (im?.remoteAccess.binaryPath ?? "") &&
+      binaryPathDraft.trim().length > 0);
+
+  // Leaving the section with half-typed credentials asks first. Saving or cancelling a
+  // card clears its draft, which is what disarms the guard again.
+  useUnsavedChangesGuard({
+    shouldConfirm: unsavedInput,
+    confirmMessage: messages.common.unsavedChangesConfirm,
+  });
 
   const patchSettings = async (patch: NonNullable<ServerSettingsPatch["im"]>) => {
     const api = ensureNativeApi();
@@ -116,6 +150,7 @@ export function ImChannelsSettingsPanel() {
 
   const saveChannel = async (channel: ImChannelId) => {
     const fields = CHANNEL_FIELD_ORDER[channel];
+    const draft = drafts[channel] ?? {};
     // Field names come from CHANNEL_FIELD_ORDER, so the per-channel patch shape is
     // assembled dynamically and asserted once at the call site.
     const payload: Record<string, string> = {};
@@ -126,6 +161,7 @@ export function ImChannelsSettingsPanel() {
       payload[field] = value;
     }
     if (Object.keys(payload).length === 0) {
+      clearDraft(channel);
       setEditing(null);
       return;
     }
@@ -135,13 +171,27 @@ export function ImChannelsSettingsPanel() {
         ServerSettingsPatch["im"]
       >);
       toastManager.add({ type: "success", title: t.actions.saved });
+      clearDraft(channel);
       setEditing(null);
-      setDraft({});
     } catch (error) {
       toastManager.add({ type: "error", title: imApiErrorMessage(error) });
     } finally {
       setSavingChannel(null);
     }
+  };
+
+  /** Commit the remote-access path, which is a plain setting rather than a secret. */
+  const commitBinaryPath = (value: string) => {
+    const binaryPath = value.trim();
+    if (binaryPath.length === 0 || binaryPath === (im?.remoteAccess.binaryPath ?? "")) {
+      setBinaryPathDraft(null);
+      return;
+    }
+    // The draft is kept until the write lands, so a failure leaves the typed path on
+    // screen (and the leave guard armed) instead of quietly reverting it.
+    void patchSettings({ remoteAccess: { binaryPath } })
+      .then(() => setBinaryPathDraft(null))
+      .catch((error) => toastManager.add({ type: "error", title: imApiErrorMessage(error) }));
   };
 
   const runTest = (channel: ImChannelId) => {
@@ -182,7 +232,7 @@ export function ImChannelsSettingsPanel() {
           <Select
             value={value}
             onValueChange={(next) => {
-              if (typeof next === "string") setDraft((prev) => ({ ...prev, domain: next }));
+              if (typeof next === "string") patchDraft(channel, "domain", next);
             }}
           >
             <SelectTrigger className={cn("mt-1", PANEL_SELECT_CLASS)}>
@@ -210,7 +260,7 @@ export function ImChannelsSettingsPanel() {
           placeholder={
             isSecret || isFieldStored(im, channel, field) ? t.feishu.secretPlaceholder : ""
           }
-          onChange={(event) => setDraft((prev) => ({ ...prev, [field]: event.target.value }))}
+          onChange={(event) => patchDraft(channel, field, event.target.value)}
         />
       </label>
     );
@@ -347,15 +397,10 @@ export function ImChannelsSettingsPanel() {
             <span className={PANEL_LABEL_CLASS}>{t.remote.binaryPath}</span>
             <Input
               className={cn("mt-1 font-mono text-xs", PANEL_CONTROL_CLASS)}
-              defaultValue={im.remoteAccess.binaryPath}
+              value={binaryPathDraft ?? im.remoteAccess.binaryPath}
               spellCheck={false}
-              onBlur={(event) => {
-                const binaryPath = event.target.value.trim();
-                if (binaryPath === im.remoteAccess.binaryPath || binaryPath.length === 0) return;
-                void patchSettings({ remoteAccess: { binaryPath } }).catch((error) =>
-                  toastManager.add({ type: "error", title: imApiErrorMessage(error) }),
-                );
-              }}
+              onChange={(event) => setBinaryPathDraft(event.target.value)}
+              onBlur={(event) => commitBinaryPath(event.target.value)}
             />
             <span className="mt-1 block text-[11px] text-muted-foreground/78">
               {t.remote.binaryPathHint}
@@ -426,8 +471,8 @@ export function ImChannelsSettingsPanel() {
                     size="sm"
                     className="h-8"
                     onClick={() => {
+                      clearDraft(channel);
                       setEditing(null);
-                      setDraft({});
                     }}
                   >
                     {messages.common.cancel}
@@ -438,12 +483,9 @@ export function ImChannelsSettingsPanel() {
                   variant="outline"
                   size="sm"
                   className="h-8"
-                  onClick={() => {
-                    setEditing(channel);
-                    setDraft({});
-                  }}
+                  onClick={() => setEditing(channel)}
                 >
-                  {t.actions.save}
+                  {t.actions.edit}
                 </Button>
               )}
               <Button
