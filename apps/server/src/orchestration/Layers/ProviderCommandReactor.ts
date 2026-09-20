@@ -132,6 +132,15 @@ const serverCommandId = (tag: string): CommandId =>
 
 const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
+/**
+ * How long a user-initiated stop waits for the provider to acknowledge before reporting.
+ *
+ * The interrupt runs on this reactor's serial worker, so a provider that never settles would
+ * stall every later command for every thread. Stopping is best-effort either way: the turn may
+ * still end on its own and clear itself when it does, and the user gets told that it did not
+ * stop rather than watching a stop button that appears to do nothing.
+ */
+const TURN_INTERRUPT_TIMEOUT = Duration.seconds(15);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const HANDOFF_CONTEXT_WRAPPER_OVERHEAD =
   "<handoff_context>\n\n</handoff_context>\n\n<latest_user_message>\n\n</latest_user_message>"
@@ -1398,26 +1407,57 @@ const make = Effect.gen(function* () {
     if (!thread || !providerThread) {
       return;
     }
-    const hasSession = providerThread.session && providerThread.session.status !== "stopped";
-    if (!hasSession) {
-      return yield* appendProviderFailureActivity({
+
+    const reportInterruptFailure = (detail: string) =>
+      appendProviderFailureActivity({
         threadId: event.payload.threadId,
         kind: "provider.turn.interrupt.failed",
         summary: "Provider turn interrupt failed",
-        detail: "No active provider session is bound to this thread.",
+        detail,
         turnId: event.payload.turnId ?? null,
         createdAt: event.payload.createdAt,
       });
+
+    // The orchestration projection lags the provider: a stop issued right after turn start can
+    // read a thread whose session row has not landed yet. The adapter's own list is the live
+    // truth, so a session it already holds counts as bound — otherwise a quick stop silently
+    // no-ops and the turn runs on.
+    const liveSession = (yield* providerService.listSessions()).find(
+      (session) => session.threadId === providerThread.id,
+    );
+    const hasSession =
+      liveSession !== undefined ||
+      (providerThread.session !== null &&
+        providerThread.session !== undefined &&
+        providerThread.session.status !== "stopped");
+    if (!hasSession) {
+      return yield* reportInterruptFailure("No active provider session is bound to this thread.");
     }
 
     // Orchestration turn ids are not provider turn ids, so interrupt by session.
     const providerThreadId = resolveSubagentProviderThreadId(thread.id, providerThread.id);
     const turnId = event.payload.turnId ?? thread.session?.activeTurnId ?? undefined;
-    yield* providerService.interruptTurn({
-      threadId: providerThread.id,
-      ...(turnId ? { turnId } : {}),
-      ...(providerThreadId ? { providerThreadId } : {}),
-    });
+    yield* providerService
+      .interruptTurn({
+        threadId: providerThread.id,
+        ...(turnId ? { turnId } : {}),
+        ...(providerThreadId ? { providerThreadId } : {}),
+      })
+      .pipe(
+        Effect.timeoutOption(TURN_INTERRUPT_TIMEOUT),
+        Effect.flatMap((acknowledged) =>
+          Option.isSome(acknowledged)
+            ? Effect.void
+            : reportInterruptFailure(
+                "The provider did not stop the turn in time. It may still be running; try again or stop the session.",
+              ),
+        ),
+        Effect.catchCause((cause) =>
+          Cause.hasInterruptsOnly(cause)
+            ? Effect.failCause(cause)
+            : reportInterruptFailure(Cause.pretty(cause)),
+        ),
+      );
   });
 
   const processApprovalResponseRequested = Effect.fnUntraced(function* (

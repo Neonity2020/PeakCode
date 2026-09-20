@@ -144,6 +144,8 @@ export type ServerGetProviderUsageSnapshotResult = typeof ServerGetProviderUsage
 
 /** Every local coding agent the usage page can account for. */
 export const ServerUsageStatisticsSourceId = Schema.Literals([
+  /** This app's own sessions: the Pi sessions it spawned, split out from plain Pi. */
+  "peakcode",
   "claude-code",
   "codex",
   "zcode",

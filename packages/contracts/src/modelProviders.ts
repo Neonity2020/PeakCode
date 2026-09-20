@@ -78,6 +78,12 @@ export type CustomModelConfig = typeof CustomModelConfig.Type;
  *
  * Fields Peak Code edits directly (`name`, `api`, `baseUrl`, `apiKey`,
  * `headers`, `models`, ...) plus `extra` carrying every key we do not model.
+ *
+ * `apiKey` holds a *reference* (`$ENV_VAR`, `${ENV_VAR}` or `!command`), which is
+ * configuration rather than a secret and so belongs in this file. A literal key is a
+ * secret: it is kept in pi's credential store instead (`hasStoredKey`), never here. The
+ * two are mutually exclusive because a stored credential outranks a configured key, so
+ * keeping both would silently ignore whichever one lost.
  */
 export const ModelProviderConfig = Schema.Struct({
   name: Schema.optional(TrimmedNonEmptyString),
@@ -88,6 +94,10 @@ export const ModelProviderConfig = Schema.Struct({
   authHeader: Schema.optional(Schema.Boolean),
   modelOverrides: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
   models: Schema.optional(Schema.Array(CustomModelConfig)),
+  /** Read-only: a key for this provider is stored in the credential store. */
+  hasStoredKey: Schema.optional(Schema.Boolean),
+  /** Write-only: forget the stored key. Ignored when `apiKey` carries a new key. */
+  clearStoredKey: Schema.optional(Schema.Boolean),
   extra: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 });
 export type ModelProviderConfig = typeof ModelProviderConfig.Type;

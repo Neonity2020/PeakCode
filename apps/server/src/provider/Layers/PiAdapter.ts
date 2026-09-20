@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -79,6 +80,7 @@ import {
 } from "../Errors.ts";
 import { PiAdapter, type PiAdapterShape } from "../Services/PiAdapter.ts";
 import type { ProviderThreadSnapshot } from "../Services/ProviderAdapter.ts";
+import { createModelRuntimeCache } from "../modelRuntimeCache.ts";
 import { classifyPiTurnFailure } from "../piTurnFailure.ts";
 import { extractProposedPlanMarkdown, withProviderPlanModePrompt } from "../planMode.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
@@ -129,6 +131,25 @@ function makeAgentDir(agentDir: string | undefined): string {
   return trimToUndefined(agentDir) ?? getAgentDir();
 }
 
+/**
+ * Identity of the runtime's config files, used to notice provider edits.
+ *
+ * Two files decide what a runtime can authenticate against: `models.json` (providers and
+ * their `$ENV`/`!command` key references) and `auth.json` (stored keys). The settings panel
+ * rewrites both wholesale, so modification time plus size changes on every save; a missing
+ * file is a revision of its own, since creating one later must refresh a runtime built
+ * without it.
+ */
+async function providerConfigRevision(agentDir: string): Promise<string> {
+  const [models, auth] = await Promise.all(
+    ["models.json", "auth.json"].map(async (name) => {
+      const stats = await stat(path.join(agentDir, name)).catch(() => null);
+      return stats === null ? "missing" : `${stats.mtimeMs}:${stats.size}`;
+    }),
+  );
+  return `${models}|${auth}`;
+}
+
 function extensionDisplayName(extension: {
   readonly path: string;
   readonly sourceInfo?: { readonly source?: string };
@@ -150,7 +171,19 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
      * context extension and `sendTurn` both read it lazily, and a session outlives any one mode.
      */
     const sessionInteractionModes = new Map<ThreadId, ProviderInteractionMode>();
-    const modelRuntimes = new Map<string, Promise<ModelRuntime>>();
+    const modelRuntimes = createModelRuntimeCache<ModelRuntime>({
+      create: (agentDir) =>
+        ModelRuntime.create({
+          authPath: path.join(agentDir, "auth.json"),
+          modelsPath: path.join(agentDir, "models.json"),
+        }),
+      revision: providerConfigRevision,
+      // Offline: the panel's next turn must see the saved provider without a network round
+      // trip, and a turn must never depend on the catalogue refresh succeeding.
+      refresh: async (runtime) => {
+        await runtime.refresh({ allowNetwork: false });
+      },
+    });
     const ownsNativeEventLogger = options?.nativeEventLogger === undefined;
     const nativeEventLogger =
       options?.nativeEventLogger ??
@@ -161,8 +194,11 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
     /**
      * One model/auth runtime per agent dir, shared by every session bound to it.
      *
-     * `ModelRuntime.create` is async, so the cache holds the pending promise: two sessions
-     * starting at once must not build (and then disagree over) separate credential stores.
+     * The cache holds the pending build promise, so two sessions starting at once cannot
+     * build (and then disagree over) separate credential stores. It also re-reads
+     * `models.json` when the file changes: the settings panel edits that file, and a
+     * runtime that kept its first composition would send every later turn to the
+     * superseded endpoint with the superseded key.
      */
     /**
      * Extension failures are otherwise invisible: a throwing handler only produces pi's own
@@ -204,20 +240,8 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       for (const error of buffered) reportExtensionError(threadId, error);
     };
 
-    const getModelRuntime = (agentDir: string): Promise<ModelRuntime> => {
-      const existing = modelRuntimes.get(agentDir);
-      if (existing) return existing;
-      const created = ModelRuntime.create({
-        authPath: path.join(agentDir, "auth.json"),
-        modelsPath: path.join(agentDir, "models.json"),
-      }).catch((cause: unknown) => {
-        // A failed build must not be cached, or the dir stays broken until restart.
-        modelRuntimes.delete(agentDir);
-        throw cause;
-      });
-      modelRuntimes.set(agentDir, created);
-      return created;
-    };
+    const getModelRuntime: (agentDir: string) => Promise<ModelRuntime> = (agentDir) =>
+      modelRuntimes.get(agentDir);
 
     const makeEventBase = (
       context: PiSessionContext,
@@ -320,10 +344,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       // Answer every in-flight prompt with "cancel" before tearing down: the tool-call
       // handler is awaiting these promises, and the timers would otherwise outlive the
       // session and fire into a disposed runtime.
-      for (const requestId of [...context.pendingApprovals.keys()]) {
-        settleApproval(context, requestId, "cancel");
-      }
-      context.pendingQuestions.clear();
+      cancelPendingInteractions(context);
       sessionInteractionModes.delete(context.session.threadId);
       forgetThreadContextWindow(context.session.threadId);
       await context.runtime.dispose();
@@ -885,6 +906,24 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       });
     };
 
+    /**
+     * Answer every in-flight interaction gate as "cancelled" so a parked run can end.
+     *
+     * pi awaits the approval handler (`beforeToolCall`) and `ask_user` directly — neither is
+     * raced against the run's abort signal — so a turn waiting on the user only ends once its
+     * gate is answered. Aborting such a run without releasing the gates first waits out the
+     * 10-minute request timeout, and `ProviderCommandReactor` interrupts on its serial worker,
+     * so that wait also stalls every later command for the thread.
+     */
+    const cancelPendingInteractions = (context: PiSessionContext) => {
+      for (const requestId of [...context.pendingApprovals.keys()]) {
+        settleApproval(context, requestId, "cancel");
+      }
+      for (const requestId of [...context.pendingQuestions.keys()]) {
+        settleQuestion(context, requestId, {});
+      }
+    };
+
     const startSession: PiAdapterShape["startSession"] = (input) =>
       Effect.gen(function* () {
         const cwd = trimToUndefined(input.cwd) ?? serverConfig.cwd;
@@ -1319,7 +1358,14 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       requireSession(threadId).pipe(
         Effect.flatMap((context) =>
           Effect.tryPromise({
-            try: () => context.runtime.session.abort(),
+            try: () => {
+              // Release the user gates before aborting. `abort()` waits for the run to go
+              // idle, and a run parked on an approval or question cannot go idle until that
+              // gate is answered — answering it here is what lets the abort land now rather
+              // than after the 10-minute timeout.
+              cancelPendingInteractions(context);
+              return context.runtime.session.abort();
+            },
             catch: (cause) =>
               new ProviderAdapterRequestError({
                 provider: PROVIDER,

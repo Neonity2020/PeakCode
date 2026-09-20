@@ -174,7 +174,7 @@ describe("ProviderCommandReactor", () => {
     const forkThread = vi.fn<NonNullable<ProviderServiceShape["forkThread"]>>(() =>
       Effect.succeed(null),
     );
-    const interruptTurn = vi.fn((_: unknown) => Effect.void);
+    const interruptTurn = vi.fn<ProviderServiceShape["interruptTurn"]>(() => Effect.void);
     const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
     const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
     const rollbackConversation = vi.fn<ProviderServiceShape["rollbackConversation"]>(
@@ -1865,6 +1865,102 @@ describe("ProviderCommandReactor", () => {
       threadId: "thread-1",
       turnId: "turn-1",
     });
+  });
+
+  it("reports a failed turn interrupt so stop does not look like a dead button", async () => {
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    harness.interruptTurn.mockImplementation(() =>
+      Effect.fail(
+        new ProviderAdapterRequestError({
+          provider: "pi",
+          method: "turn/interrupt",
+          detail: "Provider rejected the interrupt",
+        }),
+      ),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-for-interrupt-error"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "pi",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-1"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-turn-interrupt-failed"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        turnId: asTurnId("turn-1"),
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return (
+        thread?.activities.some((activity) => activity.kind === "provider.turn.interrupt.failed") ??
+        false
+      );
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const failureActivity = thread?.activities.find(
+      (activity) => activity.kind === "provider.turn.interrupt.failed",
+    );
+    expect(failureActivity?.payload).toMatchObject({
+      detail: expect.stringContaining("Provider rejected the interrupt"),
+    });
+  });
+
+  it("interrupts a live provider session even when the projection has not caught up", async () => {
+    // Clicking stop right after starting a turn races the session projection: the provider
+    // session is already live while the thread still reads as having none. The adapter's own
+    // list decides, so the stop reaches the provider instead of silently no-opping.
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.startSession(ThreadId.makeUnsafe("thread-1"), {
+        threadId: "thread-1",
+        runtimeMode: "approval-required",
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-turn-interrupt-race"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(() => harness.interruptTurn.mock.calls.length === 1);
+    expect(harness.interruptTurn.mock.calls[0]?.[0]).toEqual({ threadId: "thread-1" });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(
+      thread?.activities.some((activity) => activity.kind === "provider.turn.interrupt.failed"),
+    ).not.toBe(true);
   });
 
   it("routes subagent interrupts through the parent provider session using the child provider thread id", async () => {

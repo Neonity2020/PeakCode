@@ -23,6 +23,13 @@ import type {
 import { Effect, FileSystem, Path } from "effect";
 
 import { writeFileStringAtomically } from "./atomicWrite";
+import {
+  authFilePath,
+  planProviderCredentialChanges,
+  type ProviderCredentialChange,
+  readProviderCredentials,
+  storedKeyProviderIds,
+} from "./providerCredentials";
 
 const MODEL_ENTRY_EDITABLE_KEYS = new Set<string>([
   "id",
@@ -48,6 +55,10 @@ const PROVIDER_EDITABLE_KEYS = new Set<string>([
   "authHeader",
   "modelOverrides",
   "models",
+  // Conversation state, not file content: listing them here keeps them out of `extra`,
+  // which is what would otherwise write them into models.json.
+  "hasStoredKey",
+  "clearStoredKey",
 ]);
 
 const MODEL_PROVIDER_API_KINDS: readonly string[] = [
@@ -207,6 +218,47 @@ export function providerToJson(config: ModelProviderConfig): Record<string, unkn
   return { ...json, ...(config.extra ?? {}) };
 }
 
+/**
+ * Whether a provider's `apiKey` is configuration rather than a secret.
+ *
+ * pi resolves `$NAME`, `${NAME}` and `!command` and treats anything else as the literal key
+ * (`resolve-config-value.ts`). Only the reference forms may live in models.json: a literal
+ * is a secret and belongs in the credential store. Getting this backwards is what turns a
+ * typed environment-variable *name* into a literal key that authenticates as nothing.
+ */
+export function isProviderKeyReference(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.startsWith("!") || trimmed.includes("$");
+}
+
+/** Mark which providers have a key in the credential store, and never echo the key. */
+function withKeyState(
+  providers: Record<string, ModelProviderConfig>,
+  storedProviderIds: ReadonlySet<string>,
+): Record<string, ModelProviderConfig> {
+  return Object.fromEntries(
+    Object.entries(providers).map(([name, provider]) => {
+      const stored = storedProviderIds.has(name);
+      // A stored credential outranks a configured key, so reporting both would invite the
+      // user to edit a value pi ignores.
+      const apiKey =
+        provider.apiKey !== undefined && isProviderKeyReference(provider.apiKey)
+          ? provider.apiKey
+          : stored
+            ? undefined
+            : provider.apiKey;
+      return [
+        name,
+        {
+          ...provider,
+          ...(apiKey !== undefined ? { apiKey } : {}),
+          ...(stored ? { hasStoredKey: true } : {}),
+        },
+      ];
+    }),
+  );
+}
+
 // ── File service (Effect, FileSystem-backed) ──────────────────────────────
 
 function modelsFilePath(agentDir: string | undefined): string {
@@ -299,10 +351,26 @@ export function declaredModelIdsFromModelsJson(
   return declared;
 }
 
+/** Read the credential store, failing loudly: a silent `{}` would look like "no key set". */
+const readStoredCredentials = (agentDir: string | undefined) =>
+  Effect.tryPromise({
+    try: () => readProviderCredentials(agentDir),
+    catch: (cause) =>
+      new Error(
+        `Failed to read ${authFilePath(agentDir)}: ${cause instanceof Error ? cause.message : String(cause)}`,
+        { cause },
+      ),
+  });
+
 /**
  * Read the current editable view of `models.json`. Missing file yields an empty
  * provider map; malformed JSON fails so the UI can surface the problem instead
  * of silently wiping user config on the next save.
+ *
+ * Keys are reported by presence only (`hasStoredKey`): the stored value is a secret and is
+ * never sent to the UI. A literal key still sitting in models.json is passed through as-is
+ * so a config written before keys moved to the credential store keeps working; the next
+ * save migrates it.
  */
 export const readModelProvidersFile = (
   agentDir?: string,
@@ -310,8 +378,12 @@ export const readModelProvidersFile = (
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const filePath = modelsFilePath(agentDir);
+    const stored = yield* readStoredCredentials(agentDir);
     if (!(yield* fs.exists(filePath))) {
-      return { path: filePath, providers: {} };
+      return {
+        path: filePath,
+        providers: withKeyState({}, storedKeyProviderIds(stored)),
+      };
     }
     const raw = yield* fs.readFileString(filePath);
     const topLevel = yield* Effect.try({
@@ -327,7 +399,7 @@ export const readModelProvidersFile = (
     return {
       path: filePath,
       providers: yield* Effect.try({
-        try: () => providersFromJson(topLevel),
+        try: () => withKeyState(providersFromJson(topLevel), storedKeyProviderIds(stored)),
         catch: (cause) =>
           new Error(
             `Failed to parse providers in ${filePath}: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -340,10 +412,58 @@ export const readModelProvidersFile = (
   });
 
 /**
+ * Split one submitted provider into what belongs in `models.json` and what belongs in the
+ * credential store.
+ *
+ * `$ENV`/`!command` references stay in the config file; a literal key is stored as a
+ * credential and never written to `models.json`. A key the user did not touch is carried
+ * over from wherever it already was — including migrating a legacy literal out of
+ * `models.json`, so the next save moves it without the user re-typing it.
+ */
+function splitProviderKey(input: {
+  readonly provider: ModelProviderConfig;
+  readonly previous: ModelProviderConfig | undefined;
+  readonly hasStoredKey: boolean;
+}): {
+  readonly config: ModelProviderConfig;
+  /** The key to store, `undefined` to forget one, or absent when nothing changes. */
+  readonly storedKey: { readonly apiKey: string | undefined } | undefined;
+} {
+  const { provider, previous, hasStoredKey } = input;
+  const { apiKey, hasStoredKey: _ignored, clearStoredKey: _cleared, ...rest } = provider;
+  const submitted = apiKey?.trim() ?? "";
+
+  if (submitted.length >= 1 && isProviderKeyReference(submitted)) {
+    // A reference is configuration. Drop any stored key, because a stored credential would
+    // otherwise outrank the reference and the edited value would appear to do nothing.
+    return {
+      config: { ...rest, apiKey: submitted },
+      storedKey: hasStoredKey ? { apiKey: undefined } : undefined,
+    };
+  }
+  if (submitted.length >= 1) {
+    return { config: rest, storedKey: { apiKey: submitted } };
+  }
+  if (provider.clearStoredKey) {
+    return { config: rest, storedKey: { apiKey: undefined } };
+  }
+  const previousKey = previous?.apiKey?.trim() ?? "";
+  if (previousKey.length >= 1) {
+    return isProviderKeyReference(previousKey)
+      ? { config: { ...rest, apiKey: previousKey }, storedKey: undefined }
+      : { config: rest, storedKey: { apiKey: previousKey } };
+  }
+  return { config: rest, storedKey: undefined };
+}
+
+/**
  * Persist the edited provider map. Unknown top-level keys in the existing file
  * are preserved; `providers` is replaced wholesale (providers themselves
- * round-trip unknown keys through `extra`). Chmod 0600 after writing to keep
- * any embedded key material at the same permission level pi uses.
+ * round-trip unknown keys through `extra`).
+ *
+ * API keys are secrets, so they land in pi's credential store (`auth.json`) instead of the
+ * config file, and a provider dropped from the map gives up its stored key — a key left
+ * behind would silently authenticate a provider that was re-added later.
  */
 export const saveModelProvidersFile = (
   input: ServerSaveModelProvidersInput,
@@ -366,10 +486,44 @@ export const saveModelProvidersFile = (
       topLevel = parsed;
     }
 
+    const previousProviders = yield* Effect.tryPromise({
+      try: () => Promise.resolve(providersFromJson(topLevel)),
+      catch: (cause) =>
+        new Error(`Failed to read existing providers in ${filePath}: ${String(cause)}`, { cause }),
+    });
+    const existingCredentials = yield* readStoredCredentials(input.agentDir);
+    const storedIds = storedKeyProviderIds(existingCredentials);
+
     const providersJson: Record<string, unknown> = {};
+    const credentialChanges: ProviderCredentialChange[] = [];
     for (const [name, provider] of Object.entries(input.providers)) {
-      providersJson[name] = providerToJson(provider);
+      const split = splitProviderKey({
+        provider,
+        previous: previousProviders[name],
+        hasStoredKey: storedIds.has(name),
+      });
+      providersJson[name] = providerToJson(split.config);
+      if (split.storedKey) {
+        credentialChanges.push({ providerId: name, apiKey: split.storedKey.apiKey });
+      }
     }
+    for (const name of storedIds) {
+      if (!(name in input.providers)) {
+        credentialChanges.push({ providerId: name, apiKey: undefined });
+      }
+    }
+
+    const credentialPlan = planProviderCredentialChanges(existingCredentials, credentialChanges);
+    const authPath = authFilePath(input.agentDir);
+    if (credentialPlan.changed) {
+      yield* writeFileStringAtomically({
+        filePath: authPath,
+        contents: `${JSON.stringify(credentialPlan.credentials, null, 2)}\n`,
+      });
+      // pi writes this file 0600 and it holds live keys; keep the same mode.
+      yield* fs.chmod(authPath, 0o600);
+    }
+
     const merged = { ...topLevel, providers: providersJson };
     yield* writeFileStringAtomically({
       filePath,
@@ -379,7 +533,8 @@ export const saveModelProvidersFile = (
     return {
       path: filePath,
       providers: yield* Effect.try({
-        try: () => providersFromJson(merged),
+        try: () =>
+          withKeyState(providersFromJson(merged), storedKeyProviderIds(credentialPlan.credentials)),
         catch: (cause) =>
           new Error(
             `Failed to re-read ${filePath}: ${cause instanceof Error ? cause.message : String(cause)}`,
