@@ -191,6 +191,36 @@ export default function ProjectScriptsControl({
     return primaryProjectScript(scripts);
   }, [preferredScriptId, scripts]);
   const isEditing = editingScriptId !== null;
+  /**
+   * What the action dialog opened with. Escape, the close button and a click on the
+   * backdrop all close it, and each of those throws away a name, a command line or a
+   * keybinding — so they ask first when the form no longer matches this.
+   */
+  const seededFormRef = useRef<string>("");
+  const formSignature = (values: {
+    name: string;
+    command: string;
+    icon: ProjectScriptIcon;
+    runOnWorktreeCreate: boolean;
+    keybinding: string;
+  }) => JSON.stringify(values);
+  const seedFormSignature = (values: Parameters<typeof formSignature>[0]) => {
+    seededFormRef.current = formSignature(values);
+  };
+  const requestDialogClose = (open: boolean) => {
+    if (
+      !open &&
+      formSignature({ name, command, icon, runOnWorktreeCreate, keybinding }) !==
+        seededFormRef.current &&
+      !window.confirm(messages.common.unsavedChangesConfirm)
+    ) {
+      return;
+    }
+    setDialogOpen(open);
+    if (!open) {
+      setIconPickerOpen(false);
+    }
+  };
   const dropdownItemClassName =
     "data-highlighted:bg-transparent data-highlighted:text-foreground hover:bg-[var(--sidebar-accent)] hover:text-foreground focus-visible:bg-[var(--sidebar-accent)] focus-visible:text-foreground data-highlighted:hover:bg-[var(--sidebar-accent)] data-highlighted:hover:text-foreground data-highlighted:focus-visible:bg-[var(--sidebar-accent)] data-highlighted:focus-visible:text-foreground";
 
@@ -259,18 +289,34 @@ export default function ProjectScriptsControl({
     setRunOnWorktreeCreate(false);
     setKeybinding("");
     setValidationError(null);
+    seedFormSignature({
+      name: "",
+      command: "",
+      icon: "play",
+      runOnWorktreeCreate: false,
+      keybinding: "",
+    });
     setDialogOpen(true);
   };
 
   const openEditDialog = (script: ProjectScript) => {
+    const keybindingValue =
+      keybindingValueForCommand(keybindings, commandForProjectScript(script.id)) ?? "";
     setEditingScriptId(script.id);
     setName(script.name);
     setCommand(script.command);
     setIcon(script.icon);
     setIconPickerOpen(false);
     setRunOnWorktreeCreate(script.runOnWorktreeCreate);
-    setKeybinding(keybindingValueForCommand(keybindings, commandForProjectScript(script.id)) ?? "");
+    setKeybinding(keybindingValue);
     setValidationError(null);
+    seedFormSignature({
+      name: script.name,
+      command: script.command,
+      icon: script.icon,
+      runOnWorktreeCreate: script.runOnWorktreeCreate,
+      keybinding: keybindingValue,
+    });
     setDialogOpen(true);
   };
 
@@ -370,12 +416,7 @@ export default function ProjectScriptsControl({
       ) : null}
 
       <Dialog
-        onOpenChange={(open) => {
-          setDialogOpen(open);
-          if (!open) {
-            setIconPickerOpen(false);
-          }
-        }}
+        onOpenChange={requestDialogClose}
         onOpenChangeComplete={(open) => {
           if (open) return;
           setEditingScriptId(null);

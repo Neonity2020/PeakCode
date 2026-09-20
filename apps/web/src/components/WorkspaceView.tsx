@@ -144,6 +144,26 @@ export default function WorkspaceView({ workspaceId }: { workspaceId: string }) 
     setRenaming(false);
   }, [draftTitle, renameWorkspace, workspace]);
 
+  /**
+   * Leaving the page while the title is still being edited keeps the typed name.
+   *
+   * Removing a focused input does not fire `blur`, so a navigation that arrives by
+   * keyboard (a thread jump, the palette) used to drop the rename. `renameWorkspace`
+   * ignores a title that has not changed, so an untouched rename costs nothing here.
+   */
+  const renamingRef = useRef(false);
+  const commitRenameRef = useRef(commitRename);
+  useEffect(() => {
+    renamingRef.current = renaming;
+    commitRenameRef.current = commitRename;
+  });
+  useEffect(
+    () => () => {
+      if (renamingRef.current) commitRenameRef.current();
+    },
+    [],
+  );
+
   const restoreTerminalWorkspace = useCallback(
     (presetId: WorkspaceLayoutPresetId = workspaceLayoutPresetId) => {
       const nextTerminalIds = ensureTerminalIdsForPreset(

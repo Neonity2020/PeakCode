@@ -1,7 +1,7 @@
 // FILE: ThemePackEditor.tsx
 // Purpose: Per-variant theme card matching the Codex appearance settings layout.
 // Layer: Web settings UI
-// Exports: ThemePackEditor
+// Exports: ThemePackEditor, ColorPill (exported for its commit-timing test)
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { HexColorPicker } from "react-colorful";
@@ -273,7 +273,8 @@ function ThemeRow({ label, children }: { label: string; children: React.ReactNod
 
 // ── Color pill ────────────────────────────────────────────────────────────
 
-function ColorPill({
+/** Exported for the render test: its commit timing is the behaviour under test. */
+export function ColorPill({
   color,
   ariaLabel,
   onChange,
@@ -333,11 +334,23 @@ function ColorPill({
     [clearCommitTimer, commitColor],
   );
 
+  /**
+   * The newest commit, behind a ref so the unmount effect below can depend on nothing:
+   * the parent passes a fresh `onChange` every render, and re-registering the cleanup on
+   * each of those would commit a drag that is still going.
+   */
+  const commitColorRef = useRef(commitColor);
+  useEffect(() => {
+    commitColorRef.current = commitColor;
+  });
   useEffect(
     () => () => {
-      clearCommitTimer();
+      // Unmounting is the one exit that neither blurs the field nor closes the popover,
+      // so a colour picked in the last 220 ms would be dropped by the timer that was
+      // meant to commit it. Commit it on the way out instead of throwing it away.
+      commitColorRef.current();
     },
-    [clearCommitTimer],
+    [],
   );
 
   // Dragging updates only this local preview; the real theme store is committed

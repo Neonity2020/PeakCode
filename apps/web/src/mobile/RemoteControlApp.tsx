@@ -235,16 +235,19 @@ export function TaskListScreen({
 
 function ConversationScreen({
   threadId,
+  draft,
+  onDraftChange,
   onBack,
 }: {
   readonly threadId: string;
+  readonly draft: string;
+  readonly onDraftChange: (value: string) => void;
   readonly onBack: () => void;
 }) {
   const t = useMessages().remoteControl;
   const conversation = useConversation(threadId);
   const replyModelDefaults = useReplyModelDefaults();
   const replyModel = resolvePhoneReplyModel(conversation.modelSelection, replyModelDefaults);
-  const [draft, setDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -343,14 +346,14 @@ function ConversationScreen({
           event.preventDefault();
           if (!canSend) return;
           const text = draft;
-          setDraft("");
+          onDraftChange("");
           // The thread's model stands unless the provider no longer serves it.
           void conversation.send(text, replyModel);
         }}
       >
         <textarea
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => onDraftChange(event.target.value)}
           placeholder={t.composerPlaceholder}
           rows={1}
           className="max-h-32 min-h-10 flex-1 resize-none rounded-xl border border-[color:var(--color-border)] bg-[var(--color-background-control-opaque)] px-3 py-2.5 text-[14px] text-foreground outline-none"
@@ -385,9 +388,24 @@ export function RemoteControlApp({
 }) {
   const device = useDeviceSnapshot();
   const [openThreadId, setOpenThreadId] = useState<string | null>(initialThreadId);
+  /**
+   * The reply being typed, per conversation. It lives here rather than in the screen
+   * because Back — and opening another task — unmounts that screen, and a half-written
+   * reply on a phone is too easy to lose to a mis-tap.
+   */
+  const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({});
 
   if (openThreadId !== null) {
-    return <ConversationScreen threadId={openThreadId} onBack={() => setOpenThreadId(null)} />;
+    return (
+      <ConversationScreen
+        threadId={openThreadId}
+        draft={replyDrafts[openThreadId] ?? ""}
+        onDraftChange={(value) =>
+          setReplyDrafts((previous) => ({ ...previous, [openThreadId]: value }))
+        }
+        onBack={() => setOpenThreadId(null)}
+      />
+    );
   }
 
   return (

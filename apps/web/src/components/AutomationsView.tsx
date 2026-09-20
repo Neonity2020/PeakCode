@@ -14,9 +14,11 @@ import type {
   ProjectId,
 } from "@peakcode/contracts";
 import { useMessages } from "../i18n/I18nContext";
+import { useUnsavedChangesGuard } from "../hooks/useUnsavedChangesGuard";
 import {
   AUTOMATION_MODES,
   WEEKDAY_ORDER,
+  automationFormEquals,
   defaultAutomationForm,
   formFromAutomation,
   scheduleFromForm,
@@ -155,6 +157,7 @@ export function AutomationsView() {
 
       {(creating || editing !== null) && (
         <AutomationEditor
+          key={editing?.automationId ?? "__new__"}
           automation={editing ?? undefined}
           workspaces={workspaces}
           defaultWorkspaceId={defaultWorkspaceId}
@@ -418,7 +421,12 @@ function AutomationEditor({
   const updateMutation = useAutomationUpdateMutation({
     successMessage: () => messages.automations.savedToast,
   });
-  const [form, setForm] = useState<AutomationFormState>(() =>
+  /**
+   * What the editor opened with, captured once. It is the baseline for "would closing
+   * lose anything", so recomputing it from the polled list would drift — a daily task's
+   * one-off field is derived from the clock — and look like an edit the user never made.
+   */
+  const [initialForm] = useState<AutomationFormState>(() =>
     automation
       ? formFromAutomation(automation)
       : defaultAutomationForm({
@@ -426,6 +434,7 @@ function AutomationEditor({
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
         }),
   );
+  const [form, setForm] = useState<AutomationFormState>(initialForm);
 
   const patch = <K extends keyof AutomationFormState>(key: K, value: AutomationFormState[K]) =>
     setForm((previous) => ({ ...previous, [key]: value }));
@@ -436,6 +445,19 @@ function AutomationEditor({
     form.instructions.trim().length > 0 &&
     form.workspaceId !== null &&
     !saving;
+
+  const dirty = !automationFormEquals(form, initialForm);
+  // Closing the editor throws away what is in it, so a stray click on the backdrop or the
+  // X asks first — the form holds a task title and its instructions, which is not
+  // something to lose to a misclick.
+  const { allowNextNavigation, confirmDiscard } = useUnsavedChangesGuard({
+    shouldConfirm: dirty,
+    confirmMessage: messages.common.unsavedChangesConfirm,
+  });
+  const requestClose = () => {
+    if (!confirmDiscard()) return;
+    onClose();
+  };
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -454,13 +476,24 @@ function AutomationEditor({
           projectId: form.workspaceId,
           ...common,
         },
-        { onSuccess: () => onClose() },
+        {
+          onSuccess: () => {
+            // Saved, so closing is not a discard and must not ask.
+            allowNextNavigation();
+            onClose();
+          },
+        },
       );
       return;
     }
     createMutation.mutate(
       { projectId: form.workspaceId, ...common },
-      { onSuccess: () => onClose() },
+      {
+        onSuccess: () => {
+          allowNextNavigation();
+          onClose();
+        },
+      },
     );
   };
 
@@ -468,7 +501,7 @@ function AutomationEditor({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) requestClose();
       }}
     >
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border/60 bg-background p-5 shadow-lg">
@@ -479,7 +512,7 @@ function AutomationEditor({
           <button
             type="button"
             aria-label={messages.automations.cancel}
-            onClick={onClose}
+            onClick={requestClose}
             className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent/60 hover:text-foreground"
           >
             <XIcon className="size-4" />
@@ -647,7 +680,7 @@ function AutomationEditor({
           <div className="flex justify-end gap-2 pt-0.5">
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               className="inline-flex h-8 items-center rounded-md border border-border/60 bg-background/60 px-3 text-[12px] text-foreground/80 transition-colors hover:bg-accent/40"
             >
               {messages.automations.cancel}

@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 
 import { I18nProvider } from "../i18n";
-import { TaskListScreen } from "./RemoteControlApp";
+import { RemoteControlApp, TaskListScreen } from "./RemoteControlApp";
 
 const project = (id: string, title: string): OrchestrationProjectShell =>
   ({ id, title, kind: "project" }) as OrchestrationProjectShell;
@@ -148,6 +148,74 @@ describe("the phone's task list", () => {
     await screen.getByText("点一下").click();
 
     expect(onOpenThread).toHaveBeenCalledWith("t1");
+    await screen.unmount();
+  });
+});
+
+// The conversation screen is reached from the list, so its transport and reply-model
+// defaults are stubbed to drive the reply box on its own.
+vi.mock("./useConversation", () => ({
+  useConversation: () => ({
+    status: "connected",
+    title: "点一下",
+    messages: [],
+    pendingApproval: null,
+    running: false,
+    lastActivitySummary: null,
+    sending: false,
+    error: null,
+    modelSelection: null,
+    runtimeMode: "approval-required",
+    interactionMode: "default",
+    send: vi.fn(),
+    stop: vi.fn(),
+    respondToApproval: vi.fn(),
+  }),
+}));
+vi.mock("./useDeviceSnapshot", () => ({
+  useDeviceSnapshot: () => ({
+    connection: "connected",
+    projects: [{ id: "p1", title: "PeakCode", kind: "project" }],
+    threads: [
+      {
+        id: "t1",
+        title: "点一下",
+        projectId: "p1",
+        archivedAt: null,
+        parentThreadId: null,
+        latestTurn: { state: "completed" },
+        latestUserMessageAt: new Date().toISOString(),
+        session: null,
+        hasPendingApprovals: false,
+        hasPendingUserInput: false,
+        updatedAt: new Date().toISOString(),
+      },
+    ],
+    refresh: () => {},
+    refreshing: false,
+  }),
+}));
+vi.mock("./useReplyModel", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./useReplyModel")>()),
+  useReplyModelDefaults: () => ({ offeredSlugs: [], defaultSelection: null }),
+}));
+
+describe("a reply on the phone", () => {
+  it("survives leaving the conversation and coming back to it", async () => {
+    const screen = await render(
+      <I18nProvider language="zh">
+        <RemoteControlApp initialThreadId="t1" highlightedProjectId={null} />
+      </I18nProvider>,
+    );
+
+    await page.getByRole("textbox").fill("先在手机上写一半");
+    // Back to the task list — this unmounts the conversation screen…
+    await page.getByRole("button", { name: "返回" }).click();
+    await expect.element(page.getByRole("textbox")).not.toBeInTheDocument();
+
+    // …and reopening the same task finds the reply still being written.
+    await page.getByRole("button", { name: /点一下/ }).click();
+    await expect.element(page.getByRole("textbox")).toHaveValue("先在手机上写一半");
     await screen.unmount();
   });
 });

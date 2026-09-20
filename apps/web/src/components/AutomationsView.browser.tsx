@@ -36,6 +36,7 @@ const api = vi.hoisted(() => ({
   run: vi.fn(),
 }));
 const navigate = vi.hoisted(() => vi.fn());
+const blocker = vi.hoisted(() => vi.fn());
 
 vi.mock("../nativeApi", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../nativeApi")>()),
@@ -68,6 +69,7 @@ vi.mock("../latestProjectStore", () => ({
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-router")>()),
   useNavigate: () => navigate,
+  useBlocker: blocker,
 }));
 // The view only needs the sidebar's timestamp helper.
 vi.mock("./Sidebar", () => ({ formatRelativeTime: () => "2h" }));
@@ -177,4 +179,26 @@ it("keeps the create button unavailable until a task has a description", async (
 
   await page.getByRole("textbox", { name: "What should it do?" }).fill(INSTRUCTIONS);
   await expect.element(create).toBeEnabled();
+});
+
+it("asks before a stray click on the backdrop throws the form away", async () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  api.list.mockResolvedValue([]);
+  const screen = await renderView();
+
+  await page.getByRole("button", { name: "New automation" }).click();
+  await page.getByRole("textbox", { name: "Task name" }).fill(TITLE);
+  expect(blocker.mock.calls.at(-1)?.[0]?.disabled).toBe(false);
+
+  // The overlay covers the page, so a click that lands on it is a misclick.
+  const overlay = screen.container.querySelector<HTMLElement>("div.fixed.inset-0");
+  overlay?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+
+  // Declining keeps the editor, and what was typed in it.
+  await expect.element(page.getByRole("textbox", { name: "Task name" })).toHaveValue(TITLE);
+
+  confirm.mockReturnValue(true);
+  overlay?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  await expect.element(page.getByRole("textbox", { name: "Task name" })).not.toBeInTheDocument();
+  confirm.mockRestore();
 });

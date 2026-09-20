@@ -114,4 +114,27 @@ export function scheduleFromForm(form: AutomationFormState): AutomationSchedule 
 /** Weekday indexes in the order the chip row shows them (Monday first). */
 export const WEEKDAY_ORDER: ReadonlyArray<number> = [1, 2, 3, 4, 5, 6, 0];
 
+/**
+ * Whether two form states are the same edit. It drives the "this would be lost" question
+ * asked when the editor closes, so it compares every field the form shows.
+ */
+export function automationFormEquals(
+  left: AutomationFormState,
+  right: AutomationFormState,
+): boolean {
+  return (
+    left.title === right.title &&
+    left.instructions === right.instructions &&
+    left.workspaceId === right.workspaceId &&
+    left.kind === right.kind &&
+    left.hour === right.hour &&
+    left.minute === right.minute &&
+    left.atLocal === right.atLocal &&
+    left.timezone === right.timezone &&
+    left.mode === right.mode &&
+    left.daysOfWeek.length === right.daysOfWeek.length &&
+    left.daysOfWeek.every((day, index) => day === right.daysOfWeek[index])
+  );
+}
+
 export const AUTOMATION_MODES: ReadonlyArray<AutomationMode> = ["default", "plan", "goal"];
