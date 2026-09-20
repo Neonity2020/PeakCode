@@ -4,6 +4,16 @@ All notable changes to Peak Code are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-09-20
+
+### Fixed
+
+- **Typed input is no longer dropped by leaving a screen.** The 0.7.0 fix below stopped a _provider or model_ from vanishing; this closes the same hole everywhere else it existed. In Settings → 模型提供商 a field (显示名称 / Base URL / API Key) is now written out when it is left rather than only through a save bar below the card, the API-type picker and 清除已保存的密钥 save on the spot, and a draft that is still dirty as the panel unmounts — a keystroke that never blurred, or a save that failed — is written out on the way. The save bar stays as the retry button after a failed save, and the form is no longer disabled while a save is in flight, which used to steal focus from the field you had just moved to. In Settings → 频道 each card keeps its own unsaved secrets, so opening a second channel no longer wipes the first one (the button that opens a card said 保存 although it was not the save action — it says 编辑 now), and the 远程访问 path commits when it is left. Leaving either section with something typed but unsaved asks first.
+- **A kanban task's own form survives the board's poll.** The detail page re-seeded its title/status/priority/agent from every poll, so a comment landing on the card — the agent working while you edit — reverted what you were typing. An untouched form still follows the board; one holding an edit is left alone. Leaving the page with an unsaved edit (the Back button, the sidebar, a keyboard jump) now asks, the way the task create page already did.
+- **Closing an editor by accident asks before discarding what is in it.** A click on the backdrop, Escape or the X used to throw away a whole automation (title plus instructions), a model definition, or an action's name/command line/keybinding with no warning, and a colour changed in the last 220 ms before the appearance editor unmounted was dropped by the timer that was meant to commit it. Each of those now commits or confirms; a documented Cancel or an untouched form still closes immediately.
+- **The phone keeps a half-written reply.** Leaving a conversation for the task list — or opening another task — unmounted the reply box and lost the text; the draft now lives per conversation and comes back with it. A workspace rename committed on blur or Enter is likewise kept when the page unmounts first, which is what a keyboard navigation with the field still focused used to lose.
+- The "would you lose this?" question is one place now: `useUnsavedChangesGuard` covers route changes and reload for a screen that holds unsaved input, and the kanban create page uses it instead of its own copy of that logic. ([apps/web/src/hooks/useUnsavedChangesGuard.ts](apps/web/src/hooks/useUnsavedChangesGuard.ts))
+
 ## [0.7.0] - 2026-09-20
 
 ### Added
