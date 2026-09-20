@@ -26,7 +26,7 @@ import {
   type KanbanUploadTaskAttachment,
   type ProjectId,
 } from "@peakcode/contracts";
-import { useBlocker, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 
 import { useAppSettings } from "../appSettings";
@@ -57,6 +57,7 @@ import { ArrowLeftIcon, LoaderIcon, PaperclipIcon, SparklesIcon } from "../lib/i
 import { cn } from "../lib/utils";
 import { isElectron } from "../env";
 import { useLeadingColumnTrafficLightGutterClassName } from "../hooks/useDesktopTopBarGutter";
+import { useUnsavedChangesGuard } from "../hooks/useUnsavedChangesGuard";
 import { KanbanStatusGlyph } from "./KanbanPresentation";
 import { KanbanTaskAttachments } from "./KanbanTaskAttachments";
 import { SidebarInset } from "./ui/sidebar";
@@ -160,26 +161,18 @@ export function KanbanTaskCreateView(props: {
     [draft, initialStatus, attachments.length],
   );
 
-  /** Set right before a deliberate navigation so the leave guard stays quiet. */
-  const allowLeaveRef = useRef(false);
+  // Guard every route change (sidebar, keyboard, history) plus reload/close while the
+  // draft holds unsaved input. Cancelling asks through this hook, and a successful
+  // submit bypasses it because it leaves by returning to the board.
+  const { allowNextNavigation, confirmDiscard } = useUnsavedChangesGuard({
+    shouldConfirm: dirty,
+    confirmMessage: messages.kanban.unsavedChangesConfirm,
+  });
 
   const leaveToBoard = useCallback(() => {
-    if (dirty && !window.confirm(messages.kanban.unsavedChangesConfirm)) return;
-    allowLeaveRef.current = true;
+    if (!confirmDiscard()) return;
     void navigate({ to: "/kanban" });
-  }, [dirty, messages, navigate]);
-
-  // Guard every route change (sidebar, keyboard, history) plus reload/close while
-  // the draft holds unsaved input. Cancel/back already asked, and submitting
-  // succeeds by returning to the board, so those paths bypass the prompt.
-  useBlocker({
-    disabled: !dirty,
-    enableBeforeUnload: dirty,
-    shouldBlockFn: () => {
-      if (allowLeaveRef.current) return false;
-      return !window.confirm(messages.kanban.unsavedChangesConfirm);
-    },
-  });
+  }, [confirmDiscard, navigate]);
 
   const addAttachmentFiles = useCallback(
     (files: ReadonlyArray<File>) => {
@@ -269,12 +262,12 @@ export function KanbanTaskCreateView(props: {
       },
       {
         onSuccess: () => {
-          allowLeaveRef.current = true;
+          allowNextNavigation();
           void navigate({ to: "/kanban" });
         },
       },
     );
-  }, [attachments, createTask, draft, navigate, projectId]);
+  }, [allowNextNavigation, attachments, createTask, draft, navigate, projectId]);
 
   /**
    * Drafts the requirement for the task being written: the title and whatever the

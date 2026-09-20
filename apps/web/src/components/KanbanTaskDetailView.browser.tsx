@@ -48,6 +48,7 @@ const api = vi.hoisted(() => ({
   listModels: vi.fn(),
 }));
 const navigate = vi.hoisted(() => vi.fn());
+const blocker = vi.hoisted(() => vi.fn());
 
 vi.mock("../nativeApi", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../nativeApi")>()),
@@ -61,6 +62,7 @@ vi.mock("../appSettings", () => ({
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@tanstack/react-router")>()),
   useNavigate: () => navigate,
+  useBlocker: blocker,
 }));
 // The sidebar module pulls in the app's stores and drag-and-drop wiring; the view
 // only needs its timestamp helper.
@@ -69,6 +71,8 @@ vi.mock("./Sidebar", () => ({ formatRelativeTime: () => "just now" }));
 /** What the board file holds right now; the detail query always re-reads it. */
 let storedRequirement = REQUIREMENT;
 let storedComments: KanbanComment[] = [];
+/** The header title as the board holds it, so a save is visible to the next poll. */
+let storedTitle = "Mode switcher";
 
 function detailFixture(): KanbanTaskDetail {
   return {
@@ -78,7 +82,7 @@ function detailFixture(): KanbanTaskDetail {
     workspaceRoot: "/tmp/peakcode",
     task: {
       taskId: TASK_ID,
-      title: "Mode switcher",
+      title: storedTitle,
       description: storedRequirement,
       status: "todo",
       priority: "medium",
@@ -112,10 +116,14 @@ function boardFixture(): KanbanBoard {
 async function mountDetail(description: string = REQUIREMENT, comments: KanbanComment[] = []) {
   storedRequirement = description;
   storedComments = comments;
+  storedTitle = "Mode switcher";
   api.getTaskDetail.mockImplementation(async () => detailFixture());
   api.updateTask.mockImplementation(async (input: KanbanUpdateTaskInput) => {
     if (typeof input.description === "string") {
       storedRequirement = input.description;
+    }
+    if (typeof input.title === "string") {
+      storedTitle = input.title;
     }
     return boardFixture();
   });
@@ -130,7 +138,8 @@ async function mountDetail(description: string = REQUIREMENT, comments: KanbanCo
     </QueryClientProvider>,
   );
   await expect.element(page.getByRole("button", { name: "Edit" })).toBeVisible();
-  return screen;
+  // The client comes back too, so a test can drive the board poll by hand.
+  return Object.assign(screen, { client });
 }
 
 afterEach(() => {
@@ -247,6 +256,64 @@ it("drafts from the requirement being written and pastes the brief back", async 
   // The brief stays in the editor until it is saved: nothing was stored for you.
   expect(api.updateTask).not.toHaveBeenCalled();
   expect(api.generateTaskRequirement).not.toHaveBeenCalled();
+});
+
+it("keeps an edit in the header while the board polls underneath it", async () => {
+  const screen = await mountDetail();
+  const title = page.getByRole("textbox", { name: "Task title", exact: true });
+
+  await title.fill("Mode switcher v2");
+
+  // The agent moved the card and commented on it, so the next poll brings a different
+  // task back. That used to re-seed the form and revert the title mid-edit.
+  api.getTaskDetail.mockImplementation(async () => {
+    const detail = detailFixture();
+    return { ...detail, task: { ...detail.task, status: "in_progress" } };
+  });
+  await screen.client.invalidateQueries({ queryKey: ["kanban"] });
+  await expect.poll(() => api.getTaskDetail.mock.calls.length).toBeGreaterThan(1);
+
+  await expect.element(title).toHaveValue("Mode switcher v2");
+
+  // Saving stays possible, and it is the saved values the board then holds.
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect
+    .poll(() => api.updateTask.mock.calls.at(-1)?.[0])
+    .toEqual({
+      projectId: PROJECT_ID,
+      taskId: TASK_ID,
+      title: "Mode switcher v2",
+      status: "todo",
+      priority: "medium",
+      agentProvider: "pi",
+      agentModel: "",
+    });
+
+  // An untouched form does follow the board, though: the agent's own move shows up.
+  api.getTaskDetail.mockImplementation(async () => {
+    const detail = detailFixture();
+    return { ...detail, task: { ...detail.task, status: "done" } };
+  });
+  await screen.client.invalidateQueries({ queryKey: ["kanban"] });
+  await expect
+    .element(page.getByRole("combobox", { name: "Status", exact: true }))
+    .toHaveTextContent("Done");
+});
+
+it("arms the leave guard while an edit is unsaved and drops it once saved", async () => {
+  await mountDetail();
+
+  // Clean page: nothing to lose, so the guard is off.
+  expect(blocker.mock.calls.at(-1)?.[0]?.disabled).toBe(true);
+
+  await page.getByRole("textbox", { name: "Task title", exact: true }).fill("Mode switcher v2");
+  const guard = blocker.mock.calls.at(-1)?.[0];
+  expect(guard?.disabled).toBe(false);
+  expect(guard?.enableBeforeUnload).toBe(true);
+
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect.poll(() => api.updateTask.mock.calls.length).toBeGreaterThan(0);
+  await expect.poll(() => blocker.mock.calls.at(-1)?.[0]?.disabled).toBe(true);
 });
 
 it("explains a failed run instead of only quoting the provider", async () => {

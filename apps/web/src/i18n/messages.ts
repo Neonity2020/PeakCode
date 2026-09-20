@@ -72,6 +72,8 @@ export type Messages = {
     no: string;
     errorOccurred: string;
     unexpectedError: string;
+    /** Asked before a screen closes (or a route change leaves it) with typed input in it. */
+    unsavedChangesConfirm: string;
   };
   appShell: {
     connecting: string;
@@ -1190,6 +1192,8 @@ export type Messages = {
         save: string;
         saving: string;
         saved: string;
+        /** Opens a card's credential fields; it is not the save action. */
+        edit: string;
         test: string;
         testing: string;
         disconnect: string;
@@ -1770,6 +1774,7 @@ const en: Messages = {
     no: "No",
     errorOccurred: "An error occurred.",
     unexpectedError: "An unexpected error occurred.",
+    unsavedChangesConfirm: "You have unsaved changes. Discard them?",
   },
   appShell: {
     connecting: "Connecting to {name} server...",
@@ -3031,6 +3036,7 @@ const en: Messages = {
         save: "Save",
         saving: "Saving…",
         saved: "Saved",
+        edit: "Edit",
         test: "Test connection",
         testing: "Testing…",
         disconnect: "Disconnect",
@@ -3640,6 +3646,7 @@ const zh: Messages = {
     no: "否",
     errorOccurred: "发生错误。",
     unexpectedError: "发生意外错误。",
+    unsavedChangesConfirm: "还有未保存的内容，确定丢弃吗？",
   },
   appShell: {
     connecting: "正在连接 {name} 服务器…",
@@ -4868,6 +4875,7 @@ const zh: Messages = {
         save: "保存",
         saving: "保存中…",
         saved: "已保存",
+        edit: "编辑",
         test: "测试连接",
         testing: "测试中…",
         disconnect: "断开",

@@ -11,6 +11,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type KeyboardEvent,
@@ -57,6 +58,7 @@ import {
 import { cn } from "../lib/utils";
 import { isElectron } from "../env";
 import { useLeadingColumnTrafficLightGutterClassName } from "../hooks/useDesktopTopBarGutter";
+import { useUnsavedChangesGuard } from "../hooks/useUnsavedChangesGuard";
 import ChatMarkdown from "./ChatMarkdown";
 import {
   KanbanPriorityMeter,
@@ -94,6 +96,16 @@ function draftFromTask(task: KanbanTask): TaskDraft {
   };
 }
 
+function draftsEqual(left: TaskDraft, right: TaskDraft): boolean {
+  return (
+    left.title === right.title &&
+    left.status === right.status &&
+    left.priority === right.priority &&
+    left.agentProvider === right.agentProvider &&
+    left.agentModel === right.agentModel
+  );
+}
+
 export function KanbanTaskDetailView(props: { projectId: ProjectId | null; taskId: KanbanTaskId }) {
   const messages = useMessages();
   const navigate = useNavigate();
@@ -129,11 +141,44 @@ export function KanbanTaskDetailView(props: { projectId: ProjectId | null; taskI
     persistKanbanProjectId(projectId);
   }, [projectId]);
 
-  // The board is the source of truth; a save while polling must not fight it.
+  /**
+   * The header values the form and the board last agreed on. A draft that differs from
+   * this — and not from the board, which moves on its own — is an edit someone made.
+   */
+  const syncedDraftRef = useRef<TaskDraft | null>(null);
+  const draftRef = useRef<TaskDraft | null>(null);
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
+
+  // The board is the source of truth, and it polls while an agent works. Re-seeding on
+  // every poll used to overwrite whatever the user was in the middle of editing — a
+  // comment landing on the card was enough to revert a title, a status or an agent pick.
+  // So a form the user has touched is left alone, and one they have not follows the board.
   useEffect(() => {
     if (!detail) return;
-    setDraft(draftFromTask(detail.task));
+    const current = draftRef.current;
+    const synced = syncedDraftRef.current;
+    if (current !== null && synced !== null && !draftsEqual(current, synced)) return;
+    const next = draftFromTask(detail.task);
+    syncedDraftRef.current = next;
+    setDraft(next);
   }, [detail]);
+
+  const headerDirty =
+    draft !== null &&
+    syncedDraftRef.current !== null &&
+    !draftsEqual(draft, syncedDraftRef.current);
+  const requirementDirty =
+    requirementDraft !== null && requirementDraft.trim() !== detail?.task.description.trim();
+  const hasUnsavedInput = headerDirty || requirementDirty || commentBody.trim().length > 0;
+
+  // Leaving with an edit in progress — the Back button, the sidebar, a keyboard jump —
+  // asks first, the way the task create page does.
+  const { allowNextNavigation } = useUnsavedChangesGuard({
+    shouldConfirm: hasUnsavedInput,
+    confirmMessage: messages.common.unsavedChangesConfirm,
+  });
 
   const modelOptions = useMemo(() => {
     if (!draft) return [];
@@ -162,15 +207,23 @@ export function KanbanTaskDetailView(props: { projectId: ProjectId | null; taskI
     if (!projectId || !detail || !draft) return;
     const title = draft.title.trim();
     if (title.length === 0) return;
-    updateTask.mutate({
-      projectId,
-      taskId: detail.task.taskId,
+    const saved: TaskDraft = {
       title,
       status: draft.status,
       priority: draft.priority,
       agentProvider: draft.agentProvider,
       agentModel: draft.agentModel,
-    });
+    };
+    updateTask.mutate(
+      { projectId, taskId: detail.task.taskId, ...saved },
+      {
+        onSuccess: () => {
+          // What was just written is the new baseline, so the form stops looking dirty
+          // before the poll that confirms it lands.
+          syncedDraftRef.current = saved;
+        },
+      },
+    );
   }, [detail, draft, projectId, updateTask]);
 
   const startRequirementEdit = useCallback(() => {
@@ -511,7 +564,13 @@ export function KanbanTaskDetailView(props: { projectId: ProjectId | null; taskI
                   if (!window.confirm(messages.kanban.deleteTaskConfirm)) return;
                   deleteTask.mutate(
                     { projectId, taskId: detail.task.taskId },
-                    { onSuccess: () => void navigate({ to: "/kanban" }) },
+                    {
+                      onSuccess: () => {
+                        // The task is gone; there is nothing left to keep the draft for.
+                        allowNextNavigation();
+                        void navigate({ to: "/kanban" });
+                      },
+                    },
                   );
                 }}
                 className="inline-flex h-8 items-center gap-1.5 rounded-md border border-destructive/40 px-2.5 text-[12px] text-destructive transition-colors hover:bg-destructive/10"
