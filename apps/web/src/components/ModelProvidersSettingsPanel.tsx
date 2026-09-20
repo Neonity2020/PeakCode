@@ -85,9 +85,12 @@ function toApiKind(value: string | undefined): ModelProviderApiKind | undefined 
 
 type Draft = Record<string, ModelProviderConfig>;
 
-/** A provider is "enabled" once its draft entry carries a usable API key. */
+/**
+ * A provider is "enabled" once it can authenticate: either a key is stored in Pi's
+ * credential store, or the config carries an `$ENV`/`!command` reference to resolve.
+ */
 function isEnabled(provider: ModelProviderConfig | undefined): boolean {
-  return Boolean(provider?.apiKey);
+  return Boolean(provider?.hasStoredKey || provider?.apiKey);
 }
 
 export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: string }) {
@@ -164,15 +167,13 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     });
   };
 
-  const updateModels = (key: string, models: CustomModelConfig[]) => {
-    setDraft((current) => {
-      const existing = current?.[key];
-      if (!current || !existing) return current;
-      return {
-        ...current,
-        [key]: patchModelProvider(existing, { models: models.length > 0 ? models : undefined }),
-      };
-    });
+  const withModels = (current: Draft, key: string, models: CustomModelConfig[]): Draft | null => {
+    const existing = current[key];
+    if (!existing) return null;
+    return {
+      ...current,
+      [key]: patchModelProvider(existing, { models: models.length > 0 ? models : undefined }),
+    };
   };
 
   /**
@@ -194,6 +195,28 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
         },
       },
     );
+  };
+
+  /**
+   * Apply a change that is a finished decision — a provider or model added, removed or
+   * rewritten — and write it out at once.
+   *
+   * These used to stay in the draft until the save bar below the card was clicked, which
+   * is how a whole provider and its model vanished: the user configures it, goes back to
+   * the chat, and the panel's draft is discarded on unmount with the config never
+   * reaching `models.json` — so the chat still offers the models from before. Field
+   * edits still wait for the explicit save, because a half-typed URL or key is not a
+   * decision the user has finished making.
+   */
+  const commitDraft = (next: Draft, afterSave?: (key: string) => void) => {
+    const cleaned = cleanModelProviderDraft(next);
+    setDraft(cleaned);
+    persistDraft(cleaned, afterSave);
+  };
+
+  const commitModels = (key: string, models: CustomModelConfig[]) => {
+    const next = withModels(draft, key, models);
+    if (next) commitDraft(next);
   };
 
   const runConnectionTest = (key: string) => {
@@ -238,7 +261,7 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     const have = new Set(models.map((model) => model.id));
     const added = ids.filter((id) => !have.has(id)).map((id) => ({ id }));
     if (added.length === 0) return;
-    updateModels(key, [...models, ...added]);
+    commitModels(key, [...models, ...added]);
   };
 
   const handleSave = () => {
@@ -250,13 +273,10 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     const name = draft[key]?.name ?? key;
     // 设置页其他删除操作也使用系统 confirm，保持一致。
     if (!window.confirm(mp.providerRemoveConfirm(name))) return;
-    setDraft((current) => {
-      if (!current) return current;
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
+    const next = { ...draft };
+    delete next[key];
     setTemplateId(EMPTY_TEMPLATE_ID);
+    commitDraft(next);
   };
 
   /**
@@ -265,17 +285,18 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
    * first model. Un-enabled templates stay out of models.json until enabled.
    */
   const enableTemplate = (template: ModelProviderTemplate, apiKey: string) => {
-    if (apiKey.trim().length === 0 || !draft) return;
+    if (!draft) return;
     const key = template.id;
+    // A previously stored key is enough to enable: an empty field means "keep it".
+    if (apiKey.trim().length === 0 && !draft[key]?.hasStoredKey) return;
     const config = modelProviderTemplateToConfig(template, apiKey);
     const next = { ...draft, [key]: { ...draft[key], ...config } };
-    setDraft(next);
     setSelectedKey(key);
     setAddProviderOpen(false);
     setEnableKey("");
     // The staged key must reach disk before the test can resolve it.
     const modelId = next[key]?.models?.[0]?.id;
-    persistDraft(next, () =>
+    commitDraft(next, () =>
       connectionTest.mutate({ provider: key, ...(modelId ? { modelId } : {}) }),
     );
   };
@@ -284,19 +305,18 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     if (templateId === EMPTY_TEMPLATE_ID) {
       if (customKey.trim().length === 0) return;
       const key = customKey.trim();
-      setDraft((current) => {
-        if (!current) return current;
-        const existing = current[key];
-        return {
-          ...current,
-          [key]: {
-            ...existing,
-            name: customName.trim().length > 0 ? customName.trim() : (existing?.name ?? key),
-            api: existing?.api ?? "openai-completions",
-            ...(customBaseUrl.trim().length > 0 ? { baseUrl: customBaseUrl.trim() } : {}),
-            ...(customApiKey.trim().length > 0 ? { apiKey: customApiKey.trim() } : {}),
-          },
-        };
+      const existing = draft[key];
+      // A provider is configuration from the moment it is added: it is written out with
+      // the name, endpoint and key the form was filled with.
+      commitDraft({
+        ...draft,
+        [key]: {
+          ...existing,
+          name: customName.trim().length > 0 ? customName.trim() : (existing?.name ?? key),
+          api: existing?.api ?? "openai-completions",
+          ...(customBaseUrl.trim().length > 0 ? { baseUrl: customBaseUrl.trim() } : {}),
+          ...(customApiKey.trim().length > 0 ? { apiKey: customApiKey.trim() } : {}),
+        },
       });
       setCustomKey("");
       setCustomName("");
@@ -308,20 +328,17 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     const template = MODEL_PROVIDER_TEMPLATE_BY_ID.get(templateId);
     if (!template) return;
     const key = template.id;
-    setDraft((current) => {
-      if (!current) return current;
-      const exists = current[key] !== undefined;
-      const config = modelProviderTemplateToConfig(template, customApiKey);
-      const configured = {
-        ...config,
-        ...(customBaseUrl.trim().length > 0 ? { baseUrl: customBaseUrl.trim() } : {}),
-      };
-      return { ...current, [key]: { ...(exists ? current[key] : {}), ...configured } };
-    });
+    const exists = draft[key] !== undefined;
+    const config = modelProviderTemplateToConfig(template, customApiKey);
+    const configured = {
+      ...config,
+      ...(customBaseUrl.trim().length > 0 ? { baseUrl: customBaseUrl.trim() } : {}),
+    };
+    commitDraft({ ...draft, [key]: { ...(exists ? draft[key] : {}), ...configured } });
     setTemplateId(EMPTY_TEMPLATE_ID);
     setCustomBaseUrl("");
     setCustomApiKey("");
-    if (draft[key]) {
+    if (exists) {
       toastManager.add({
         type: "success",
         title: mp.addDialogTitle,
@@ -395,7 +412,7 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     } else {
       models.push(model);
     }
-    updateModels(activeKey, models);
+    commitModels(activeKey, models);
     setModelDialogOpen(false);
     setEditingModelIndex(null);
   };
@@ -485,7 +502,7 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
           value={customApiKey}
           placeholder={
             templateId === EMPTY_TEMPLATE_ID
-              ? "MY_API_KEY"
+              ? "$MY_API_KEY"
               : mp.providerApiKeyPlaceholder(
                   MODEL_PROVIDER_TEMPLATE_BY_ID.get(templateId)?.apiKeyEnv ?? "API_KEY",
                 )
@@ -566,7 +583,10 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
           type="button"
           size="sm"
           className={PANEL_PRIMARY_BUTTON_CLASS}
-          disabled={enableKey.trim().length === 0 || saveMutation.isPending}
+          disabled={
+            (enableKey.trim().length === 0 && !draft?.[template.id]?.hasStoredKey) ||
+            saveMutation.isPending
+          }
           onClick={() => enableTemplate(template, enableKey)}
         >
           {saveMutation.isPending ? (
@@ -620,7 +640,7 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
           aria-label={mp.modelRemoveAria(model.id)}
           onClick={() => {
             setEditingModelIndex(null);
-            updateModels(
+            commitModels(
               activeKey ?? "",
               activeModels.filter((_, i) => i !== index),
             );
@@ -718,13 +738,31 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
             type="password"
             autoComplete="off"
             value={provider.apiKey ?? ""}
-            placeholder={MODEL_PROVIDER_TEMPLATE_BY_ID.get(key)?.apiKeyEnv ?? "API_KEY"}
+            placeholder={
+              provider.hasStoredKey
+                ? mp.providerStoredKeyHint
+                : `$${MODEL_PROVIDER_TEMPLATE_BY_ID.get(key)?.apiKeyEnv ?? "API_KEY"}`
+            }
             spellCheck={false}
             onChange={(event) => {
               const apiKey = event.target.value;
+              // A stored key is never echoed, so an empty field means "leave it alone"
+              // rather than "forget it" — clearing is an explicit action below.
               updateProvider(key, { apiKey: apiKey || undefined });
             }}
           />
+          {provider.hasStoredKey ? (
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <span className="text-[11px] text-muted-foreground">{mp.providerStoredKeyHint}</span>
+              <Button
+                size="xs"
+                className={PANEL_SECONDARY_BUTTON_CLASS}
+                onClick={() => updateProvider(key, { apiKey: undefined, clearStoredKey: true })}
+              >
+                {mp.providerClearKeyButton}
+              </Button>
+            </div>
+          ) : null}
         </label>
 
         <div>

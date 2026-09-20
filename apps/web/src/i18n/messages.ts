@@ -1104,6 +1104,8 @@ export type Messages = {
       providerApiKeyLabel: string;
       providerApiKeyHint: string;
       providerApiKeyPlaceholder: (env: string) => string;
+      providerStoredKeyHint: string;
+      providerClearKeyButton: string;
       providerModelsLabel: string;
       modelAddButton: string;
       modelFetchButton: string;
@@ -2921,8 +2923,11 @@ const en: Messages = {
       providerBaseUrlLabel: "Base URL",
       providerApiKeyLabel: "API key",
       providerApiKeyHint:
-        "Supports ENV_VAR references, !shell commands (e.g. !op read …), or literal values.",
-      providerApiKeyPlaceholder: (env) => `Reference an env var, e.g. ${env}`,
+        "A plain value is saved as a secret in Pi's credential store, not in the config file. Use $ENV_VAR, ${ENV_VAR} or !shell commands (e.g. !op read …) to keep a reference in the config file instead.",
+      providerApiKeyPlaceholder: (env) => `Secret key, or a reference such as $${env}`,
+      providerStoredKeyHint:
+        "A key is saved in Pi's credential store. It is never shown again — type a new one to replace it.",
+      providerClearKeyButton: "Forget saved key",
       providerModelsLabel: "Models",
       modelAddButton: "Add model",
       modelFetchButton: "Fetch model list",
@@ -4761,8 +4766,11 @@ const zh: Messages = {
       providerApiLabel: "API 类型",
       providerBaseUrlLabel: "Base URL",
       providerApiKeyLabel: "API Key",
-      providerApiKeyHint: "支持 ENV_VAR 环境变量引用、!shell 命令（如 !op read …）或字面量。",
-      providerApiKeyPlaceholder: (env) => `引用环境变量，例如 ${env}`,
+      providerApiKeyHint:
+        "字面量密钥会作为凭证保存到 Pi 的凭证库（auth.json），不会写入配置文件。若想在配置文件里只保留引用，请使用 $ENV_VAR、${ENV_VAR} 或 !shell 命令（如 !op read …）。",
+      providerApiKeyPlaceholder: (env) => `密钥字面量，或形如 $${env} 的引用`,
+      providerStoredKeyHint: "密钥已保存到 Pi 的凭证库，之后不再回显；输入新值即可替换。",
+      providerClearKeyButton: "清除已保存的密钥",
       providerModelsLabel: "模型",
       modelAddButton: "添加模型",
       modelFetchButton: "获取模型列表",

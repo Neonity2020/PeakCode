@@ -23,30 +23,41 @@ const CUSTOM_PROVIDER = {
   baseUrl: "https://old.test",
 };
 
+/**
+ * Stand-in for `models.json`: `list` serves back whatever `save` was last handed, so a
+ * panel that is unmounted and mounted again sees exactly what it managed to persist.
+ */
+interface ProviderStore {
+  providers: ModelProvidersFile["providers"];
+}
+
+function readStore(store: ProviderStore): ModelProvidersFile {
+  return { path: "/custom/models.json", providers: store.providers };
+}
+
 async function mountPanel(
   providers?: ModelProvidersFile["providers"],
-  opts?: { selectCustom?: boolean },
+  opts?: { selectCustom?: boolean; store?: ProviderStore },
 ) {
-  const file: ModelProvidersFile = {
-    path: "/custom/models.json",
+  const store: ProviderStore = opts?.store ?? {
     providers: providers ?? { custom: { ...CUSTOM_PROVIDER, models: [{ id: "old-model" }] } },
   };
-  api.listModelProviders.mockResolvedValue(file);
-  api.saveModelProviders.mockImplementation(async (input: ServerSaveModelProvidersInput) => ({
-    path: file.path,
-    providers: Object.fromEntries(
+  api.listModelProviders.mockImplementation(async () => readStore(store));
+  api.saveModelProviders.mockImplementation(async (input: ServerSaveModelProvidersInput) => {
+    store.providers = Object.fromEntries(
       Object.entries(input.providers).map(([key, provider]) => [
         key,
         { ...provider, name: provider.name ?? key },
       ]),
-    ),
-  }));
+    );
+    return readStore(store);
+  });
   api.testModelProvider.mockResolvedValue({ status: "success", model: "custom/old-model" });
   api.listProviderModels.mockResolvedValue({ models: [], url: "https://old.test/v1/models" });
   // Desktop width: the model rows and dialog are meant for the settings pane.
   await page.viewport(1164, 900);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  await render(
+  const rendered = await render(
     <QueryClientProvider client={client}>
       <I18nProvider language="en">
         <ModelProvidersSettingsPanel agentDir="/custom" />
@@ -56,6 +67,7 @@ async function mountPanel(
   if (opts?.selectCustom !== false) {
     await page.getByRole("button", { name: /Custom Display/ }).click();
   }
+  return rendered;
 }
 
 it("adds a model through the dialog, keeping unsupported input kinds out of pi's input", async () => {
@@ -89,9 +101,9 @@ it("adds a model through the dialog, keeping unsupported input kinds out of pi's
 
   await expect.element(page.getByText("deepseek-v4-pro")).toBeVisible();
 
-  await page.getByRole("button", { name: "Save changes" }).click();
+  // Adding a model is written straight out: no save bar, no separate save click.
   await expect
-    .poll(() => api.saveModelProviders.mock.calls[0]?.[0])
+    .poll(() => api.saveModelProviders.mock.calls.at(-1)?.[0])
     .toEqual({
       agentDir: "/custom",
       providers: {
@@ -117,22 +129,48 @@ it("adds a model through the dialog, keeping unsupported input kinds out of pi's
   await expect.element(page.getByText("You have unsaved changes.")).not.toBeInTheDocument();
 });
 
-it("clears fields, removes models, and resets the dirty state after saving", async () => {
+it("keeps a provider and a model added from the panel after leaving and re-entering it", async () => {
+  const store: ProviderStore = { providers: {} };
+  const first = await mountPanel(undefined, { selectCustom: false, store });
+
+  // Configure a provider the way the reported flow does: a custom vendor, its endpoint
+  // and key, then one model of its own.
+  await page.getByRole("button", { name: "Add model provider", exact: true }).click();
+  await page.getByRole("textbox", { name: "Display name", exact: true }).fill("StepFun 自建");
+  await page.getByRole("textbox", { name: "Provider key", exact: true }).fill("Step");
+  await page
+    .getByRole("textbox", { name: "Base URL", exact: true })
+    .fill("https://api.stepfun.com");
+  await page.getByRole("textbox", { name: "API key", exact: true }).fill("sk-step-test");
+  await page.getByRole("button", { name: "Add provider", exact: true }).click();
+
+  await page.getByRole("button", { name: "Add model", exact: true }).click();
+  await page.getByRole("textbox", { name: "Model ID", exact: true }).fill("water18-0910");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.element(page.getByText("water18-0910")).toBeVisible();
+
+  // Going back to the chat unmounts the panel; what the user configured has to be on
+  // disk by then, not waiting for a save bar below the card.
+  first.unmount();
+  await mountPanel(undefined, { selectCustom: false, store });
+  await page.getByRole("button", { name: "StepFun 自建", exact: true }).click();
+  await expect.element(page.getByText("water18-0910")).toBeVisible();
+});
+
+it("writes a removed model out with the field edits made before it", async () => {
   await mountPanel();
-  await page.getByRole("textbox", { name: "Base URL", exact: true }).fill("");
-  await page.getByRole("textbox", { name: "Display name", exact: true }).first().fill("");
+  await page.getByRole("textbox", { name: "Base URL", exact: true }).fill("https://new.test");
   await page.getByRole("button", { name: "Remove model old-model" }).click();
-  // The test button stays clickable on a dirty draft; clicking it saves first.
-  await expect.element(page.getByRole("button", { name: "Test connection" })).toBeEnabled();
-  await page.getByRole("button", { name: "Save changes" }).click();
+
   await expect
-    .poll(() => api.saveModelProviders.mock.calls[0]?.[0])
+    .poll(() => api.saveModelProviders.mock.calls.at(-1)?.[0])
     .toEqual({
       agentDir: "/custom",
-      providers: { custom: { apiKey: "old" } },
+      providers: {
+        custom: { ...CUSTOM_PROVIDER, baseUrl: "https://new.test" },
+      },
     });
   await expect.element(page.getByText("You have unsaved changes.")).not.toBeInTheDocument();
-  await expect.element(page.getByRole("button", { name: "Test connection" })).toBeEnabled();
 });
 
 it("saves pending edits before testing from the provider detail pane", async () => {
@@ -177,9 +215,8 @@ it("edits an existing model in place, seeding the dialog from its config", async
   await expect
     .element(page.getByRole("button", { name: "Edit old-model 2" }))
     .not.toBeInTheDocument();
-  await page.getByRole("button", { name: "Save changes" }).click();
   await expect
-    .poll(() => api.saveModelProviders.mock.calls[0]?.[0])
+    .poll(() => api.saveModelProviders.mock.calls.at(-1)?.[0])
     .toEqual({
       agentDir: "/custom",
       providers: {
@@ -301,10 +338,9 @@ it("adds a custom provider with the Name → Base URL → API key field order", 
   await page.getByRole("textbox", { name: "API key", exact: true }).fill("sk-acme");
   await page.getByRole("button", { name: "Add provider", exact: true }).click();
 
-  // Adding stages the custom provider into the draft; saving writes it out.
-  await page.getByRole("button", { name: "Save changes" }).click();
+  // Adding a provider writes it out; there is no staged step to forget.
   await expect
-    .poll(() => api.saveModelProviders.mock.calls[0]?.[0])
+    .poll(() => api.saveModelProviders.mock.calls.at(-1)?.[0])
     .toEqual({
       agentDir: "/custom",
       providers: {
@@ -316,6 +352,7 @@ it("adds a custom provider with the Name → Base URL → API key field order", 
         },
       },
     });
+  await expect.element(page.getByText("You have unsaved changes.")).not.toBeInTheDocument();
 });
 
 it("fetches the provider's own model list and adds a picked model", async () => {
@@ -338,10 +375,9 @@ it("fetches the provider's own model list and adds a picked model", async () => 
   await page.getByRole("button", { name: "Add model Qwen/Qwen3-max" }).click();
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
 
-  // The picked id lands in the draft as a bare entry and saves with the rest.
-  await page.getByRole("button", { name: "Save changes" }).click();
+  // The picked id is added to the provider and written out as a bare entry.
   await expect
-    .poll(() => api.saveModelProviders.mock.calls[0]?.[0])
+    .poll(() => api.saveModelProviders.mock.calls.at(-1)?.[0])
     .toEqual({
       agentDir: "/custom",
       providers: {
