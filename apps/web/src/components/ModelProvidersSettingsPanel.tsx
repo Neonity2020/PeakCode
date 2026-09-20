@@ -1,7 +1,7 @@
 // FILE: ModelProvidersSettingsPanel.tsx
 // Purpose: "Model Providers" settings panel — edit pi's models.json provider map.
 // Layer: Route screen support
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   CustomModelConfig,
@@ -133,6 +133,39 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     return JSON.stringify(draft) !== JSON.stringify(providers);
   }, [draft, providers]);
 
+  /**
+   * The draft as of the last render, so the unmount flush saves what the user last saw —
+   * a ref, because an effect closure would hold the first render's draft.
+   */
+  const latestDraftRef = useRef<{ readonly draft: Draft | null; readonly dirty: boolean }>({
+    draft: null,
+    dirty: false,
+  });
+  const saveRef = useRef(saveMutation.mutate);
+  useEffect(() => {
+    latestDraftRef.current = { draft, dirty: isDirty };
+    saveRef.current = saveMutation.mutate;
+  });
+
+  /**
+   * Leaving the panel must not discard an edit that has not reached the file.
+   *
+   * Blur and change commit most things already; what can still be dirty here is an edit
+   * made in the moment before a route change (a keystroke that never blurred) or a save
+   * that failed. Saving the draft on the way out covers both, and a clean draft skips it.
+   */
+  useEffect(
+    () => () => {
+      const pending = latestDraftRef.current;
+      if (!pending.draft || !pending.dirty) return;
+      saveRef.current({
+        providers: cleanModelProviderDraft(pending.draft),
+        ...(agentDir ? { agentDir } : {}),
+      });
+    },
+    [agentDir],
+  );
+
   // Template defaults (and any already-written provider entries) make up the
   // left-hand candidate list; un-enabled templates are not in the draft yet.
   const providerEntries = useMemo(
@@ -159,12 +192,39 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     );
   }
 
+  const withProvider = (
+    current: Draft,
+    key: string,
+    patch: Partial<ModelProviderConfig>,
+  ): Draft | null => {
+    const existing = current[key];
+    if (!existing) return null;
+    return { ...current, [key]: patchModelProvider(existing, patch) };
+  };
+
   const updateProvider = (key: string, patch: Partial<ModelProviderConfig>) => {
     setDraft((current) => {
-      const existing = current?.[key];
-      if (!current || !existing) return current;
-      return { ...current, [key]: patchModelProvider(existing, patch) };
+      const next = current ? withProvider(current, key, patch) : null;
+      return next ?? current;
     });
+  };
+
+  /**
+   * Persist a field edit, once the field has been left.
+   *
+   * Field editors stage while you type and save on blur (or on the change itself for a
+   * picker), so a name, a Base URL or a key cannot sit in the draft waiting for a button
+   * the user never notices. Nothing is written mid-word, which keeps a half-typed Base
+   * URL out of the file a running session reads.
+   */
+  const commitProvider = (key: string, patch: Partial<ModelProviderConfig>) => {
+    const next = withProvider(draft, key, patch);
+    if (!next) return;
+    // Leaving a field without changing what is on disk is not an edit and must not cost a
+    // write. Compared against the saved config, not the draft: the draft already holds the
+    // keystrokes, and it is the difference from the file that decides whether to save.
+    if (providers && JSON.stringify(next) === JSON.stringify(providers)) return;
+    commitDraft(next);
   };
 
   const withModels = (current: Draft, key: string, models: CustomModelConfig[]): Draft | null => {
@@ -198,15 +258,14 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
   };
 
   /**
-   * Apply a change that is a finished decision — a provider or model added, removed or
-   * rewritten — and write it out at once.
+   * Apply a change — a provider or model added, removed or rewritten, a field left, a
+   * picker set — and write it out at once.
    *
    * These used to stay in the draft until the save bar below the card was clicked, which
    * is how a whole provider and its model vanished: the user configures it, goes back to
    * the chat, and the panel's draft is discarded on unmount with the config never
-   * reaching `models.json` — so the chat still offers the models from before. Field
-   * edits still wait for the explicit save, because a half-typed URL or key is not a
-   * decision the user has finished making.
+   * reaching `models.json` — so the chat still offered the models from before. Nothing in
+   * this panel is left holding an edit the user has finished making.
    */
   const commitDraft = (next: Draft, afterSave?: (key: string) => void) => {
     const cleaned = cleanModelProviderDraft(next);
@@ -668,6 +727,10 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
               const name = event.target.value.trim();
               updateProvider(key, { name: name || undefined });
             }}
+            onBlur={(event) => {
+              const name = event.target.value.trim();
+              commitProvider(key, { name: name || undefined });
+            }}
           />
           <Button
             size="xs"
@@ -701,6 +764,10 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
               const baseUrl = event.target.value.trim();
               updateProvider(key, { baseUrl: baseUrl || undefined });
             }}
+            onBlur={(event) => {
+              const baseUrl = event.target.value.trim();
+              commitProvider(key, { baseUrl: baseUrl || undefined });
+            }}
           />
         </label>
 
@@ -711,7 +778,7 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
             onValueChange={(value) => {
               const kind = toApiKind(value ?? undefined);
               if (kind) {
-                updateProvider(key, { api: kind });
+                commitProvider(key, { api: kind });
               }
             }}
           >
@@ -750,6 +817,11 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
               // rather than "forget it" — clearing is an explicit action below.
               updateProvider(key, { apiKey: apiKey || undefined });
             }}
+            onBlur={(event) => {
+              const apiKey = event.target.value;
+              if (apiKey.length === 0) return;
+              commitProvider(key, { apiKey });
+            }}
           />
           {provider.hasStoredKey ? (
             <div className="mt-2 flex items-center justify-between gap-2">
@@ -757,7 +829,7 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
               <Button
                 size="xs"
                 className={PANEL_SECONDARY_BUTTON_CLASS}
-                onClick={() => updateProvider(key, { apiKey: undefined, clearStoredKey: true })}
+                onClick={() => commitProvider(key, { apiKey: undefined, clearStoredKey: true })}
               >
                 {mp.providerClearKeyButton}
               </Button>
@@ -822,7 +894,9 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
   };
 
   return (
-    <fieldset disabled={saveMutation.isPending} className="flex min-w-0 flex-col gap-4">
+    // Not disabled while a save is in flight: fields now save when they are left, and a
+    // disabled field steals focus from the field the user has just moved on to.
+    <fieldset className="flex min-w-0 flex-col gap-4">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <span>{mp.filePathLabel}</span>
         <code className="font-mono text-[11px]">{query.data?.path ?? ""}</code>
@@ -904,12 +978,17 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
         </div>
       </div>
 
-      {isDirty ? (
+      {/*
+        The retry affordance. Every edit writes itself out (on the change, on leaving a
+        field, or on unmount), so a draft that is still dirty here is one whose save has
+        failed — the error toast says why, and this button tries again. Hidden while a
+        save is in flight so the bar does not flash on every blurred field.
+      */}
+      {isDirty && !saveMutation.isPending ? (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--color-border-light)] px-4 py-3">
           <span className="text-sm text-muted-foreground">{mp.unsavedHint}</span>
-          <Button size="sm" disabled={saveMutation.isPending} onClick={handleSave}>
-            {saveMutation.isPending ? <Loader2Icon className="size-3.5 animate-spin" /> : null}
-            {saveMutation.isPending ? mp.savingButton : mp.saveButton}
+          <Button size="sm" onClick={handleSave}>
+            {mp.saveButton}
           </Button>
         </div>
       ) : null}

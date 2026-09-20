@@ -1,6 +1,6 @@
 import "../index.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { afterEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-react";
 import type { ModelProvidersFile, ServerSaveModelProvidersInput } from "@peakcode/contracts";
@@ -171,6 +171,68 @@ it("writes a removed model out with the field edits made before it", async () =>
       },
     });
   await expect.element(page.getByText("You have unsaved changes.")).not.toBeInTheDocument();
+});
+
+it("asks before a stray dismiss throws a new model away", async () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  await mountPanel();
+  await page.getByRole("button", { name: "Add model", exact: true }).click();
+  const modelId = page.getByRole("textbox", { name: "Model ID", exact: true });
+  await modelId.fill("half-typed-model");
+
+  await userEvent.keyboard("{Escape}");
+  // Declining keeps the dialog, and what was typed in it.
+  await expect.element(modelId).toHaveValue("half-typed-model");
+
+  confirm.mockReturnValue(true);
+  await userEvent.keyboard("{Escape}");
+  await expect.element(modelId).not.toBeInTheDocument();
+  confirm.mockRestore();
+});
+
+it("writes a field edit out when the field is left, not on every keystroke", async () => {
+  await mountPanel();
+  const baseUrl = page.getByRole("textbox", { name: "Base URL", exact: true });
+
+  await baseUrl.fill("https://new.test");
+  // Still in the field: nothing is written mid-word.
+  expect(api.saveModelProviders).not.toHaveBeenCalled();
+
+  await page.getByRole("textbox", { name: "Display name", exact: true }).first().click();
+  await expect
+    .poll(() => api.saveModelProviders.mock.calls.at(-1)?.[0])
+    .toEqual({
+      agentDir: "/custom",
+      providers: {
+        custom: { ...CUSTOM_PROVIDER, baseUrl: "https://new.test", models: [{ id: "old-model" }] },
+      },
+    });
+});
+
+it("keeps a field edit when the panel is left with the field still focused", async () => {
+  const store: ProviderStore = {
+    providers: { custom: { ...CUSTOM_PROVIDER, models: [{ id: "old-model" }] } },
+  };
+  const first = await mountPanel(undefined, { store });
+
+  // Removing a focused input never fires blur, so this is the edit that used to vanish.
+  await page.getByRole("textbox", { name: "Base URL", exact: true }).fill("https://new.test");
+  first.unmount();
+
+  await expect
+    .poll(() => api.saveModelProviders.mock.calls.at(-1)?.[0])
+    .toEqual({
+      agentDir: "/custom",
+      providers: {
+        custom: { ...CUSTOM_PROVIDER, baseUrl: "https://new.test", models: [{ id: "old-model" }] },
+      },
+    });
+
+  // And the next visit shows what was written.
+  await mountPanel(undefined, { store });
+  await expect
+    .element(page.getByRole("textbox", { name: "Base URL", exact: true }))
+    .toHaveValue("https://new.test");
 });
 
 it("saves pending edits before testing from the provider detail pane", async () => {

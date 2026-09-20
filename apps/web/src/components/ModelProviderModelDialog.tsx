@@ -76,6 +76,29 @@ export function ModelProviderModelDialog({
   const trimmedId = id.trim();
   const idIsEmpty = trimmedId.length === 0;
 
+  /** Whether the dialog holds anything that is not what it was opened with. */
+  const seeds = {
+    id: model?.id ?? "",
+    contextWindow: model ? formatCount(model.contextWindow) : DEFAULT_CONTEXT_WINDOW,
+    maxTokens: model ? formatCount(model.maxTokens) : DEFAULT_MAX_TOKENS,
+    inputTypes: model ? modelInputTypes(model) : [BASE_INPUT_TYPE],
+  };
+  const isDirty =
+    id !== seeds.id ||
+    contextWindow !== seeds.contextWindow ||
+    maxTokens !== seeds.maxTokens ||
+    inputTypes.join(",") !== seeds.inputTypes.join(",");
+
+  /**
+   * Escape, the close button and a click on the backdrop all land here. Dismissing the
+   * dialog throws the definition away, so each of those asks first — the explicit Cancel
+   * button does not.
+   */
+  const requestClose = (next: boolean) => {
+    if (!next && isDirty && !window.confirm(messages.common.unsavedChangesConfirm)) return;
+    onOpenChange(next);
+  };
+
   const toggleInputType = (kind: ModelInputTypeKind, checked: boolean) => {
     setInputTypes((current) => {
       const next = new Set(current);
@@ -115,7 +138,7 @@ export function ModelProviderModelDialog({
   const dialogButtonClass = "h-[30px] rounded-lg px-3.5 text-[13px]";
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={requestClose}>
       <DialogPopup className="max-w-[576px] gap-0 p-0">
         <div className="flex flex-col p-4">
           <DialogTitle className="pr-8 text-base">
