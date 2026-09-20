@@ -16,13 +16,17 @@ import type {
   ServerUsageStatisticsResult,
   ServerUsageStatisticsSource,
 } from "@peakcode/contracts";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 
+import { ServerConfig } from "./config.ts";
+import { ProjectionSnapshotQuery } from "./orchestration/Services/ProjectionSnapshotQuery.ts";
+import { ProviderSessionRuntimeRepository } from "./persistence/Services/ProviderSessionRuntime.ts";
 import {
   collectUsageInto,
   createUsageFileCache,
   usageSourceCatalog,
   USAGE_WINDOW_DAYS,
+  type AppUsageScope,
   type UsageSourceId,
 } from "./usageCollectors.ts";
 import {
@@ -43,8 +47,50 @@ interface CachedScan {
   expiresAtMs: number;
   accumulator: UsageAccumulator;
   activeSources: ReadonlySet<UsageSourceId>;
+  scopeKey: string;
   pending: Promise<CachedScan> | null;
 }
+
+/**
+ * What "Peak Code's own usage" means: the Pi sessions this app spawned (its recorded
+ * resume cursors) plus any Pi session recorded inside its projects or worktrees. The
+ * second half is what keeps the number honest after thread retention has deleted the
+ * runtime row for a session that did run here.
+ *
+ * The runtime repository is looked up optionally: the project list alone is already a
+ * truthful answer, and this page must not fail because some deployment does not wire
+ * the runtime store into the RPC layer.
+ */
+const loadAppUsageScope = Effect.fn(function* () {
+  const serverConfig = yield* ServerConfig;
+  const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+  const shellSnapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+  const runtimeRepository = yield* Effect.serviceOption(ProviderSessionRuntimeRepository);
+  const runtimes = Option.isSome(runtimeRepository)
+    ? yield* runtimeRepository.value.list().pipe(Effect.orElseSucceed(() => []))
+    : [];
+
+  const sessionFiles = new Set<string>();
+  for (const runtime of runtimes) {
+    const cursor = runtime.resumeCursor;
+    if (typeof cursor === "string" && cursor.trim().length > 0) {
+      sessionFiles.add(cursor.trim());
+    }
+  }
+
+  return {
+    scope: {
+      projectRoots: shellSnapshot.projects.map((project) => project.workspaceRoot),
+      worktreesRoot: serverConfig.worktreesDir,
+      sessionFiles,
+    } satisfies AppUsageScope,
+    scopeKey: [
+      ...shellSnapshot.projects.map((project) => project.workspaceRoot).toSorted(),
+      serverConfig.worktreesDir,
+      [...sessionFiles].toSorted().join(","),
+    ].join("|"),
+  };
+});
 
 let scanCache: CachedScan | null = null;
 const fileCache = createUsageFileCache();
@@ -352,13 +398,18 @@ async function scanUsage(input: {
   readonly nowMs: number;
   readonly refresh: boolean;
   readonly windowDays: number;
+  readonly scope: AppUsageScope;
+  readonly scopeKey: string;
 }): Promise<CachedScan> {
   const existing = scanCache;
-  if (!input.refresh && existing && existing.expiresAtMs > input.nowMs) {
-    return existing;
+  // A changed project set changes which transcripts are this app's, so a cached scan
+  // from a different scope cannot be reused.
+  const reusable = existing && existing.scopeKey === input.scopeKey ? existing : null;
+  if (!input.refresh && reusable && reusable.expiresAtMs > input.nowMs) {
+    return reusable;
   }
-  if (!input.refresh && existing?.pending) {
-    return existing.pending;
+  if (!input.refresh && reusable?.pending) {
+    return reusable.pending;
   }
 
   const pending = (async (): Promise<CachedScan> => {
@@ -368,6 +419,7 @@ async function scanUsage(input: {
       nowMs: input.nowMs,
       cache: fileCache,
       windowDays: input.windowDays,
+      appScope: input.scope,
     });
     accumulator.prune({ nowMs: input.nowMs });
 
@@ -375,6 +427,7 @@ async function scanUsage(input: {
       expiresAtMs: Date.now() + STATISTICS_CACHE_TTL_MS,
       accumulator,
       activeSources,
+      scopeKey: input.scopeKey,
       pending: null,
     };
     scanCache = scan;
@@ -382,9 +435,10 @@ async function scanUsage(input: {
   })();
 
   scanCache = {
-    expiresAtMs: existing?.expiresAtMs ?? 0,
-    accumulator: existing?.accumulator ?? new UsageAccumulator(),
-    activeSources: existing?.activeSources ?? new Set(),
+    expiresAtMs: reusable?.expiresAtMs ?? 0,
+    accumulator: reusable?.accumulator ?? new UsageAccumulator(),
+    activeSources: reusable?.activeSources ?? new Set(),
+    scopeKey: input.scopeKey,
     pending,
   };
   return pending;
@@ -393,8 +447,9 @@ async function scanUsage(input: {
 export const getUsageStatistics = Effect.fn(function* (input: ServerGetUsageStatisticsInput) {
   const nowMs = Date.now();
   const windowDays = input.windowDays ?? USAGE_WINDOW_DAYS;
+  const { scope, scopeKey } = yield* loadAppUsageScope();
   const scan = yield* Effect.tryPromise({
-    try: () => scanUsage({ nowMs, refresh: input.refresh === true, windowDays }),
+    try: () => scanUsage({ nowMs, refresh: input.refresh === true, windowDays, scope, scopeKey }),
     catch: (cause) => new Error(`Failed to read local usage logs: ${String(cause)}`),
   });
 
@@ -410,9 +465,16 @@ export const getUsageStatistics = Effect.fn(function* (input: ServerGetUsageStat
 
 export const getUsageSessionDetail = Effect.fn(function* (input: ServerGetUsageSessionDetailInput) {
   const nowMs = Date.now();
+  const { scope, scopeKey } = yield* loadAppUsageScope();
   const scan = yield* Effect.tryPromise({
     try: () =>
-      scanUsage({ nowMs, refresh: false, windowDays: input.windowDays ?? USAGE_WINDOW_DAYS }),
+      scanUsage({
+        nowMs,
+        refresh: false,
+        windowDays: input.windowDays ?? USAGE_WINDOW_DAYS,
+        scope,
+        scopeKey,
+      }),
     catch: (cause) => new Error(`Failed to read local usage logs: ${String(cause)}`),
   });
 

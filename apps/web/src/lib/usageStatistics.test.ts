@@ -174,6 +174,27 @@ describe("buildUsageSourceRows", () => {
     expect(bars[2]).toBe(0);
   });
 
+  it("pins this app's own row first, whatever it spent", () => {
+    const rows = buildUsageSourceRows([
+      ...sources,
+      {
+        id: "peakcode",
+        label: "Peak Code",
+        roots: ["/Users/tester/.pi/agent/sessions"],
+        active: true,
+        tokens: 40,
+        responses: 1,
+        sessions: 1,
+        models: 1,
+        lastUsedAt: new Date(localTime(18, 12)).toISOString(),
+      },
+    ]);
+
+    expect(rows[0]?.id).toBe("peakcode");
+    // Everything else still ranks by tokens, and the unused tool stays last.
+    expect(rows.slice(1).map((row) => row.id)).toEqual(["zcode", "pi", "grok"]);
+  });
+
   it("gives every tool a stable colour", () => {
     const rows = buildUsageSourceRows(sources);
 

@@ -53,22 +53,30 @@ const statistics: ServerUsageStatisticsResult = {
   earliestAt: iso(16, 9),
   latestAt: iso(18, 10),
   totals: {
-    tokens: 1_400,
+    tokens: 1_660,
     inputTokens: 900,
     outputTokens: 200,
-    cacheReadTokens: 300,
+    cacheReadTokens: 560,
     cacheWriteTokens: 0,
     reasoningTokens: 20,
     peakDayTokens: 900,
     peakDay: localDateKey(18),
     longestChatMs: 2 * 60 * 60 * 1_000,
-    currentStreakDays: 3,
-    longestStreakDays: 3,
-    activeDays: 3,
-    sessions: 2,
-    responses: 3,
+    currentStreakDays: 4,
+    longestStreakDays: 4,
+    activeDays: 4,
+    sessions: 3,
+    responses: 4,
   },
   sources: [
+    source("peakcode", "Peak Code", {
+      tokens: 260,
+      responses: 1,
+      sessions: 1,
+      models: 1,
+      lastUsedAt: iso(18, 8),
+      roots: ["/Users/tester/.pi/agent/sessions"],
+    }),
     source("zcode", "ZCode", {
       tokens: 1_100,
       responses: 2,
@@ -96,6 +104,19 @@ const statistics: ServerUsageStatisticsResult = {
           tokens: 200,
           responses: 1,
           models: [{ model: "deepseek-v4.1", tokens: 200 }],
+        },
+      ],
+    },
+    {
+      date: localDateKey(15),
+      tokens: 260,
+      responses: 1,
+      bySource: [
+        {
+          source: "peakcode",
+          tokens: 260,
+          responses: 1,
+          models: [{ model: "deepseek-v4.1", tokens: 260 }],
         },
       ],
     },
@@ -128,6 +149,13 @@ const statistics: ServerUsageStatisticsResult = {
   ],
   models: [
     {
+      model: "deepseek-v4-preview",
+      tokens: 260,
+      responses: 1,
+      sources: ["peakcode"],
+      lastUsedAt: iso(18, 8),
+    },
+    {
       model: "deepseek-v4",
       tokens: 1_100,
       responses: 2,
@@ -143,6 +171,17 @@ const statistics: ServerUsageStatisticsResult = {
     },
   ],
   sessions: [
+    {
+      source: "peakcode",
+      sessionId: "sess-peakcode",
+      project: "PeakCode",
+      startedAt: iso(18, 8),
+      endedAt: iso(18, 8, 30),
+      tokens: 260,
+      responses: 3,
+      models: ["deepseek-v4-preview"],
+      hasRequestDetail: true,
+    },
     {
       source: "zcode",
       sessionId: "sess-zcode",
@@ -252,13 +291,23 @@ it("reports the whole machine's totals and lists every tool", async () => {
   });
   expect(document.querySelector('[data-usage-tool-row="pi"]')).not.toBeNull();
   // A tool with no records is still listed, with where its logs were looked for.
+  await vi.waitFor(() => {
+    expect(document.querySelector('[data-usage-tool-row="peakcode"]')?.textContent).toContain(
+      "Peak Code",
+    );
+  });
+  // This app's own row leads the list even though two other tools outspent it.
+  const firstRow = document.querySelector('[data-slot="usage-tool-list"]')?.firstElementChild;
+  expect(firstRow?.textContent).toContain("Peak Code");
+  expect(document.querySelector('[data-usage-filter="peakcode"]')).not.toBeNull();
+
   const inactiveRow = document.querySelector('[data-usage-tool-row="grok"]');
   expect(inactiveRow?.textContent).toContain("No records found");
   // The mix has to add up: 900 input + 200 output + 300 cache read of 1.4K total.
   const mix = document.querySelector('[data-slot="usage-token-mix"]')?.textContent ?? "";
   expect(mix).toContain("Input");
-  expect(mix).toContain("64%");
-  expect(mix).toContain("21%");
+  expect(mix).toContain("54%");
+  expect(mix).toContain("34%");
 
   // The unfiltered page asks for every tool at once.
   await vi.waitFor(() => expect(api.getUsageStatistics).toHaveBeenCalledWith({}));

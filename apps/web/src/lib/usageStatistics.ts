@@ -25,8 +25,10 @@ export const USAGE_MODEL_COLORS = [
   "#6366F1",
 ] as const;
 
-/** Tool colours, assigned by the order the server lists tools in. */
+/** Tool colours, keyed by source id so a tool keeps its colour across every view. */
 export const USAGE_SOURCE_COLORS: Record<string, string> = {
+  // This app is the one row that is always first; give it the app's own blue.
+  peakcode: "#2563EB",
   "claude-code": "#D97757",
   codex: "#10B981",
   zcode: "#3B82F6",
@@ -37,6 +39,9 @@ export const USAGE_SOURCE_COLORS: Record<string, string> = {
   grok: "#64748B",
   dsh: "#4F46E5",
 };
+
+/** This app's own source id, pinned to the top of every tool list. */
+export const APP_SOURCE_ID = "peakcode";
 
 export function usageSourceColor(sourceId: string): string {
   return USAGE_SOURCE_COLORS[sourceId] ?? "#94A3B8";
@@ -553,6 +558,9 @@ export function buildUsageSourceRows(
     }))
     .toSorted(
       (left, right) =>
+        // This app is pinned first so its own spend is the first thing you read; the
+        // rest rank by tokens, with tools that produced nothing last.
+        Number(right.id === APP_SOURCE_ID) - Number(left.id === APP_SOURCE_ID) ||
         right.tokens - left.tokens ||
         Number(right.active) - Number(left.active) ||
         (left.id < right.id ? -1 : 1),

@@ -65,8 +65,8 @@ of showing an empty table.
   up to that day). Levels are quantiles over the non-zero values, not linear magnitude — with one
   20-billion-token day in the window, a linear ramp would leave every ordinary day looking empty.
 - The tool filter (and the tool breakdown rows) restricts every aggregate below it. The breakdown
-  itself always shows all tools, so selecting one never erases the numbers that let you pick
-  another.
+  itself always shows all tools, with this app pinned first and the rest ranked by tokens, so
+  selecting one never erases the numbers that let you pick another.
 - The trend chart's **时间范围** toggle (近 7 日 / 近 30 日) is a client-side slice of the same
   response. Models that never spent a token are dropped before the four-series limit.
 - The donut folds everything past the fifth model into 其他; **Token 构成** splits the same total into
@@ -92,10 +92,10 @@ re-read the logs immediately.
   the user's credentials; this page stays offline and local-only.
 - **No menu-bar capsule.** That is a separate surface, not a setting.
 
-| File                                          | Role                                                            |
-| --------------------------------------------- | --------------------------------------------------------------- |
-| `apps/server/src/usageCollectors.ts`          | Per-tool parsers, the source registry, and the file cache.      |
-| `apps/server/src/usageAggregate.ts`           | Folding into day × tool × model rows, with bounded retention.   |
-| `apps/server/src/usageStatistics.ts`          | Scope, totals, and the two RPCs.                                |
-| `apps/web/src/lib/usageStatistics.ts`         | Formatting, heatmap grid, trend series, donut and bar geometry. |
-| `apps/web/src/components/UsageStatsPanel.tsx` | The panel, filter, breakdown and drill-down dialog.             |
+| File                                          | Role                                                                             |
+| --------------------------------------------- | -------------------------------------------------------------------------------- |
+| `apps/server/src/usageCollectors.ts`          | Per-tool parsers, the source registry, file cache, and the Peak Code / Pi split. |
+| `apps/server/src/usageAggregate.ts`           | Folding into day × tool × model rows, with bounded retention.                    |
+| `apps/server/src/usageStatistics.ts`          | Scope, totals, and the two RPCs.                                                 |
+| `apps/web/src/lib/usageStatistics.ts`         | Formatting, heatmap grid, trend series, donut and bar geometry.                  |
+| `apps/web/src/components/UsageStatsPanel.tsx` | The panel, filter, breakdown and drill-down dialog.                              |

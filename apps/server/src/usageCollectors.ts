@@ -37,6 +37,7 @@ const MAX_ARCHIVE_DEPTH = 6;
 const MAX_ARCHIVE_FILES = 20_000;
 
 export type UsageSourceId =
+  | "peakcode"
   | "claude-code"
   | "codex"
   | "zcode"
@@ -76,6 +77,13 @@ interface JsonlSourceDescriptor extends UsageSourceDescriptor {
   readonly parse: (contents: string) => ReadonlyArray<UsageEvent>;
   /** Snapshots arrive compressed; the file is piped through this binary first. */
   readonly decompress?: "zstd";
+  /**
+   * Pi is what this app runs, so its transcripts are split between "PeakCode" (the
+   * sessions this app spawned) and "Pi" (everything else). Set on the Pi source.
+   */
+  readonly attributeToApp?: boolean;
+  /** Reads the workspace a transcript belongs to, for that split. */
+  readonly readWorkspace?: (contents: string) => string | null;
 }
 
 interface SqliteSourceDescriptor extends UsageSourceDescriptor {
@@ -425,6 +433,24 @@ export function parsePiTranscript(contents: string): ReadonlyArray<UsageEvent> {
   return events;
 }
 
+/**
+ * The workspace a Pi transcript was recorded in. Only the first line is read —
+ * the `session` header carries `cwd` — so deciding ownership of a file is cheap.
+ */
+export function readPiTranscriptWorkspace(contents: string): string | null {
+  const newline = contents.indexOf("\n");
+  const firstLine = newline === -1 ? contents : contents.slice(0, newline);
+  if (!firstLine.trimStart().startsWith("{")) {
+    return null;
+  }
+  try {
+    const record = asRecord(JSON.parse(firstLine));
+    return record && asString(record.type) === "session" ? asString(record.cwd) : null;
+  } catch {
+    return null;
+  }
+}
+
 // ── WorkBuddy ───────────────────────────────────────────────────────────────
 
 /**
@@ -741,6 +767,15 @@ export function describeUsageSources(): ReadonlyArray<SourceDescriptor> {
 
   return [
     {
+      // Not a tool of its own: this app's Pi sessions, split out so its own spend is
+      // visible next to the other agents rather than buried inside Pi's total.
+      id: "peakcode",
+      label: "Peak Code",
+      kind: "jsonl",
+      roots: [nodePath.join(getAgentDir(), "sessions")],
+      parse: parsePiTranscript,
+    },
+    {
       id: "claude-code",
       label: "Claude Code",
       kind: "jsonl",
@@ -774,6 +809,8 @@ export function describeUsageSources(): ReadonlyArray<SourceDescriptor> {
       kind: "jsonl",
       roots: [nodePath.join(getAgentDir(), "sessions")],
       parse: parsePiTranscript,
+      attributeToApp: true,
+      readWorkspace: readPiTranscriptWorkspace,
     },
     {
       id: "opencode",
@@ -981,6 +1018,93 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+/** The app's own footprint, needed to tell its Pi sessions from the rest. */
+export interface AppUsageScope {
+  /** Absolute project roots; a Pi transcript recorded in one of them is this app's. */
+  readonly projectRoots: ReadonlyArray<string>;
+  /** Managed worktrees directory; anything under it is this app's. */
+  readonly worktreesRoot?: string | null | undefined;
+  /** Transcript paths this app spawned, from its recorded resume cursors. */
+  readonly sessionFiles?: ReadonlySet<string> | undefined;
+}
+
+function normalizeDirectory(value: string): string {
+  return value.replace(/[\\/]+$/u, "");
+}
+
+/**
+ * Whether a Pi transcript belongs to this app: spawned by it, or run in its projects.
+ * Exported for tests, which pin the two rules that keep the Peak Code row honest.
+ */
+export async function isAppHostedTranscriptForTest(input: {
+  readonly path: string;
+  readonly contents: string;
+  readonly appScope: AppUsageScope;
+}): Promise<boolean> {
+  const workspace = readPiTranscriptWorkspace(input.contents);
+  if (input.appScope.sessionFiles?.has(input.path)) {
+    return true;
+  }
+  if (!workspace) {
+    return false;
+  }
+  return matchesAppWorkspace({ workspace, appScope: input.appScope });
+}
+
+function matchesAppWorkspace(input: {
+  readonly workspace: string;
+  readonly appScope: AppUsageScope;
+}): boolean {
+  const normalized = normalizeDirectory(input.workspace);
+  if (input.appScope.projectRoots.some((root) => normalizeDirectory(root) === normalized)) {
+    return true;
+  }
+  const worktreesRoot = input.appScope.worktreesRoot?.trim()
+    ? normalizeDirectory(input.appScope.worktreesRoot.trim())
+    : "";
+  return (
+    worktreesRoot.length > 0 &&
+    (normalized === worktreesRoot || normalized.startsWith(`${worktreesRoot}/`))
+  );
+}
+
+async function isAppHostedTranscript(input: {
+  readonly path: string;
+  readonly source: JsonlSourceDescriptor;
+  readonly cache: UsageFileCache;
+  readonly appScope: AppUsageScope | undefined;
+}): Promise<boolean> {
+  const scope = input.appScope;
+  if (!scope) {
+    return false;
+  }
+  if (scope.sessionFiles?.has(input.path)) {
+    return true;
+  }
+
+  let contents: string;
+  try {
+    contents = await fs.readFile(input.path, "utf8");
+  } catch {
+    return false;
+  }
+  const workspace = input.source.readWorkspace?.(contents) ?? null;
+  return workspace ? matchesAppWorkspace({ workspace, appScope: scope }) : false;
+}
+
+/** Re-stamp a folded contribution with the source it is really attributed to. */
+function retagContribution(
+  contribution: UsageContribution,
+  source: UsageSourceId,
+): UsageContribution {
+  return {
+    days: contribution.days.map((row) => (row.source === source ? row : { ...row, source })),
+    sessions: contribution.sessions.map((session) =>
+      session.source === source ? session : { ...session, source },
+    ),
+  };
+}
+
 export interface CollectUsageResult {
   /** Sources whose records were found, so the UI can tell "unused" from "not installed". */
   readonly activeSources: ReadonlySet<UsageSourceId>;
@@ -996,13 +1120,22 @@ export async function collectUsageInto(input: {
   readonly nowMs: number;
   readonly cache: UsageFileCache;
   readonly windowDays?: number;
+  /** What "this app's own work" means: its projects, its worktrees, its sessions. */
+  readonly appScope?: AppUsageScope | undefined;
 }): Promise<CollectUsageResult> {
   const windowStartMs =
     input.nowMs - (input.windowDays ?? USAGE_WINDOW_DAYS) * 24 * 60 * 60 * 1_000;
   const windowStartDateKey = localDateKey(windowStartMs);
   const activeSources = new Set<UsageSourceId>();
+  // Transcripts the Pi pass recognized as this app's own, merged under "peakcode".
+  const appContributions: UsageContribution[] = [];
 
   for (const source of describeUsageSources()) {
+    // Peak Code's numbers come from the Pi pass below, which knows which transcripts
+    // this app ran. Reading the same archive twice would only double-count.
+    if (source.id === "peakcode") {
+      continue;
+    }
     const contributions: UsageContribution[] = [];
 
     if (source.kind === "sqlite") {
@@ -1045,16 +1178,30 @@ export async function collectUsageInto(input: {
         }
       }
 
-      contributions.push(
-        ...(await mapWithConcurrency(usable, 8, (path) =>
-          readJsonlFile({
-            path,
-            parse: source.parse,
-            decompress: source.decompress,
-            cache: input.cache,
-          }),
-        )),
-      );
+      const perFile = await mapWithConcurrency(usable, 8, async (path) => {
+        const contribution = await readJsonlFile({
+          path,
+          parse: source.parse,
+          decompress: source.decompress,
+          cache: input.cache,
+        });
+        const hostedByApp = source.attributeToApp
+          ? await isAppHostedTranscript({
+              path,
+              source,
+              cache: input.cache,
+              appScope: input.appScope,
+            })
+          : false;
+        return { contribution, hostedByApp };
+      });
+      for (const entry of perFile) {
+        if (entry.hostedByApp) {
+          appContributions.push(entry.contribution);
+        } else {
+          contributions.push(entry.contribution);
+        }
+      }
     }
 
     let sawRecord = false;
@@ -1070,6 +1217,21 @@ export async function collectUsageInto(input: {
     if (sawRecord) {
       activeSources.add(source.id);
     }
+  }
+
+  let sawAppRecord = false;
+  for (const contribution of appContributions) {
+    const days = contribution.days.filter((row) => row.date >= windowStartDateKey);
+    if (days.length === 0 && contribution.sessions.length === 0) {
+      continue;
+    }
+    sawAppRecord = sawAppRecord || days.length > 0;
+    input.accumulator.merge(
+      retagContribution({ days, sessions: contribution.sessions }, "peakcode"),
+    );
+  }
+  if (sawAppRecord) {
+    activeSources.add("peakcode");
   }
 
   return { activeSources };

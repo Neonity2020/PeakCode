@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, test } from "vitest";
 
 import {
+  isAppHostedTranscriptForTest,
   parseClaudeTranscript,
   parseCodexRollout,
   parseDshTranscript,
@@ -80,6 +81,16 @@ function workBuddyRecord(id: string, inputTokens: number, outputTokens: number):
     timestamp: 1_788_493_392_934,
     message: { usage: { input_tokens: inputTokens, output_tokens: outputTokens } },
     providerData: { model: "glm-5.3-flash", traceId: "trace-1" },
+  });
+}
+
+/** A Pi transcript header, which is all the ownership decision needs to read. */
+function piTranscriptIn(cwd: string): string {
+  return JSON.stringify({
+    type: "session",
+    id: "pi-session",
+    timestamp: "2026-09-18T05:49:34.134Z",
+    cwd,
   });
 }
 
@@ -361,6 +372,75 @@ describe("parseDshTranscript", () => {
       outputTokens: 60,
       totalTokens: 760,
     });
+  });
+});
+
+describe("Peak Code attribution", () => {
+  const scope = {
+    projectRoots: ["/Users/tester/Git/PeakCode", "/Users/tester"],
+    worktreesRoot: "/Users/tester/.peakcode/worktrees",
+  };
+
+  test("claims a transcript recorded in one of the app's projects", async () => {
+    await expect(
+      isAppHostedTranscriptForTest({
+        path: "/Users/tester/.pi/agent/sessions/--Users-tester-Git-PeakCode--/a.jsonl",
+        contents: piTranscriptIn("/Users/tester/Git/PeakCode"),
+        appScope: scope,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  test("claims a transcript that ran in a worktree the app manages", async () => {
+    await expect(
+      isAppHostedTranscriptForTest({
+        path: "/Users/tester/.pi/agent/sessions/--Users-tester-.peakcode-worktrees-PeakCode-pr84--/a.jsonl",
+        contents: piTranscriptIn("/Users/tester/.peakcode/worktrees/PeakCode/pr84"),
+        appScope: scope,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  test("claims a transcript the app spawned even if its project was deleted", async () => {
+    await expect(
+      isAppHostedTranscriptForTest({
+        path: "/Users/tester/.pi/agent/sessions/--Users-tester-old--/a.jsonl",
+        contents: piTranscriptIn("/Users/tester/old"),
+        appScope: {
+          ...scope,
+          sessionFiles: new Set(["/Users/tester/.pi/agent/sessions/--Users-tester-old--/a.jsonl"]),
+        },
+      }),
+    ).resolves.toBe(true);
+  });
+
+  test("leaves another app's Pi session to the Pi row", async () => {
+    // A home-rooted project must match exactly: `~/` is a prefix of everything else
+    // on the machine, so prefix matching here would claim every tool's sessions.
+    await expect(
+      isAppHostedTranscriptForTest({
+        path: "/Users/tester/.pi/agent/sessions/--Users-tester-Git-KylinWork--/a.jsonl",
+        contents: piTranscriptIn("/Users/tester/Git/KylinWork"),
+        appScope: scope,
+      }),
+    ).resolves.toBe(false);
+    await expect(
+      isAppHostedTranscriptForTest({
+        path: "/Users/tester/.pi/agent/sessions/--private-tmp--/a.jsonl",
+        contents: piTranscriptIn("/private/tmp"),
+        appScope: scope,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  test("keeps the app's own sessions when the transcript has no workspace header", async () => {
+    await expect(
+      isAppHostedTranscriptForTest({
+        path: "/Users/tester/.pi/agent/sessions/--Users-tester--/a.jsonl",
+        contents: '{"type":"message","message":{"role":"user"}}',
+        appScope: scope,
+      }),
+    ).resolves.toBe(false);
   });
 });
 

@@ -120,17 +120,35 @@ describe("buildUsageStatistics", () => {
     expect(day?.bySource[0]?.models).toEqual([{ model: "deepseek-v4.1", tokens: 520 }]);
   });
 
-  test("lists every tool, flagging the ones that produced no usage", () => {
+  test("lists this app first, then every tool, flagging the ones with no usage", () => {
     const statistics = build(events);
     const byId = new Map(statistics.sources.map((source) => [source.id, source]));
 
-    expect(statistics.sources.length).toBeGreaterThanOrEqual(9);
+    // Peak Code's own sessions are what the user came for; they lead the list.
+    expect(statistics.sources[0]?.id).toBe("peakcode");
+    expect(statistics.sources.length).toBeGreaterThanOrEqual(10);
     expect(byId.get("zcode")).toMatchObject({ label: "ZCode", active: true, sessions: 1 });
     expect(byId.get("pi")).toMatchObject({ tokens: 85, sessions: 1 });
     // Installed but never used in the window: listed, inactive, with its log path.
     expect(byId.get("grok")?.active).toBe(false);
     expect(byId.get("grok")?.tokens).toBe(0);
     expect(byId.get("grok")?.roots.length).toBeGreaterThan(0);
+  });
+
+  test("splits this app's Pi sessions from plain Pi without losing tokens", () => {
+    const statistics = build([
+      event({ timestampMs: at(18, 9), source: "peakcode", model: "deepseek-v4.1" }),
+      event({ timestampMs: at(18, 9), source: "peakcode", model: "deepseek-v4.1" }),
+      event({ timestampMs: at(18, 10), source: "pi", model: "deepseek-v4.1" }),
+    ]);
+    const byId = new Map(statistics.sources.map((source) => [source.id, source]));
+
+    expect(byId.get("peakcode")?.tokens).toBe(220);
+    expect(byId.get("peakcode")?.sessions).toBe(1);
+    expect(byId.get("pi")?.tokens).toBe(110);
+    // Splitting one tool's sessions in two must not change the machine total.
+    expect(statistics.totals.tokens).toBe(330);
+    expect(byId.get("peakcode")?.tokens).toBeLessThan(statistics.totals.tokens);
   });
 
   test("reports which tools produced a model's tokens", () => {
