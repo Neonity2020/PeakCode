@@ -12,6 +12,22 @@
 
 - [ ] Queueing messages
 
+## 发布留档：v0.7.2（2026-09-21）
+
+修完这一轮的 stuck turn（下面那节），按仓库既有流程发了 **v0.7.2**：tag 打在 `c564ce9`（三个提交：
+`ed8e5b2` fix、`da213cc` docs、`c564ce9` release），Release Desktop
+<https://github.com/kunpengtalk/PeakCode/actions/runs/35561414609> 全绿：preflight（lint / typecheck /
+test）4m39s → 四个平台构建 → 发布
+<https://github.com/kunpengtalk/PeakCode/releases/tag/v0.7.2>（macOS arm64/x64 dmg+zip、Linux
+AppImage、Windows nsis，外加 `latest*.yml`，`latest` 指向 0.7.2，客户端自动更新会看到）。
+
+版本号的选择：用户说的是「V0.1」，但现有 tag 已经到 v0.7.1，`v0.1.0` 会被 CI 标成 `make_latest`
+—— 那就是让 GitHub 的「最新版本」指向一个序号更小的发布，装了客户端的用户会被推着**降级**，所以按
+bug-fix 走 patch 版 v0.7.2；要的是别的号，删 tag / release 再重发一次即可。
+
+仓库位置：`PeakCode-AI/PeakCode` 现在重定向到 **`kunpengtalk/PeakCode`**（push 时 remote 会给出这个
+提示），v0.7.1 及之前的 release 也都在新位置。
+
 ## 停不下来的那一轮：已修（2026-09-21）
 
 现场（`state.sqlite` 里的事件序列）：一轮 agent 跑到 `ls -la` 之后就没有任何事件了，投影里
