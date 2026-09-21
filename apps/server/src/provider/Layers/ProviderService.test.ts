@@ -266,6 +266,33 @@ function makeProviderServiceLayer() {
   };
 }
 
+/** A provider layer whose stall and abandon timeouts are short enough to test. */
+function makeStallTestLayer() {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "t3-provider-stall-"));
+  const pi = makeFakePiAdapter();
+  const registry: typeof ProviderAdapterRegistry.Service = {
+    getByProvider: (provider) =>
+      provider === "pi"
+        ? Effect.succeed(pi.adapter)
+        : Effect.fail(new ProviderUnsupportedError({ provider })),
+    listProviders: () => Effect.succeed(["pi"]),
+  };
+  const persistenceLayer = makeSqlitePersistenceLive(path.join(tempDir, "orchestration.sqlite"));
+  const runtimeRepositoryLayer = ProviderSessionRuntimeRepositoryLive.pipe(
+    Layer.provide(persistenceLayer),
+  );
+  const directoryLayer = ProviderSessionDirectoryLive.pipe(Layer.provide(runtimeRepositoryLayer));
+  const providerLayer = makeProviderServiceLive({
+    turnStallTimeoutMs: 40,
+    turnAbandonTimeoutMs: 40,
+  }).pipe(
+    Layer.provide(Layer.succeed(ProviderAdapterRegistry, registry)),
+    Layer.provide(directoryLayer),
+    Layer.provideMerge(AnalyticsService.layerTest),
+  );
+  return { providerLayer, pi, tempDir };
+}
+
 const routing = makeProviderServiceLayer();
 it.effect("ProviderServiceLive keeps persisted resumable sessions on startup", () =>
   Effect.gen(function* () {
@@ -596,6 +623,30 @@ routing.layer("ProviderServiceLive routing", (it) => {
           issue: `Cannot route thread '${session.threadId}' because no persisted provider binding exists.`,
         }),
       );
+    }),
+  );
+
+  it.effect("does not resurrect a session to interrupt one that is gone", () =>
+    Effect.gen(function* () {
+      // Recovery here would start a fresh runtime and abort that: it reports success while
+      // the turn the caller asked to stop keeps running, and it hides the fact there is no
+      // live session at all — which is what the caller has to act on.
+      const provider = yield* ProviderService;
+
+      const initial = yield* provider.startSession(asThreadId("thread-1"), {
+        provider: "pi",
+        threadId: asThreadId("thread-1"),
+        cwd: "/tmp/project",
+        runtimeMode: "full-access",
+      });
+      yield* routing.pi.stopSession(initial.threadId);
+      routing.pi.startSession.mockClear();
+      routing.pi.interruptTurn.mockClear();
+
+      yield* provider.interruptTurn({ threadId: initial.threadId });
+
+      assert.equal(routing.pi.startSession.mock.calls.length, 0);
+      assert.equal(routing.pi.interruptTurn.mock.calls.length, 0);
     }),
   );
 
@@ -1207,6 +1258,97 @@ routing.layer("ProviderServiceLive routing", (it) => {
 
 const fanout = makeProviderServiceLayer();
 fanout.layer("ProviderServiceLive fanout", (it) => {
+  it.effect("fails a turn the provider goes quiet in the middle of", () =>
+    // Nothing else bounds this: a stream that opens and then goes silent is under no timeout,
+    // and a run parked that way never emits `turn.completed`, so the thread would read as
+    // running forever. The watchdog reports the turn as failed so the thread leaves "running".
+    Effect.gen(function* () {
+      const { providerLayer, pi } = makeStallTestLayer();
+
+      yield* Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const received = yield* Ref.make<Array<ProviderRuntimeEvent>>([]);
+        const consumer = yield* Stream.runForEach(provider.streamEvents, (event) =>
+          Ref.update(received, (current) => [...current, event]),
+        ).pipe(Effect.forkChild);
+        yield* sleep(20);
+
+        const session = yield* provider.startSession(asThreadId("thread-stall"), {
+          provider: "pi",
+          threadId: asThreadId("thread-stall"),
+          runtimeMode: "full-access",
+        });
+        pi.emit({
+          type: "turn.started",
+          eventId: asEventId("evt-stall-1"),
+          provider: "pi",
+          createdAt: new Date().toISOString(),
+          threadId: session.threadId,
+          turnId: asTurnId("turn-stall"),
+        });
+
+        // ... and then the provider says nothing at all, well past the stall timeout.
+        yield* sleep(200);
+        yield* Fiber.interrupt(consumer);
+
+        const events = yield* Ref.get(received);
+        const stalledCompletion = events.find(
+          (event) =>
+            event.type === "turn.completed" &&
+            (event.payload as { state?: string }).state === "failed",
+        );
+        assert.match(
+          String(
+            (stalledCompletion?.payload as { errorMessage?: string } | undefined)?.errorMessage,
+          ),
+          /No activity from the provider/,
+        );
+        assert.equal(
+          events.some((event) => event.type === "runtime.error"),
+          true,
+        );
+        // The provider acknowledged the stop, so its session was left alone.
+        assert.equal(pi.interruptTurn.mock.calls.length, 1);
+        assert.equal(pi.stopSession.mock.calls.length, 0);
+      }).pipe(Effect.provide(providerLayer), Effect.provide(NodeServices.layer));
+    }),
+  );
+
+  it.effect("stops the session of a stalled turn the provider will not abandon", () =>
+    // The wedged case: the provider takes the stop request and never settles. Leaving the
+    // runtime in place would make the next message steer into the run nobody can stop, so the
+    // session is stopped instead — which also keeps the persisted resume state.
+    Effect.gen(function* () {
+      const { providerLayer, pi } = makeStallTestLayer();
+      pi.interruptTurn.mockReturnValue(Effect.never);
+
+      yield* Effect.gen(function* () {
+        const provider = yield* ProviderService;
+        const session = yield* provider.startSession(asThreadId("thread-wedged"), {
+          provider: "pi",
+          threadId: asThreadId("thread-wedged"),
+          runtimeMode: "full-access",
+        });
+        // The adapter's event stream is consumed by a fiber of its own; give it the tick it
+        // needs before the one event this test emits, or it is published to nobody.
+        yield* sleep(20);
+        pi.emit({
+          type: "turn.started",
+          eventId: asEventId("evt-wedged-1"),
+          provider: "pi",
+          createdAt: new Date().toISOString(),
+          threadId: session.threadId,
+          turnId: asTurnId("turn-wedged"),
+        });
+
+        yield* sleep(250);
+
+        assert.equal(pi.interruptTurn.mock.calls.length, 1);
+        assert.equal(pi.stopSession.mock.calls.length, 1);
+      }).pipe(Effect.provide(providerLayer), Effect.provide(NodeServices.layer));
+    }),
+  );
+
   it.effect("fans out adapter turn completion events", () =>
     Effect.gen(function* () {
       const provider = yield* ProviderService;

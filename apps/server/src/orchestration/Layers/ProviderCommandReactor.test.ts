@@ -175,6 +175,9 @@ describe("ProviderCommandReactor", () => {
       Effect.succeed(null),
     );
     const interruptTurn = vi.fn<ProviderServiceShape["interruptTurn"]>(() => Effect.void);
+    const abandonTurn = vi.fn<ProviderServiceShape["abandonTurn"]>(() =>
+      Effect.succeed("stopped" as const),
+    );
     const respondToRequest = vi.fn<ProviderServiceShape["respondToRequest"]>(() => Effect.void);
     const respondToUserInput = vi.fn<ProviderServiceShape["respondToUserInput"]>(() => Effect.void);
     const rollbackConversation = vi.fn<ProviderServiceShape["rollbackConversation"]>(
@@ -277,6 +280,7 @@ describe("ProviderCommandReactor", () => {
       startReview: unsupported as ProviderServiceShape["startReview"],
       forkThread,
       interruptTurn: interruptTurn as ProviderServiceShape["interruptTurn"],
+      abandonTurn: abandonTurn as ProviderServiceShape["abandonTurn"],
       respondToRequest: respondToRequest as ProviderServiceShape["respondToRequest"],
       respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],
       stopSession: stopSession as ProviderServiceShape["stopSession"],
@@ -365,6 +369,7 @@ describe("ProviderCommandReactor", () => {
       steerTurn,
       forkThread,
       interruptTurn,
+      abandonTurn,
       respondToRequest,
       respondToUserInput,
       rollbackConversation,
@@ -1833,6 +1838,13 @@ describe("ProviderCommandReactor", () => {
     const now = new Date().toISOString();
 
     await Effect.runPromise(
+      harness.startSession(ThreadId.makeUnsafe("thread-1"), {
+        threadId: "thread-1",
+        runtimeMode: "approval-required",
+      }),
+    );
+
+    await Effect.runPromise(
       harness.engine.dispatch({
         type: "thread.session.set",
         commandId: CommandId.makeUnsafe("cmd-session-set"),
@@ -1860,8 +1872,8 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.interruptTurn.mock.calls.length === 1);
-    expect(harness.interruptTurn.mock.calls[0]?.[0]).toEqual({
+    await waitFor(() => harness.abandonTurn.mock.calls.length === 1);
+    expect(harness.abandonTurn.mock.calls[0]?.[0]).toEqual({
       threadId: "thread-1",
       turnId: "turn-1",
     });
@@ -1871,7 +1883,14 @@ describe("ProviderCommandReactor", () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
 
-    harness.interruptTurn.mockImplementation(() =>
+    await Effect.runPromise(
+      harness.startSession(ThreadId.makeUnsafe("thread-1"), {
+        threadId: "thread-1",
+        runtimeMode: "approval-required",
+      }),
+    );
+
+    harness.abandonTurn.mockImplementation(() =>
       Effect.fail(
         new ProviderAdapterRequestError({
           provider: "pi",
@@ -1930,10 +1949,136 @@ describe("ProviderCommandReactor", () => {
     });
   });
 
+  it("ends a turn whose provider session is gone instead of resurrecting one", async () => {
+    // What a restart after a killed turn leaves behind: the projection still says the turn is
+    // running, and there is no session behind it. The old path "recovered" a session (starting
+    // a fresh runtime) and aborted that, which reported success while the thread stayed
+    // running forever — the stop button looked dead. The turn has to be closed here.
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-abandoned"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "pi",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-abandoned"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-turn-interrupt-abandoned"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        turnId: asTurnId("turn-abandoned"),
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return (
+        thread?.session?.status === "interrupted" &&
+        (thread.activities.some((activity) => activity.kind === "provider.turn.abandoned") ?? false)
+      );
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    expect(thread?.session).toMatchObject({
+      status: "interrupted",
+      activeTurnId: null,
+    });
+    expect(thread?.activities.some((activity) => activity.kind === "provider.turn.abandoned")).toBe(
+      true,
+    );
+    // No session is started and nothing is aborted: there was nothing left to abort, and
+    // recovering one would have thrown away the only thing that could resume the thread.
+    expect(harness.abandonTurn).not.toHaveBeenCalled();
+    expect(harness.startSession).not.toHaveBeenCalled();
+  });
+
+  it("says what happened when the provider would not stop the turn", async () => {
+    // `abandonTurn` reports "freed" when the provider took the stop request but never ended the
+    // turn, and its session had to be stopped instead. Stop is unconditional, so the user is
+    // told what it cost rather than left with a silence they have to interpret.
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.startSession(ThreadId.makeUnsafe("thread-1"), {
+        threadId: "thread-1",
+        runtimeMode: "approval-required",
+      }),
+    );
+    harness.abandonTurn.mockImplementation(() => Effect.succeed("freed" as const));
+
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.session.set",
+        commandId: CommandId.makeUnsafe("cmd-session-set-freed"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        session: {
+          threadId: ThreadId.makeUnsafe("thread-1"),
+          status: "running",
+          providerName: "pi",
+          runtimeMode: "approval-required",
+          activeTurnId: asTurnId("turn-freed"),
+          lastError: null,
+          updatedAt: now,
+        },
+        createdAt: now,
+      }),
+    );
+    await Effect.runPromise(
+      harness.engine.dispatch({
+        type: "thread.turn.interrupt",
+        commandId: CommandId.makeUnsafe("cmd-turn-interrupt-freed"),
+        threadId: ThreadId.makeUnsafe("thread-1"),
+        turnId: asTurnId("turn-freed"),
+        createdAt: now,
+      }),
+    );
+
+    await waitFor(async () => {
+      const readModel = await Effect.runPromise(harness.engine.getReadModel());
+      const thread = readModel.threads.find(
+        (entry) => entry.id === ThreadId.makeUnsafe("thread-1"),
+      );
+      return (
+        thread?.activities.some((activity) => activity.kind === "provider.turn.abandoned") ?? false
+      );
+    });
+
+    const readModel = await Effect.runPromise(harness.engine.getReadModel());
+    const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
+    const activity = thread?.activities.find(
+      (candidate) => candidate.kind === "provider.turn.abandoned",
+    );
+    expect(activity).toMatchObject({ tone: "info", turnId: "turn-freed" });
+    expect(activity?.payload).toMatchObject({
+      detail: expect.stringContaining("session was stopped instead"),
+    });
+  });
+
   it("interrupts a live provider session even when the projection has not caught up", async () => {
     // Clicking stop right after starting a turn races the session projection: the provider
-    // session is already live while the thread still reads as having none. The adapter's own
-    // list decides, so the stop reaches the provider instead of silently no-opping.
+    // session is already live — and already running the turn — while the thread still reads as
+    // having none. The adapter's own list decides, so the stop reaches the provider instead of
+    // silently no-opping.
     const harness = await createHarness();
     const now = new Date().toISOString();
 
@@ -1953,8 +2098,8 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.interruptTurn.mock.calls.length === 1);
-    expect(harness.interruptTurn.mock.calls[0]?.[0]).toEqual({ threadId: "thread-1" });
+    await waitFor(() => harness.abandonTurn.mock.calls.length === 1);
+    expect(harness.abandonTurn.mock.calls[0]?.[0]).toEqual({ threadId: "thread-1" });
 
     const readModel = await Effect.runPromise(harness.engine.getReadModel());
     const thread = readModel.threads.find((entry) => entry.id === ThreadId.makeUnsafe("thread-1"));
@@ -1966,6 +2111,13 @@ describe("ProviderCommandReactor", () => {
   it("routes subagent interrupts through the parent provider session using the child provider thread id", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.startSession(ThreadId.makeUnsafe("thread-1"), {
+        threadId: "thread-1",
+        runtimeMode: "approval-required",
+      }),
+    );
 
     await Effect.runPromise(
       harness.engine.dispatch({
@@ -2032,8 +2184,8 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.interruptTurn.mock.calls.length === 1);
-    expect(harness.interruptTurn.mock.calls[0]?.[0]).toEqual({
+    await waitFor(() => harness.abandonTurn.mock.calls.length === 1);
+    expect(harness.abandonTurn.mock.calls[0]?.[0]).toEqual({
       threadId: "thread-1",
       turnId: "turn-child",
       providerThreadId: "child-provider-1",
@@ -2043,6 +2195,13 @@ describe("ProviderCommandReactor", () => {
   it("infers the parent provider session for synthetic subagent ids that are missing parent metadata", async () => {
     const harness = await createHarness();
     const now = new Date().toISOString();
+
+    await Effect.runPromise(
+      harness.startSession(ThreadId.makeUnsafe("thread-1"), {
+        threadId: "thread-1",
+        runtimeMode: "approval-required",
+      }),
+    );
 
     await Effect.runPromise(
       harness.engine.dispatch({
@@ -2108,8 +2267,8 @@ describe("ProviderCommandReactor", () => {
       }),
     );
 
-    await waitFor(() => harness.interruptTurn.mock.calls.length === 1);
-    expect(harness.interruptTurn.mock.calls[0]?.[0]).toEqual({
+    await waitFor(() => harness.abandonTurn.mock.calls.length === 1);
+    expect(harness.abandonTurn.mock.calls[0]?.[0]).toEqual({
       threadId: "thread-1",
       turnId: "turn-child",
       providerThreadId: "child-provider-1",

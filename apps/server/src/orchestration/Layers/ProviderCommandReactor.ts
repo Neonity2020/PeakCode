@@ -21,7 +21,7 @@ import {
   type RuntimeMode,
   TurnId,
 } from "@peakcode/contracts";
-import { Cache, Cause, Duration, Effect, Layer, Option, Schema, Stream } from "effect";
+import { Cache, Cause, Duration, Effect, Exit, Layer, Option, Schema, Stream } from "effect";
 import { makeDrainableWorker } from "@peakcode/shared/DrainableWorker";
 import {
   buildPromptThreadTitleFallback,
@@ -66,6 +66,12 @@ import {
   ProviderCommandReactor,
   type ProviderCommandReactorShape,
 } from "../Services/ProviderCommandReactor.ts";
+import {
+  ABANDONED_TURN_ACTIVITY_KIND,
+  abandonedTurnId,
+  abandonedTurnSession,
+  sessionClaimsActiveTurn,
+} from "../abandonedTurn.ts";
 
 type ProviderIntentEvent = Extract<
   OrchestrationEvent,
@@ -132,15 +138,6 @@ const serverCommandId = (tag: string): CommandId =>
 
 const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
-/**
- * How long a user-initiated stop waits for the provider to acknowledge before reporting.
- *
- * The interrupt runs on this reactor's serial worker, so a provider that never settles would
- * stall every later command for every thread. Stopping is best-effort either way: the turn may
- * still end on its own and clear itself when it does, and the user gets told that it did not
- * stop rather than watching a stop button that appears to do nothing.
- */
-const TURN_INTERRUPT_TIMEOUT = Duration.seconds(15);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const HANDOFF_CONTEXT_WRAPPER_OVERHEAD =
   "<handoff_context>\n\n</handoff_context>\n\n<latest_user_message>\n\n</latest_user_message>"
@@ -345,11 +342,13 @@ const make = Effect.gen(function* () {
     );
   });
 
-  const appendProviderFailureActivity = (input: {
+  /** One activity row describing what happened to a provider turn or session. */
+  const appendProviderActivity = (input: {
     readonly threadId: ThreadId;
     readonly kind:
       | "provider.turn.start.failed"
       | "provider.turn.interrupt.failed"
+      | typeof ABANDONED_TURN_ACTIVITY_KIND
       | "provider.approval.respond.failed"
       | "provider.user-input.respond.failed"
       | "provider.session.stop.failed";
@@ -358,14 +357,16 @@ const make = Effect.gen(function* () {
     readonly turnId: TurnId | null;
     readonly createdAt: string;
     readonly requestId?: string;
+    /** Defaults to `error`: most callers report something that went wrong. */
+    readonly tone?: "info" | "error";
   }) =>
     orchestrationEngine.dispatch({
       type: "thread.activity.append",
-      commandId: serverCommandId("provider-failure-activity"),
+      commandId: serverCommandId("provider-activity-append"),
       threadId: input.threadId,
       activity: {
         id: EventId.makeUnsafe(crypto.randomUUID()),
-        tone: "error",
+        tone: input.tone ?? "error",
         kind: input.kind,
         summary: input.summary,
         payload: {
@@ -390,6 +391,43 @@ const make = Effect.gen(function* () {
       session: input.session,
       createdAt: input.createdAt,
     });
+
+  /**
+   * End a turn that nothing is running any more.
+   *
+   * The provider runtime event that normally clears a session (`turn.completed`,
+   * `turn.aborted`, `session.exited`) is never coming for this turn — the process that owned
+   * it is gone, the session was reaped, or the event was lost — so without this the thread
+   * reads as running forever: the composer keeps a live stop button on a turn nobody is
+   * working on, and every later stop has nothing to abort. `interrupted` with no active turn
+   * is what closes the open turn row and returns the thread to a usable state; the provider
+   * session itself is left alone, so its resume state survives for the next message.
+   */
+  const settleAbandonedTurn = Effect.fnUntraced(function* (input: {
+    readonly threadId: ThreadId;
+    readonly session: OrchestrationSession;
+    readonly detail: string;
+    readonly createdAt: string;
+  }) {
+    yield* setThreadSession({
+      threadId: input.threadId,
+      session: abandonedTurnSession({
+        threadId: input.threadId,
+        session: input.session,
+        now: input.createdAt,
+      }),
+      createdAt: input.createdAt,
+    });
+    yield* appendProviderActivity({
+      threadId: input.threadId,
+      kind: ABANDONED_TURN_ACTIVITY_KIND,
+      summary: "Turn interrupted",
+      detail: input.detail,
+      turnId: abandonedTurnId(input.session),
+      createdAt: input.createdAt,
+      tone: "info",
+    });
+  });
 
   const setThreadSessionError = Effect.fnUntraced(function* (input: {
     readonly threadId: ThreadId;
@@ -1259,7 +1297,7 @@ const make = Effect.gen(function* () {
 
     const message = thread.messages.find((entry) => entry.id === event.payload.messageId);
     if (!message || message.role !== "user") {
-      yield* appendProviderFailureActivity({
+      yield* appendProviderActivity({
         threadId: event.payload.threadId,
         kind: "provider.turn.start.failed",
         summary: "Provider turn start failed",
@@ -1327,7 +1365,7 @@ const make = Effect.gen(function* () {
       Effect.catchCause((cause) =>
         Effect.gen(function* () {
           const detail = Cause.pretty(cause);
-          yield* appendProviderFailureActivity({
+          yield* appendProviderActivity({
             threadId: event.payload.threadId,
             kind: "provider.turn.start.failed",
             summary: "Provider turn start failed",
@@ -1409,7 +1447,7 @@ const make = Effect.gen(function* () {
     }
 
     const reportInterruptFailure = (detail: string) =>
-      appendProviderFailureActivity({
+      appendProviderActivity({
         threadId: event.payload.threadId,
         kind: "provider.turn.interrupt.failed",
         summary: "Provider turn interrupt failed",
@@ -1425,39 +1463,62 @@ const make = Effect.gen(function* () {
     const liveSession = (yield* providerService.listSessions()).find(
       (session) => session.threadId === providerThread.id,
     );
-    const hasSession =
-      liveSession !== undefined ||
-      (providerThread.session !== null &&
-        providerThread.session !== undefined &&
-        providerThread.session.status !== "stopped");
-    if (!hasSession) {
+    if (!liveSession) {
+      // Nothing is left to abort, so the provider will never report this turn ending. If the
+      // projection still claims it is running, that claim is the whole reason the stop button
+      // looked dead: the turn is over as far as anything that could still run it goes, and
+      // ending it here is the only thing that clears the thread. (A live session that is not
+      // running the turn is a different, rarer state — the adapter still gets the request, and
+      // the session reaper settles the projection if the provider has nothing to stop.)
+      if (sessionClaimsActiveTurn(thread.session)) {
+        yield* settleAbandonedTurn({
+          threadId: thread.id,
+          session: thread.session,
+          detail:
+            "The provider session for this turn is no longer running (the app was restarted, or the session was stopped), so there was nothing left to interrupt. The turn has been marked as interrupted; send a message to continue.",
+          createdAt: event.payload.createdAt,
+        });
+        return;
+      }
       return yield* reportInterruptFailure("No active provider session is bound to this thread.");
     }
 
     // Orchestration turn ids are not provider turn ids, so interrupt by session.
     const providerThreadId = resolveSubagentProviderThreadId(thread.id, providerThread.id);
     const turnId = event.payload.turnId ?? thread.session?.activeTurnId ?? undefined;
-    yield* providerService
-      .interruptTurn({
+    // `abandonTurn` is what makes stop unconditional: it asks the provider to stop the turn, and
+    // when the provider takes the request but the run never settles (a request or tool that
+    // ignores the abort signal) it frees the session instead. The persisted resume state
+    // survives that, so the thread can be continued — and leaving it wedged would make the next
+    // message steer into the run nobody can stop.
+    const abandoned = yield* Effect.exit(
+      providerService.abandonTurn({
         threadId: providerThread.id,
         ...(turnId ? { turnId } : {}),
         ...(providerThreadId ? { providerThreadId } : {}),
-      })
-      .pipe(
-        Effect.timeoutOption(TURN_INTERRUPT_TIMEOUT),
-        Effect.flatMap((acknowledged) =>
-          Option.isSome(acknowledged)
-            ? Effect.void
-            : reportInterruptFailure(
-                "The provider did not stop the turn in time. It may still be running; try again or stop the session.",
-              ),
-        ),
-        Effect.catchCause((cause) =>
-          Cause.hasInterruptsOnly(cause)
-            ? Effect.failCause(cause)
-            : reportInterruptFailure(Cause.pretty(cause)),
-        ),
-      );
+      }),
+    );
+
+    if (Exit.isFailure(abandoned)) {
+      return Cause.hasInterruptsOnly(abandoned.cause)
+        ? yield* Effect.failCause(abandoned.cause)
+        : yield* reportInterruptFailure(Cause.pretty(abandoned.cause));
+    }
+
+    if (abandoned.value === "freed") {
+      // The provider would not stop it, so the turn ends with its session. The projection is
+      // settled by the `session.exited` that stopping it emits.
+      yield* appendProviderActivity({
+        threadId: thread.id,
+        kind: ABANDONED_TURN_ACTIVITY_KIND,
+        summary: "Turn stopped",
+        detail:
+          "The provider accepted the stop but never ended the turn, so its session was stopped instead. Send a message to continue; the conversation is kept.",
+        turnId: turnId ?? null,
+        createdAt: event.payload.createdAt,
+        tone: "info",
+      });
+    }
   });
 
   const processApprovalResponseRequested = Effect.fnUntraced(function* (
@@ -1472,7 +1533,7 @@ const make = Effect.gen(function* () {
     if (!hasSession) {
       // With no session bound the prompt can never be answered, which is the same dead end
       // as a request the session has forgotten — so it reports, and clears, the same way.
-      return yield* appendProviderFailureActivity({
+      return yield* appendProviderActivity({
         threadId: event.payload.threadId,
         kind: "provider.approval.respond.failed",
         summary: "Provider approval response failed",
@@ -1492,7 +1553,7 @@ const make = Effect.gen(function* () {
       .pipe(
         Effect.catchCause((cause) =>
           Effect.gen(function* () {
-            yield* appendProviderFailureActivity({
+            yield* appendProviderActivity({
               threadId: event.payload.threadId,
               kind: "provider.approval.respond.failed",
               summary: "Provider approval response failed",
@@ -1522,7 +1583,7 @@ const make = Effect.gen(function* () {
     }
     const hasSession = providerThread.session && providerThread.session.status !== "stopped";
     if (!hasSession) {
-      return yield* appendProviderFailureActivity({
+      return yield* appendProviderActivity({
         threadId: event.payload.threadId,
         kind: "provider.user-input.respond.failed",
         summary: "Provider user input response failed",
@@ -1541,7 +1602,7 @@ const make = Effect.gen(function* () {
       })
       .pipe(
         Effect.catchCause((cause) =>
-          appendProviderFailureActivity({
+          appendProviderActivity({
             threadId: event.payload.threadId,
             kind: "provider.user-input.respond.failed",
             summary: "Provider user input response failed",

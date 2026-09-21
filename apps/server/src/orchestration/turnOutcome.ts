@@ -44,5 +44,16 @@ export function turnOutcomeForEvent(event: OrchestrationEvent): TurnOutcomeEvent
   ) {
     return { threadId: event.payload.threadId, outcome: "interrupted" };
   }
+  // An "interrupted" session with no active turn is a turn that was abandoned — nothing was
+  // running it any more, so whoever dispatched it is waiting for an outcome that would
+  // otherwise never arrive. The `activeTurnId === null` guard matters: the subagent stop path
+  // reports `interrupted` while keeping the child's turn to wait for its terminal event.
+  if (
+    event.type === "thread.session-set" &&
+    event.payload.session.status === "interrupted" &&
+    event.payload.session.activeTurnId === null
+  ) {
+    return { threadId: event.payload.threadId, outcome: "interrupted" };
+  }
   return null;
 }

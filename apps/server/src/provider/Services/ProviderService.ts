@@ -26,6 +26,7 @@ import type {
   ProviderSessionStartInput,
   ProviderStopSessionInput,
   ThreadId,
+  TurnId,
   ProviderTurnStartResult,
 } from "@peakcode/contracts";
 import { ServiceMap } from "effect";
@@ -83,6 +84,21 @@ export interface ProviderServiceShape {
   readonly interruptTurn: (
     input: ProviderInterruptTurnInput,
   ) => Effect.Effect<void, ProviderServiceError>;
+
+  /**
+   * Stop a turn, and free the runtime when the provider will not stop it.
+   *
+   * `interruptTurn` is a request the provider can accept and then never act on — a run wedged
+   * on something that ignores the abort signal stays wedged. This is the version that always
+   * gets the thread back: `"stopped"` when the provider acknowledged, `"freed"` when its
+   * session had to be stopped instead (the persisted resume state survives, so the next message
+   * continues the conversation), `"idle"` when there was no live session to stop.
+   */
+  readonly abandonTurn: (input: {
+    readonly threadId: ThreadId;
+    readonly turnId?: TurnId;
+    readonly providerThreadId?: string;
+  }) => Effect.Effect<"stopped" | "freed" | "idle", ProviderServiceError>;
 
   /**
    * Respond to a provider approval request.

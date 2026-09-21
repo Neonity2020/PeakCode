@@ -95,6 +95,7 @@ function createProviderServiceHarness(
     startReview: () => unsupported(),
     forkThread: () => Effect.succeed(null),
     interruptTurn: () => unsupported(),
+    abandonTurn: () => unsupported(),
     respondToRequest: () => unsupported(),
     respondToUserInput: () => unsupported(),
     stopSession: () => unsupported(),

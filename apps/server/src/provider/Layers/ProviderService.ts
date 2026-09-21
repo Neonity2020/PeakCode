@@ -15,6 +15,7 @@ import {
   ModelSelection,
   NonNegativeInt,
   ThreadId,
+  TurnId,
   ProviderInterruptTurnInput,
   ProviderRespondToRequestInput,
   ProviderRespondToUserInputInput,
@@ -24,10 +25,21 @@ import {
   ProviderSessionStartInput,
   ProviderStopSessionInput,
   ProviderStartOptions,
+  EventId,
   type ProviderRuntimeEvent,
   type ProviderSession,
 } from "@peakcode/contracts";
-import { Cause, Effect, Layer, Option, PubSub, Schema, SchemaIssue, Stream } from "effect";
+import {
+  Cause,
+  Duration,
+  Effect,
+  Layer,
+  Option,
+  PubSub,
+  Schema,
+  SchemaIssue,
+  Stream,
+} from "effect";
 
 import { ProviderValidationError } from "../Errors.ts";
 import { ProviderAdapterRegistry } from "../Services/ProviderAdapterRegistry.ts";
@@ -43,6 +55,10 @@ import { AnalyticsService } from "../../telemetry/Services/AnalyticsService.ts";
 export interface ProviderServiceLiveOptions {
   readonly canonicalEventLogPath?: string;
   readonly canonicalEventLogger?: EventNdjsonLogger;
+  /** Overrides `PEAKCODE_PROVIDER_TURN_STALL_MS`; tests use a short one. */
+  readonly turnStallTimeoutMs?: number;
+  /** Overrides how long `abandonTurn` waits for the provider to acknowledge a stop. */
+  readonly turnAbandonTimeoutMs?: number;
 }
 
 const DEFAULT_PROVIDER_RUNTIME_IDLE_STOP_MS = 10 * 60 * 1000;
@@ -51,6 +67,33 @@ const PROVIDER_RUNTIME_IDLE_STOP_MS = Number.isFinite(
 )
   ? Math.max(0, Number(process.env.PEAKCODE_PROVIDER_RUNTIME_IDLE_STOP_MS))
   : DEFAULT_PROVIDER_RUNTIME_IDLE_STOP_MS;
+
+/**
+ * How long a turn may go without a single provider event before it is treated as wedged.
+ *
+ * Nothing else bounds this: a request that opens a stream and then goes quiet is under no
+ * timeout the provider SDK applies, and a run parked that way never ends on its own — no
+ * `turn.completed` is coming, so the thread reads as running forever and the user is left
+ * watching a spinner with no way to tell whether any work is happening.
+ *
+ * It has to clear every wait the runtime can legitimately park on: an approval prompt and an
+ * `ask_user` question both time out at ten minutes and announce themselves when they open, the
+ * toolkit caps a shell command at two, and pi's own bash tool has no cap at all — which is why
+ * this is generous rather than tight. Silence past it means the turn is not progressing.
+ */
+const DEFAULT_PROVIDER_TURN_STALL_MS = 30 * 60 * 1000;
+const PROVIDER_TURN_STALL_MS = Number.isFinite(Number(process.env.PEAKCODE_PROVIDER_TURN_STALL_MS))
+  ? Math.max(0, Number(process.env.PEAKCODE_PROVIDER_TURN_STALL_MS))
+  : DEFAULT_PROVIDER_TURN_STALL_MS;
+
+/** How long an abandoned turn waits for the provider to acknowledge the stop. */
+const TURN_ABANDON_TIMEOUT: Duration.Duration = Duration.seconds(15);
+
+const ProviderTurnAbandonInput = Schema.Struct({
+  threadId: ThreadId,
+  turnId: Schema.optional(TurnId),
+  providerThreadId: Schema.optional(Schema.String),
+});
 
 const ProviderRollbackConversationInput = Schema.Struct({
   threadId: ThreadId,
@@ -213,6 +256,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         : undefined);
 
     const registry = yield* ProviderAdapterRegistry;
+    const turnStallTimeoutMs = options?.turnStallTimeoutMs ?? PROVIDER_TURN_STALL_MS;
+    const turnAbandonTimeout: Duration.Duration = Duration.millis(
+      options?.turnAbandonTimeoutMs ?? Duration.toMillis(TURN_ABANDON_TIMEOUT),
+    );
     const directory = yield* ProviderSessionDirectory;
     const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
     const runtimeIdleTimers = new Map<ThreadId, ReturnType<typeof setTimeout>>();
@@ -266,6 +313,69 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         Effect.flatMap((canonicalEvent) => PubSub.publish(runtimeEventPubSub, canonicalEvent)),
         Effect.asVoid,
       );
+
+    const turnStallWatchdogs = new Map<ThreadId, ReturnType<typeof setTimeout>>();
+    /** Turn the watchdog is currently guarding, per thread, so its failure can be attributed. */
+    const watchedTurns = new Map<ThreadId, TurnId | undefined>();
+    let failStalledTurn: ((threadId: ThreadId) => void) | null = null;
+
+    const clearTurnStallWatchdog = (threadId: ThreadId) => {
+      const timer = turnStallWatchdogs.get(threadId);
+      if (timer) {
+        clearTimeout(timer);
+      }
+      turnStallWatchdogs.delete(threadId);
+      watchedTurns.delete(threadId);
+    };
+
+    /**
+     * Restart the stall clock. Called for every provider event that is not itself the end of the
+     * turn: any of them means the run is still making progress.
+     */
+    const armTurnStallWatchdog = (threadId: ThreadId, turnId: TurnId | undefined) => {
+      clearTurnStallWatchdog(threadId);
+      if (turnStallTimeoutMs <= 0) {
+        return;
+      }
+
+      const timer = setTimeout(() => {
+        turnStallWatchdogs.delete(threadId);
+        failStalledTurn?.(threadId);
+      }, turnStallTimeoutMs);
+      timer.unref();
+      turnStallWatchdogs.set(threadId, timer);
+      watchedTurns.set(threadId, turnId);
+    };
+
+    const reconcileTurnStallWatchdog = (event: ProviderRuntimeEvent) => {
+      switch (event.type) {
+        case "turn.started":
+          armTurnStallWatchdog(event.threadId, event.turnId);
+          return;
+        case "turn.completed":
+        case "turn.aborted":
+        case "session.exited":
+          clearTurnStallWatchdog(event.threadId);
+          return;
+        case "session.state.changed":
+          if (
+            event.payload.state === "ready" ||
+            event.payload.state === "stopped" ||
+            event.payload.state === "error"
+          ) {
+            clearTurnStallWatchdog(event.threadId);
+            return;
+          }
+          break;
+      }
+
+      // Anything else is progress for the turn being watched. Events for a thread with no turn
+      // in flight (a session announcing itself, tool output from a subagent) must not start a
+      // clock of their own, or a busy thread would look permanently stalled.
+      if (watchedTurns.has(event.threadId)) {
+        armTurnStallWatchdog(event.threadId, watchedTurns.get(event.threadId));
+      }
+    };
 
     const upsertSessionBinding = (
       session: ProviderSession,
@@ -392,7 +502,10 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       registry.getByProvider(provider),
     );
     const processRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
-      Effect.sync(() => reconcileRuntimeIdleTimer(event)).pipe(
+      Effect.sync(() => {
+        reconcileRuntimeIdleTimer(event);
+        reconcileTurnStallWatchdog(event);
+      }).pipe(
         Effect.andThen(updateSessionBindingFromRuntimeEvent(event)),
         Effect.andThen(publishRuntimeEvent(event)),
       );
@@ -795,6 +908,143 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         return turn;
       });
 
+    /**
+     * Stop a turn, and free the runtime when the provider will not.
+     *
+     * `interruptTurn` is a request: a run wedged on a request that ignores the abort signal —
+     * or on a tool that does — accepts it and then never settles. Waiting longer does not help,
+     * and leaving the runtime in place is worse than it sounds: the next message would be
+     * steered *into* the wedged run instead of starting a turn. Stopping the session ends that
+     * run and keeps the persisted resume state, so the conversation continues on the next
+     * message rather than starting over.
+     */
+    const abandonTurn: ProviderServiceShape["abandonTurn"] = (rawInput) =>
+      Effect.gen(function* () {
+        const input = yield* decodeInputOrValidationError({
+          operation: "ProviderService.abandonTurn",
+          schema: ProviderTurnAbandonInput,
+          payload: rawInput,
+        });
+        const binding = Option.getOrUndefined(yield* directory.getBinding(input.threadId));
+        if (!binding) {
+          return "idle" as const;
+        }
+        const adapter = yield* registry.getByProvider(binding.provider);
+        if (!(yield* adapter.hasSession(input.threadId))) {
+          return "idle" as const;
+        }
+
+        const acknowledged = yield* adapter
+          .interruptTurn(input.threadId, input.turnId, input.providerThreadId)
+          .pipe(
+            Effect.timeoutOption(turnAbandonTimeout),
+            Effect.catchCause((cause) =>
+              Effect.logWarning("provider refused to interrupt a turn", {
+                threadId: input.threadId,
+                cause: Cause.pretty(cause),
+              }).pipe(Effect.as(Option.none<void>())),
+            ),
+          );
+        if (Option.isSome(acknowledged)) {
+          yield* analytics.record("provider.turn.interrupted", { provider: adapter.provider });
+          return "stopped" as const;
+        }
+
+        yield* Effect.logWarning("provider turn did not stop in time; stopping its session", {
+          threadId: input.threadId,
+          turnId: input.turnId,
+          timeoutMs: Duration.toMillis(turnAbandonTimeout),
+        });
+        yield* adapter.stopSession(input.threadId).pipe(
+          Effect.timeoutOption(turnAbandonTimeout),
+          Effect.catchCause((cause) =>
+            Effect.logWarning("failed to stop the session of an abandoned turn", {
+              threadId: input.threadId,
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        );
+        yield* analytics.record("provider.turn.abandoned", { provider: adapter.provider });
+        return "freed" as const;
+      });
+
+    /**
+     * The provider went quiet in the middle of a turn.
+     *
+     * Report the turn as failed — that is what every consumer already understands, so the
+     * thread leaves "running", the user gets the reason, and anything waiting on the turn's
+     * outcome stops waiting — and then let go of the runtime that is holding it.
+     */
+    const handleStalledTurn = (threadId: ThreadId) =>
+      Effect.gen(function* () {
+        const turnId = watchedTurns.get(threadId);
+        const binding = Option.getOrUndefined(yield* directory.getBinding(threadId));
+        clearTurnStallWatchdog(threadId);
+        if (!binding) {
+          return;
+        }
+
+        const message = `No activity from the provider for ${Math.max(
+          1,
+          Math.round(turnStallTimeoutMs / 60_000),
+        )} minutes, so this turn was stopped. The provider request may still be hanging; send a message to continue.`;
+        const base = {
+          provider: binding.provider,
+          threadId,
+          createdAt: new Date().toISOString(),
+          ...(turnId !== undefined ? { turnId } : {}),
+        };
+
+        yield* Effect.logWarning("provider turn stalled; failing it", {
+          threadId,
+          turnId,
+          stallMs: turnStallTimeoutMs,
+        });
+        yield* publishRuntimeEvent({
+          ...base,
+          eventId: EventId.makeUnsafe(crypto.randomUUID()),
+          type: "turn.completed",
+          payload: { state: "failed", stopReason: "stalled", errorMessage: message },
+        } satisfies ProviderRuntimeEvent);
+        yield* publishRuntimeEvent({
+          ...base,
+          eventId: EventId.makeUnsafe(crypto.randomUUID()),
+          type: "runtime.error",
+          payload: {
+            message,
+            class: "transport_error",
+            detail: { stallMs: turnStallTimeoutMs },
+          },
+        } satisfies ProviderRuntimeEvent);
+
+        // Last, so the failure above is what the turn is remembered by; this is what lets the
+        // next message start a turn instead of steering into the wedged one.
+        yield* abandonTurn({
+          threadId,
+          ...(turnId !== undefined ? { turnId } : {}),
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("failed to release the runtime of a stalled turn", {
+              threadId,
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        );
+      });
+
+    failStalledTurn = (threadId) => {
+      void Effect.runPromise(
+        handleStalledTurn(threadId).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("provider turn stall watchdog failed", {
+              threadId,
+              cause: Cause.pretty(cause),
+            }),
+          ),
+        ),
+      );
+    };
+
     const interruptTurn: ProviderServiceShape["interruptTurn"] = (rawInput) =>
       Effect.gen(function* () {
         const input = yield* decodeInputOrValidationError({
@@ -805,8 +1055,19 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         const routed = yield* resolveRoutableSession({
           threadId: input.threadId,
           operation: "ProviderService.interruptTurn",
-          allowRecovery: true,
+          // A stop must not resurrect a session. Recovery starts a *fresh* runtime and then
+          // aborts that: it reports success while the turn it was asked to stop runs on, and
+          // it hides the fact the caller needs — there is no live session, so nothing here can
+          // end the turn. Whether that means "the turn is already over" is a question only the
+          // caller can answer (see `ProviderCommandReactor`, which closes the abandoned turn).
+          allowRecovery: false,
         });
+        if (!routed.isActive) {
+          yield* Effect.logInfo("provider interrupt skipped: no live session", {
+            threadId: input.threadId,
+          });
+          return;
+        }
         yield* routed.adapter.interruptTurn(routed.threadId, input.turnId, input.providerThreadId);
         yield* analytics.record("provider.turn.interrupted", {
           provider: routed.adapter.provider,
@@ -1101,6 +1362,12 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         }
         runtimeIdleTimers.clear();
         stopIdleRuntimeSession = null;
+        for (const timer of turnStallWatchdogs.values()) {
+          clearTimeout(timer);
+        }
+        turnStallWatchdogs.clear();
+        watchedTurns.clear();
+        failStalledTurn = null;
       }).pipe(
         Effect.andThen(runStopAll()),
         Effect.catch((cause) => Effect.logWarning("failed to stop provider service", { cause })),
@@ -1114,6 +1381,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       steerTurn,
       startReview,
       interruptTurn,
+      abandonTurn,
       respondToRequest,
       respondToUserInput,
       stopSession,
