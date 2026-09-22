@@ -52,6 +52,21 @@ const API_KINDS: readonly ModelProviderApiKind[] = [
 const EMPTY_TEMPLATE_ID = "custom";
 
 /**
+ * Provider keys the create form must never claim for itself.
+ *
+ * A key is what the rail groups by, and a key matching a built-in template *is* that
+ * template (`customEntries` filters exactly those out), so a custom provider whose derived
+ * key lands on one of them does not appear under "Custom providers" at all — it silently
+ * becomes that built-in row, endpoint, key and model list included. The reserved `custom`
+ * stand-in is the same trap one step over. Deriving from the name puts these in reach: a
+ * provider called "StepFun 自建" derives `stepfun`, which is 阶跃星辰 StepFun's own id.
+ */
+const RESERVED_PROVIDER_KEYS: readonly string[] = [
+  EMPTY_TEMPLATE_ID,
+  ...MODEL_PROVIDER_TEMPLATES.map((template) => template.id),
+];
+
+/**
  * Control chrome shared by the right pane: filled, borderless-looking pill
  * controls (the panel's design language), matching the reference layout.
  */
@@ -337,8 +352,17 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     commitModels(key, [...models, ...added]);
   };
 
-  /** The provider key the create form will save under, given what is already configured. */
-  const customProviderId = providerIdFromName(customName, Object.keys(draft ?? {}));
+  /**
+   * The provider key the create form will save under: derived from the name, avoiding what
+   * is already configured and the keys that are spoken for (`RESERVED_PROVIDER_KEYS`).
+   * One derivation for both the preview and the save, so the hint cannot promise one key
+   * and the write use another.
+   */
+  const deriveProviderId = (name: string) =>
+    providerIdFromName(name, [...RESERVED_PROVIDER_KEYS, ...Object.keys(draft ?? {})]);
+
+  /** The key the create form will save under, for the hint under the name field. */
+  const customProviderId = deriveProviderId(customName);
 
   /**
    * Ask the endpoint the form points at which models it serves.
@@ -415,7 +439,7 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
       // One step: the provider is written with its name, endpoint, key and the model
       // picked in this same form. The key is derived from the name so no field asks for
       // an identifier the user could fill with the secret instead.
-      const key = providerIdFromName(name, Object.keys(draft));
+      const key = deriveProviderId(name);
       const models = customModels.map((id) => ({ id }));
       commitDraft({
         ...draft,

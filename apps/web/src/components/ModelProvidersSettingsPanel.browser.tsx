@@ -137,7 +137,6 @@ it("keeps a provider and a model added from the panel after leaving and re-enter
   // and key, then one model of its own.
   await page.getByRole("button", { name: "Add model provider", exact: true }).click();
   await page.getByRole("textbox", { name: "Display name", exact: true }).fill("StepFun 自建");
-  await page.getByRole("textbox", { name: "Provider key", exact: true }).fill("Step");
   await page
     .getByRole("textbox", { name: "Base URL", exact: true })
     .fill("https://api.stepfun.com");
@@ -383,19 +382,23 @@ it("keeps un-enabled templates out of the saved config", async () => {
   await expect(api.saveModelProviders).not.toHaveBeenCalled();
 });
 
-it("adds a custom provider with the Name → Base URL → API key field order", async () => {
+it("adds a custom provider from its name, base URL and key, with no id to fill in", async () => {
   await mountPanel({}, { selectCustom: false });
   await page.getByRole("button", { name: "Add model provider", exact: true }).click();
 
-  // The custom branch leads with the vendor name and base URL before the key.
+  // The custom branch leads with the vendor name and base URL before the key, and asks
+  // for nothing else: the id the provider is saved under is derived from the name, so
+  // there is no free-text identifier a pasted secret could land in.
   await expect
     .element(page.getByRole("textbox", { name: "Display name", exact: true }))
     .toBeVisible();
   await expect.element(page.getByRole("textbox", { name: "Base URL", exact: true })).toBeVisible();
   await expect.element(page.getByRole("textbox", { name: "API key", exact: true })).toBeVisible();
+  await expect
+    .element(page.getByRole("textbox", { name: "Provider key", exact: true }))
+    .not.toBeInTheDocument();
 
   await page.getByRole("textbox", { name: "Display name", exact: true }).fill("Acme AI");
-  await page.getByRole("textbox", { name: "Provider key", exact: true }).fill("acme");
   await page.getByRole("textbox", { name: "Base URL", exact: true }).fill("https://acme.test/v1");
   await page.getByRole("textbox", { name: "API key", exact: true }).fill("sk-acme");
   await page.getByRole("button", { name: "Add provider", exact: true }).click();
@@ -406,7 +409,9 @@ it("adds a custom provider with the Name → Base URL → API key field order", 
     .toEqual({
       agentDir: "/custom",
       providers: {
-        acme: {
+        // Derived from "Acme AI" rather than typed: the display name is the one thing the
+        // user already has to provide, and it is the id they see everywhere afterwards.
+        "acme-ai": {
           name: "Acme AI",
           api: "openai-completions",
           baseUrl: "https://acme.test/v1",
@@ -414,6 +419,31 @@ it("adds a custom provider with the Name → Base URL → API key field order", 
         },
       },
     });
+  await expect.element(page.getByText("You have unsaved changes.")).not.toBeInTheDocument();
+});
+
+it("keeps a built-in provider's own row when a custom one is named after it", async () => {
+  await mountPanel({}, { selectCustom: false });
+  await page.getByRole("button", { name: "Add model provider", exact: true }).click();
+
+  // "StepFun 自建" derives `stepfun`, which is 阶跃星辰 StepFun's own template id. A key that
+  // matches a template *is* that template in the rail, so the derived key has to step around
+  // the reserved ones — otherwise the custom provider disappears into the built-in row,
+  // endpoint, key and model list included, and never shows up as a custom provider at all.
+  await page.getByRole("textbox", { name: "Display name", exact: true }).fill("StepFun 自建");
+  await page
+    .getByRole("textbox", { name: "Base URL", exact: true })
+    .fill("https://api.stepfun.com");
+  await page.getByRole("button", { name: "Add provider", exact: true }).click();
+
+  await expect
+    .poll(() => Object.keys(api.saveModelProviders.mock.calls.at(-1)?.[0].providers ?? {}))
+    .toEqual(["stepfun-2"]);
+  // Listed under custom providers under its own name, which is only true of a provider that
+  // kept a key of its own.
+  await expect
+    .element(page.getByRole("button", { name: "StepFun 自建", exact: true }))
+    .toBeVisible();
   await expect.element(page.getByText("You have unsaved changes.")).not.toBeInTheDocument();
 });
 

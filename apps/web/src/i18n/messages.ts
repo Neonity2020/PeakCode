@@ -1115,7 +1115,6 @@ export type Messages = {
       templateAria: string;
       templateCustom: string;
       providerExistsHint: (name: string) => string;
-      providerKeyLabel: string;
       providerNameLabel: string;
       providerApiLabel: string;
       providerBaseUrlLabel: string;
@@ -3026,7 +3025,6 @@ const en: Messages = {
       templateCustom: "Custom provider",
       providerExistsHint: (name) =>
         `${name} already exists; it will be updated instead of duplicated.`,
-      providerKeyLabel: "Provider key",
       providerNameLabel: "Display name",
       providerApiLabel: "API type",
       providerBaseUrlLabel: "Base URL",
@@ -4966,7 +4964,6 @@ const zh: Messages = {
       templateAria: "提供商模板",
       templateCustom: "自定义提供商",
       providerExistsHint: (name) => `${name} 已存在，将更新而不是重复添加。`,
-      providerKeyLabel: "提供商 Key",
       providerNameLabel: "显示名称",
       providerApiLabel: "API 类型",
       providerBaseUrlLabel: "Base URL",
