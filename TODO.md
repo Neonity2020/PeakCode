@@ -219,3 +219,27 @@ worker 的步数与子线程实际活动数一致（117 步 vs `projection_threa
 才能测出来；三条：运行中有 Stop 且回传正确的 id、已结束没有 Stop、只停点中的那一行）。
 `bun run test:browser`（apps/web）3 条通过；`bun run test` 全绿；fmt / lint（272 警告 0 错误）/
 typecheck / build 全过；客户端已用新构建重启（17:10 的 `dist/index.mjs`，进程 28063）。
+
+## worker 节点上「点进去看详细记录」：做完（2026-09-22 晚）
+
+上一轮我只做了停止按钮，没做这个 —— 用户看图直接问「不是要加点进去看详细记录么」。现在每个 worker
+节点上有一个 `View steps`（展开后变 `Hide steps`），点开在节点内部按顺序列出这个 worker 最近的工具
+调用（`1. read_file / 2. list_dir / …`），超过保留条数时末尾补一行「…N earlier steps」。
+
+数据仍然走**委派项本身**（`agentStates[].recentSteps`），不是子线程：adapter 在 worker 每次 tool call
+开始时把 `{id: toolCallId, title}` 追加进一个最多 12 条的队列，随卡片一起下发。理由和进度字段一样 ——
+「看它在干什么」不能依赖子线程那条第二条取数链路是否落地，之前正是那里没落地导致节点后面什么都没有。
+
+两个细节：
+
+- **条目带 toolCallId**（不是位置）：同一个工具调用两次是两条合法记录，各自身份不同；用下标当 key
+  既会被 lint 拦，也会在两个同名条目之间串位。
+- **节点本体仍是「打开子线程」的按钮**，`View steps` 是旁边的独立按钮 —— 按钮不能嵌按钮（浏览器会
+  吞掉内层点击）。这是上一轮做 Stop 时定下的结构，这次沿用了。
+
+测试：委派项用例（`recentSteps` 保序、带 id、同名工具两次是两条）；浏览器渲染用例三条（展开后按
+顺序显示、未产生步骤的 worker 没有这个入口、点击切换）；`bun run test:browser` 里
+`SubagentDelegationCard.browser.tsx` 5 条全过（其余 150 条也过；`ModelProvidersSettingsPanel` 的 2
+条失败是既有的，超时在 `Provider key` 那个输入框上，与本次改动无关，我没碰过那个组件）。
+fmt / lint（272 警告 0 错误，与基线持平）/ typecheck / build 全过；客户端已用新构建重启（19:04 的
+`dist/index.mjs`，进程 68876）。
