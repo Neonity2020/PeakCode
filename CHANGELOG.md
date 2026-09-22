@@ -4,6 +4,13 @@ All notable changes to Peak Code are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-09-22
+
+### Fixed
+
+- **A custom provider named after a built-in no longer takes that built-in's row.** 0.8.0 derived a new provider's key from its display name, which put the built-in template ids back in reach: a key that matches a template _is_ that template as far as the rail is concerned (that is how its custom group filters them out), so adding a provider called "StepFun 自建" derived `stepfun` — 阶跃星辰 StepFun's own id — and the provider disappeared into that built-in row with its endpoint, key and model list, never appearing as a custom provider at all. The reserved `custom` stand-in was the same trap one step over. The derivation now steps around the reserved keys and the ones already configured, and the hint under the name field and the save use the same derivation, so the key it promises cannot differ from the key it writes. ([apps/web/src/components/ModelProvidersSettingsPanel.tsx](apps/web/src/components/ModelProvidersSettingsPanel.tsx))
+- Two browser tests were still filling a "Provider key" field the create form no longer has, so `bun run test:browser` failed in CI on a change whose local runs were all unit-suite runs. They assert the field is gone and that the key comes from the name, and a new one covers the collision itself.
+
 ## [0.8.0] - 2026-09-22
 
 ### Added
