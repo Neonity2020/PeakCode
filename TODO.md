@@ -124,3 +124,98 @@ spctl -a -t exec                   → rejected（未公证），不再是签名
 - [ ] `PEAKCODE_FINALIZE_RELEASE` / `PEAKCODE_PUBLISH_CLI` 两个仓库变量未开：前者会让 release
       流程把 `package.json` 版本写成 tag 版本并提交到 main（现在 main 上一律是 `0.1.0`，版本由
       `--build-version` 注入），后者会把 CLI 发到 npm。
+
+## Multi-Agent：先说明再派活，只留一套派活机制（2026-09-22）
+
+用户反馈三条，都在 Multi-Agent 模式上：
+
+1. **「上来就直接创建一大堆，跟傻似的」** —— 要的是先给出分析（为什么创建这几个、各自干啥），
+   界面上看得见，然后才展示它们干活；收工后同样要收齐 worker 的报告、整合成总结/文档交付。
+2. **「子 Agent 点进去没有执行记录，这个不可控，坚决不允许」** —— 点进去是空的。
+3. **`crew_spawn` 和 `task` 两条路并存** —— 模型会随机挑，挑到 pi-crew 就是界面上看不见、
+   也停不掉的隐形工作。
+
+改的四处：
+
+- **派活闸门（`agentToolkitMode.ts`）**：协议里写了「先分析、先说明」，实测模型完全可以无视 ——
+  用户消息之后直接一串 `task`，界面上就是莫名其妙冒出一堆子 Agent。所以改成由 `tool_call` 钩子
+  强制执行：本轮还没输出过任何**可见文字**（只有思考不算）时，第一次 `task` 被拒绝一次，理由就是
+  「先说明拆解方案，再派活」。闸门一次用户请求只拦一次，所以最坏情况是多花一个回合，永远不会
+  变成「这一轮再也派不出活」。重闸时机是 `before_agent_start`（每次 `prompt()` 触发一次，不是每个
+  模型回合），因此上一轮派过活也不豁免下一条消息。
+- **协议（`agent-subagents.ts` / `task` 的 description）**：第 0 步是「先分析并写出来」；第 5、6 步
+  是「收齐所有 worker 的结论 → 合并成成品交付」（开发类任务给出每块由谁完成、证据文件/命令/输出，
+  需要留档就落文档），并明确禁止用「都做完了」当交付物。worker 失败或被中断要算作缺口写进结论。
+- **只留一套派活机制**：multi 模式不再暴露 pi-crew 的整套工具（按 `crew_` 前缀摘，不枚举名字），
+  派活只能走 `task` —— 它有每 worker 的模型绑定、卡片、子线程和停止按钮。其他模式照旧可以用
+  pi-crew。
+- **子线程串错（`ChatView.logic.ts`）**：`subagentAgentId` 是 worker 句柄（`explore`）而不是运行标识，
+  同一个 worker 下一轮再派出来的子线程长得一模一样。原来的回退匹配取「第一个候选」，于是刚派出去
+  的 worker 显示的是**上一轮**的步数、耗时、最后一步，甚至那条线程的 "Idle"（现场：117 步的 worker
+  显示成 55 步 / 6m53s / 21 分钟前的最后一步）。现在只有候选唯一时才认，模糊就不匹配 —— 代价是
+  子线程水合完成前少一次步数显示，而不是显示错的。
+
+验证：`bun run test` 全绿（1188 个用例，含闸门 6 条、子线程唯一匹配 2 条）；`bun fmt` / `bun lint`
+（272 警告 0 错误）/ `bun typecheck` / `bun run build` 全过；桌面客户端已用新构建重启，卡片上
+worker 的步数与子线程实际活动数一致（117 步 vs `projection_thread_activities` 的 117 条），
+重启时 `ProviderSessionReaper` 把在跑的那一轮结成了 interrupted（07:03:50 → 07:15:16）。
+未在真机跑过的部分：闸门被模型真正撞到的那一次交互（需要一次真实的 Multi-Agent 回合）。
+
+## 子 Agent 一直「没进展 / 点不进去 / 又被中断」（2026-09-22 下午）
+
+用户现场：Multi-Agent 起了 2–3 个 worker，卡片上两行都是 `Idle` + `waiting for its first step`，
+`0/2 finished · 2 working`，父线程「已工作 15m59s」，点进去看不到执行记录。实际那三个 worker
+一直在干活（子线程活动 167 条还在涨）。查到三个独立的毛病：
+
+- **看门狗把我自己的 worker 判成了孤儿（`abandonedTurn.ts` + `ProviderSessionReaper`）。**
+  回收扫描对每个线程问的都是「有没有活着的 provider 会话在跑这一轮」，而 **worker 的会话是在
+  adapter 内部 `runSubagent` 里临时建的，provider 目录根本看不见** —— 于是对每个子线程这个问题的
+  答案永远是「没有」，扫描每 5 分钟就把**正在干活的** worker 判成 interrupted。现场证据：三个子
+  线程的会话都在 08:15:16（正好是 07:15:16 启动后第 60 分钟，5 分钟一次的扫描点）被置为
+  interrupted，而它们的活动一直写到 08:29 之后。界面上就变成「卡片说 Idle、线程说中断，活还在干」。
+  改成**子线程由它的父线程判定**：父线程还在跑这一轮，它的 worker 就是它的事；父线程被结算（或本来
+  就没在跑）时，子线程在同一次扫描里跟着结算 —— worker 不可能活得比派发它的那一轮更久。
+- **worker 的进度只能从子线程读，而子线程订阅是第二条取数链路。** 它一旦没落地，一个跑了 167 次
+  工具调用的 worker 还是显示「等它迈第一步」，跟一个从没启动的 worker 长得一模一样。现在**进度随
+  委派项本身下发**（`agentStates[].steps / lastStep / lastStepAt / startedAt`），走的就是画卡片那条流：
+  adapter 在 worker 每次 tool call 开始时记账（按 toolCallId 去重），节流 2 秒重发一次卡片。
+- **状态标签会被那条不新鲜的链路改写。** 子线程会话不是 live 时 `deriveSubagentStatus` 会给 `Idle`，
+  而它原来**优先于**委派项自己的 `running` —— 于是「还在干活」被写成了「Idle」。改成：委派项说
+  running 时，线程只能补充细节、不能改状态。同时用 `startedAt` 兜底算时长，否则没有步数时连
+  「跑了多久」都没有。
+
+验证：`bun run test` 全绿（1193 个用例；新增父线程判定 3 条、进度下发 2 条、状态不被 Idle 覆盖 1 条、
+派发时间兜底时长 1 条）；`bun fmt` / `bun lint`（272 警告 0 错误）/ `bun typecheck` / `bun run build`
+全过；重启客户端后同一张卡片上出现了 `118 steps · 36m 24s` / `123 steps · 36m 38s` 和
+`VIEW STEPS`（此前是 0 步、无时长、`OPEN`），与 `projection_thread_activities` 一致。
+
+还没做：**单个 worker 的手动停止**。现场那三个 Explore 跑了 36 分钟还在翻（大仓 + 宽泛 prompt），
+现在至少看得见进度、能停整轮，但「只停某一个 worker」还需要新增一条 RPC + 节点上的停止按钮。
+
+## 单个 worker 的手动停止：做完（2026-09-22 傍晚）
+
+上一轮遗留的那件事。现场那三个 Explore 跑了 38 分钟还在翻，当时只有两个选择：杀掉整轮（丢掉编排
+器上下文和另外两个 worker 的结果），或者继续等。现在每个还在跑的 worker 节点上有一个 `Stop`。
+
+链路：`ProviderStopSubagentInput`（contracts）→ `WS_METHODS.subAgentsStopRun` → `wsRpc` →
+`ProviderService.stopSubagent` → `PiAdapter.stopSubagent` → 运行时注册表 `liveSubagents`。
+
+几个刻意的决定：
+
+- **按委派 id 定位**，不是按子线程 id：`liveSubagents` 就是以 card 发布的 `providerThreadId` 为键的。
+- **先settle 再 abort**：和停滞看门狗同一个理由 —— abort 万一不返回，卡片也不能继续声称它在干活。
+  于是先写 `status: stopped / "Stopped by you."`，再 `session.abort()`。
+- **返回 `boolean`**：`false` 是「这个 id 下没有在跑的东西」（已经结束了），不是错误。UI 因此不会
+  为一个早就结束的 worker 弹失败。
+- **不动编排者**：worker 的 `prompt` 被 abort 拒绝后，`runSubagent` 走自己的结束路径，`task` 把
+  「这个 worker 提前结束了」交给模型，其余 worker 与这一轮继续。
+- 稳定 id：`providerThreadId` 由 `beginSubagentDelegation` 生成（`explore-<8位>`），卡片和运行时
+  两侧用的是同一个值。
+
+测试：`ProviderService` 的路由用例（停止按委派 id 路由、`false` 原样透出）；`shouldOfferWorkerStop`
+的规则用例（还在跑 = 有按钮；Completed/Failed/Stopped/Interrupted/Idle/Closed = 没有；没有委派 id
+= 没有）；以及新增的浏览器渲染用例 `SubagentDelegationCard.browser.tsx`（节点本身是打开线程的
+按钮，停止按钮不能嵌在按钮里 —— 所以节点改成容器、只有 body 是可点的打开目标，这一点只有真渲染
+才能测出来；三条：运行中有 Stop 且回传正确的 id、已结束没有 Stop、只停点中的那一行）。
+`bun run test:browser`（apps/web）3 条通过；`bun run test` 全绿；fmt / lint（272 警告 0 错误）/
+typecheck / build 全过；客户端已用新构建重启（17:10 的 `dist/index.mjs`，进程 28063）。
