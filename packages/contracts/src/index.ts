@@ -8,6 +8,7 @@ export * from "./providerRuntime";
 export * from "./model";
 export * from "./modelProviders";
 export * from "./piPackages";
+export * from "./subAgents";
 export * from "./agentGoal";
 export * from "./agentRuntime";
 export * from "./agentMentions";

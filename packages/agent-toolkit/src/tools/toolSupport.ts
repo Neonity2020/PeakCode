@@ -54,11 +54,28 @@ export type ToolContext = {
       multiple?: boolean;
     }[],
   ) => Promise<string[][]>;
-  /** 派子智能体执行子任务，返回它的最终答复（agent.ts 注入）。 */
+  /**
+   * 派子智能体执行子任务，返回它的最终答复（agent.ts 注入）。
+   *
+   * `subagentType` 是注册表里的句柄（内置 explore/general/review 也在此列）。另外几个
+   * 字段来自注册表解析：`model` 为 null 表示跟着主 Agent 走，`tools` 为空表示不限制。
+   * 宿主用它们去开一个真正独立的会话，而不是复用主 Agent 的上下文。
+   *
+   * `name` 只用于展示：一次派发会变成界面上的一行 worker（名字 + 角色 + 模型 + 状态），
+   * 只报句柄的话那一行就会显示成 `explore` 这样的内部标识。
+   */
   spawnSubagent?: (opts: {
     description: string;
     prompt: string;
     subagentType: string;
+    /** 该 worker 的显示名（注册表 name）；缺省时宿主回退到句柄。 */
+    name?: string;
+    /** 该 worker 绑定的模型 slug；null/缺省 = 继承主 Agent 当前模型。 */
+    model?: string | null;
+    /** 该 worker 的额外系统提示（注册表 systemPrompt），拼在派发提示之前。 */
+    systemPrompt?: string;
+    /** 该 worker 的工具白名单；空数组 = 不限制。 */
+    tools?: readonly string[];
   }) => Promise<string>;
   /** 登记产出物（agent.ts 注入）。 */
   recordArtifact?: (filePath: string, tool: string) => void;

@@ -860,7 +860,9 @@ export function permissionRequestForTool(call: ToolCallShape): PermissionRequest
       const description = stringArg(args, "description", "prompt").slice(0, 120);
       return {
         permission: "task",
-        pattern: stringArg(args, "subagent_type") || "general",
+        // Both spellings: `subagent` is the registry handle the roster advertises,
+        // `subagent_type` the legacy explore/general/review kind.
+        pattern: stringArg(args, "subagent") || stringArg(args, "subagent_type") || "general",
         title: "派子智能体执行子任务",
         detail: { 任务: description },
         always: ["*"],

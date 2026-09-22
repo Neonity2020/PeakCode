@@ -16,6 +16,7 @@ import {
 } from "./toolSupport.ts";
 
 import { Type } from "@earendil-works/pi-ai";
+import { enabledSubAgents, getSubAgent, type AgentSubAgent } from "../agent-subagents.ts";
 
 /**
  * Agent 可使用的工具集。
@@ -203,7 +204,51 @@ export function normalizeSubagentType(raw: string | undefined): SubagentType {
     : "general";
 }
 
+/**
+ * 把 `task` 的参数解析成一个具体的 worker。
+ *
+ * 优先认注册表句柄（`subagent`）—— 那是名册真正宣传的东西；`subagent_type` 是
+ * 老的 explore/general/review，保留是为了不打断已有调用与权限规则。两者都没命中时
+ * 合成一个不带模型、不带额外提示的 general：`task` 是核心工具，不该因为用户在设置里
+ * 清空了注册表就整体失灵。返回 null 只在"连兜底的 general 都不该存在"时为真 ——
+ * 目前不会发生，留作显式分支。
+ */
+function resolveTaskSubAgent(params: {
+  subagent?: string | undefined;
+  subagent_type?: string | undefined;
+}): AgentSubAgent {
+  const byHandle = getSubAgent(params.subagent);
+  if (byHandle) return byHandle;
+  const legacy = getSubAgent(normalizeSubagentType(params.subagent_type));
+  if (legacy) return legacy;
+  const general = getSubAgent("general");
+  if (general) return general;
+  return {
+    id: normalizeSubagentType(params.subagent_type),
+    name: "General",
+    description: "",
+    systemPrompt: "",
+    tools: [],
+    model: null,
+    enabled: true,
+  };
+}
+
 export function createTaskTool(ctx: ToolContext): BuiltTool {
+  // 名册写进工具描述里：模型只有看到"有哪些 worker、各自什么模型"才谈得上挑人。
+  const roster = enabledSubAgents();
+  const rosterLines =
+    roster.length > 0
+      ? roster.map(
+          (agent) =>
+            `- subagent=${agent.id}: ${agent.description || agent.name}` +
+            (agent.model ? ` (model: ${agent.model})` : ""),
+        )
+      : [
+          "- subagent=explore: read-only search over the workspace.",
+          "- subagent=general: full tools, for a self-contained piece of work.",
+          "- subagent=review: review the CURRENT uncommitted workspace changes.",
+        ];
   return {
     name: "task",
     label: "Delegate to subagent",
@@ -211,33 +256,51 @@ export function createTaskTool(ctx: ToolContext): BuiltTool {
       "Delegate a self-contained sub-task to a subagent that has its own context window, then " +
       'returns only its final answer. Use it for broad exploration ("find every place X is used") ' +
       "or work that would flood your own context with tool output. The subagent cannot ask the user.\n" +
-      "- subagent_type=explore: read-only search over the workspace.\n" +
-      "- subagent_type=general: full tools (default), for doing a self-contained piece of work.\n" +
-      "- subagent_type=review: review the CURRENT uncommitted workspace changes. You do not need to " +
-      "describe what changed — the diff is handed to the reviewer; just say what to focus on.",
+      "Issue several `task` calls in the SAME message to run those workers concurrently — " +
+      "independent sub-tasks should not be delegated one after another.\n" +
+      "Before the first call, write a normal reply saying what you are splitting the work into " +
+      "and who gets which piece, so the user can see the plan behind the delegation.\n" +
+      "After the last worker returns, gather every worker's answer and hand the user one " +
+      'integrated report — never just "done".\n' +
+      "Available subagents:\n" +
+      rosterLines.join("\n") +
+      "\nWorkers with their own model run on that model; the rest inherit yours.",
     parameters: Type.Object({
       description: Type.String({ description: "Short (3-5 words) description of the sub-task." }),
       prompt: Type.String({ description: "Full, self-contained instructions for the subagent." }),
+      subagent: Type.Optional(
+        Type.String({
+          description: "Handle of the subagent to use, from the list above (e.g. explore).",
+        }),
+      ),
       subagent_type: Type.Optional(
         Type.String({
-          description:
-            "explore (read-only) | general (full tools, default) | review (review current changes)",
+          description: "Legacy alias: explore (read-only) | general (default) | review.",
         }),
       ),
     }),
     execute: async (
       _toolCallId,
-      params: { description: string; prompt: string; subagent_type?: string },
+      params: {
+        description: string;
+        prompt: string;
+        subagent?: string;
+        subagent_type?: string;
+      },
       signal?: AbortSignal,
     ) => {
       if (!ctx.spawnSubagent) return errorResult("Subagents are not available in this mode.");
       void signal;
-      const subagentType = normalizeSubagentType(params.subagent_type);
+      const worker = resolveTaskSubAgent(params);
       try {
         const summary = await ctx.spawnSubagent({
           description: params.description,
           prompt: params.prompt,
-          subagentType,
+          subagentType: worker.id,
+          name: worker.name,
+          model: worker.model,
+          systemPrompt: worker.systemPrompt,
+          tools: worker.tools,
         });
         return textResult(summary || "(subagent returned no output)");
       } catch (e) {

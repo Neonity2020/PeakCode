@@ -1,5 +1,5 @@
 /**
- * Interaction modes: `default` / `plan` / `goal`.
+ * Interaction modes: `default` / `plan` / `goal` / `multi`.
  *
  * PeakCode already had the `plan` skeleton — the mode is persisted per thread, the UI has a
  * toggle, and a proposed plan flows through orchestration into `ProposedPlanCard`. What was
@@ -18,6 +18,10 @@
  * - **goal**    — the full tool set plus `goal`. The agent records the objective and
  *                 acceptance criteria, and the harness continues across turns until the goal
  *                 reaches a terminal state or runs out of budget.
+ * - **multi**   — the same tools as `default`, but the agent is told it is the orchestrator:
+ *                 decompose the request, delegate each piece to a named sub-agent via `task`,
+ *                 check the results, merge them, report. Sub-agents may be bound to their own
+ *                 model, so one turn can mix a strong planner with cheap workers.
  */
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type {
@@ -39,6 +43,7 @@ import {
   setGoalStatus,
 } from "@peakcode/agent-toolkit/agent-goals";
 import { approvePlan, planHandoffSection, savePlan } from "@peakcode/agent-toolkit/agent-plans";
+import { multiAgentPromptSection } from "@peakcode/agent-toolkit/agent-subagents";
 import { skillsPromptSection } from "@peakcode/agent-toolkit/agent-skills";
 import { contextUsage } from "@peakcode/agent-toolkit/agent-context";
 import { workflowPromptSection } from "@peakcode/agent-toolkit/skills/workflow";
@@ -93,6 +98,22 @@ const PLAN_ONLY_TOOLS = new Set(["write_plan"]);
 const GOAL_ONLY_TOOLS = new Set(["goal"]);
 
 /**
+ * pi-crew's whole tool family (`crew_spawn`, `crew_respond`, `crew_report`, …).
+ *
+ * Multi-Agent mode has its own delegation path — `task` — and it is the only one PeakCode can
+ * see: each worker gets its own thread, its own model binding, a card that shows it working,
+ * and the stop button. `crew_spawn` returns in a few milliseconds and its crews run outside all
+ * of that, so a turn that picks it looks like the agent did nothing while the work happens off
+ * screen. Two delegation systems side by side means the model picks one at random, and picking
+ * the invisible one is the failure this mode cannot afford.
+ *
+ * So multi mode hides the family rather than the model being asked to prefer `task`. The
+ * prefix (not an enumerated list) is deliberate: pi-crew can add tools, and every tool it adds
+ * is part of the same invisible-crew mechanism. Other modes keep pi-crew available.
+ */
+const PI_CREW_TOOL_PREFIX = "crew_";
+
+/**
  * Which of the registered tools a turn in this mode may use.
  *
  * Registration and activation are separate concerns: every toolkit tool is registered once
@@ -118,6 +139,14 @@ export function activeToolNamesForMode(
     if (mode === "goal") {
       return !PLAN_ONLY_TOOLS.has(name);
     }
+    if (mode === "multi") {
+      // One delegation system only: see `PI_CREW_TOOL_PREFIX`.
+      if (name.startsWith(PI_CREW_TOOL_PREFIX)) return false;
+      return !PLAN_ONLY_TOOLS.has(name) && !GOAL_ONLY_TOOLS.has(name);
+    }
+    // `multi` is default's tool set minus pi-crew: the orchestrator still edits files and runs
+    // shell itself when that is faster than delegating. What makes it "multi" is the prompt
+    // (see `multiAgentPromptSection`) plus per-worker models, not a different tool list.
     // default
     return !PLAN_ONLY_TOOLS.has(name) && !GOAL_ONLY_TOOLS.has(name);
   });
@@ -227,7 +256,32 @@ export interface ToolkitContextExtensionOptions {
 }
 
 /**
- * Per-turn prompt injection.
+ * The refusal the model gets when it tries to delegate before saying what it is delegating.
+ *
+ * Phrased as a correction plus what to do next, because it arrives as a tool error: the model
+ * has to be able to read it and comply in the next round without another round-trip of guessing.
+ */
+export const MULTI_AGENT_PLAN_GATE_REASON = [
+  "先说明拆解方案，再派活。",
+  "在调用 task 之前，先用一段普通回复文字告诉用户：这个请求由哪几块组成、为什么这么拆、",
+  "每一块交给哪个 worker、各自要交付什么。用户必须能在界面上看到你为什么要创建这几个子",
+  "Agent，而不是只看到它们突然出现。写完这段说明后，再重新调用 task（可以一次并发多个）。",
+].join("");
+
+/** Whether an assistant message contains text the user can actually read (thinking does not count). */
+function hasVisibleAssistantText(message: unknown): boolean {
+  const candidate = message as { role?: unknown; content?: unknown } | null;
+  if (!candidate || candidate.role !== "assistant" || !Array.isArray(candidate.content)) {
+    return false;
+  }
+  return candidate.content.some((part) => {
+    const block = part as { type?: unknown; text?: unknown } | null;
+    return block?.type === "text" && typeof block.text === "string" && block.text.trim().length > 0;
+  });
+}
+
+/**
+ * Per-turn prompt injection, plus the one gate that keeps the Multi-Agent protocol honest.
  *
  * `before_agent_start` runs on every turn, which is what makes this the right hook: a goal
  * can be created mid-session, and the goal section has to appear from the *next* turn on,
@@ -238,12 +292,51 @@ export interface ToolkitContextExtensionOptions {
  * every session's prompt is assembled: the workflow has to be in front of the model from the
  * first turn of *any* conversation for "requests go through the process by default" to mean
  * anything. Both are gated by their own settings and drop out when empty.
+ *
+ * ## Why delegating is gated rather than merely asked for
+ *
+ * "先分析，再把分析说出来" is in the Multi-Agent protocol, and in a live run the model went
+ * straight from the user's message to a fan of `task` calls with no text at all — a pile of
+ * sub-agents appearing with no explanation, which is precisely what the mode is not allowed to
+ * do. A prompt is a request; this is the enforcement. The first `task` call of a user request is
+ * refused when nothing has been said yet, and the refusal tells the model what to write. It is
+ * spent after one refusal, so a model that ignores it still gets to work: the failure mode of
+ * this gate is one wasted round-trip, never a turn that cannot delegate at all.
+ *
+ * Only `multi` is gated, and worker sessions never are: a worker's child thread has no session
+ * mode of its own (`currentMode()` reads the parent's map by thread id, which is empty for a
+ * child), so nested delegation inside a worker is unaffected.
  */
 export function makeToolkitContextExtension(
   options: ToolkitContextExtensionOptions,
 ): ExtensionFactory {
   return (pi) => {
+    // Did the model say anything the user can read since the last user message, and has the gate
+    // already been used for this request?
+    let planStated = false;
+    let gateSpent = false;
+
+    pi.on("message_update", (event) => {
+      if (hasVisibleAssistantText(event.message)) planStated = true;
+    });
+    pi.on("message_end", (event) => {
+      if (hasVisibleAssistantText(event.message)) planStated = true;
+    });
+    pi.on("tool_call", (event) => {
+      if (event.toolName !== "task") return;
+      if (options.currentMode() !== "multi") return;
+      if (planStated || gateSpent) return;
+      gateSpent = true;
+      return { block: true, reason: MULTI_AGENT_PLAN_GATE_REASON };
+    });
+
     pi.on("before_agent_start", (event) => {
+      // One user request = one chance to explain the split. `before_agent_start` fires once per
+      // `prompt()` call (not per model round), which is the granularity the gate needs: a thread
+      // that already delegated last turn must still be held to it on the next request.
+      planStated = false;
+      gateSpent = false;
+
       const mode = options.currentMode();
       const sections: string[] = [];
 
@@ -255,6 +348,13 @@ export function makeToolkitContextExtension(
         // A previously approved plan still frames the work when the user returns to plan mode.
         const handoff = planHandoffSection(options.conversationId);
         if (handoff) sections.push(handoff);
+      }
+      if (mode === "multi") {
+        // The orchestrator protocol plus the worker roster. Without the roster the model
+        // knows it *may* delegate but not *to whom* — and `task` alone never said which
+        // worker runs on which model, which is the whole point of the mode.
+        const orchestration = multiAgentPromptSection();
+        if (orchestration) sections.push(orchestration);
       }
 
       // 流程段在前、技能清单在后：先讲"什么时候该用哪个"，再讲"这台机器上还有什么"。
