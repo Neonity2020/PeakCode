@@ -132,15 +132,31 @@ re-implementing the agent.
 
 The model is the one thing Pi leaves to you — see [Model Providers](#model-providers) below.
 
-### Run Modes — Agent, Plan, Goal
+### Run Modes — Agent, Plan, Goal, Multi-Agent
 
 The composer picks how a turn is handled, and the mode travels with the message:
 
 - **Agent** (default) — the full tool set; the agent works directly on the workspace.
 - **Plan** — read-only exploration plus `write_plan`. The workspace stays untouched and the result comes back as a plan you accept.
 - **Goal** — the full tool set plus the `goal` tool. The objective and its acceptance criteria are kept in state, and the harness continues the work across turns — within a token budget and a continuation cap — until the goal is completed, dropped, or out of budget.
+- **Multi-Agent** — the turn is split across named workers that run in parallel; see [Multi-Agent](#multi-agent--parallel-sub-agents) below.
 
 A goal appears in the composer's goal panel, where it can be paused, resumed, completed or dropped. A goal that ran out of budget shows as `budget-limited`.
+
+### Multi-Agent — Parallel Sub-Agents
+
+The fourth mode delegates instead of working through the request itself. The orchestrator splits the
+task, dispatches a worker per part through the `task` tool, and merges what comes back into one
+answer.
+
+![Three sub-agents working in parallel, each with its own model, step count and Stop button](./assets/prod/multi-agent.png)
+
+![Eight sub-agents dispatched from a single turn, some still running and some completed](./assets/prod/multi-agent-parallel.png)
+
+- **Named workers with their own model and tools.** A sub-agent is a handle the orchestrator passes to `task`, with its own description, extra instructions, tool allowlist and model. Three ship with the app — `explore` (read-only search), `general` (the full tool set) and `review` (uncommitted changes) — and Settings → Sub-agents adds your own. Running the planner and the merger on a strong model while the file-grepping workers run on a cheap one is the point of the feature, so each worker's model is independent of the orchestrator's.
+- **The plan comes before the workers.** A turn's first `task` call is refused once until that turn has written visible text, so a request comes back as "here is how I am splitting this, and who does what" rather than a fan of sub-agents appearing out of nowhere.
+- **Every worker is visible, and any one can be stopped.** A dispatch draws a delegation card: the orchestrator on one side, each worker on a branch off it, showing its model, its state, the steps it has taken, the tool call running right now and how long it has been out. A row opens that worker's own thread with its full tool log, and **Stop** ends a single worker — the orchestrator and its other workers carry on.
+- **The deliverable is the merge.** The protocol's last steps collect every worker's conclusion and merge them into one finished answer; "all done" is not accepted as one, and a worker that failed or was stopped is written into the summary as a gap.
 
 A separate runtime mode (Full access / Supervised) decides approvals and sandboxing for the session
 itself; see [`.docs/runtime-modes.md`](./.docs/runtime-modes.md).
@@ -244,7 +260,7 @@ cursor. Session state is local — nothing in the transcript leaves your machine
 - **Voice input** — dictated prompts transcribed into the composer.
 - **Usage and rate limits** — a provider usage panel and rate-limit banners.
 - **Notifications** — a desktop notification when a long turn finishes.
-- **Subagents, sidechats and forks** — threads that branch off another thread keep their parent link.
+- **Sub-agent threads, sidechats and forks** — threads that branch off another thread keep their parent link, including the ones a [Multi-Agent](#multi-agent--parallel-sub-agents) turn dispatched.
 - **Auto-update** — the desktop build updates itself through `electron-updater`.
 - **Keybindings** — see [KEYBINDINGS.md](./KEYBINDINGS.md).
 
