@@ -53,6 +53,8 @@ interface ChatTranscriptPaneProps {
   onIsAtEndChange: (isAtEnd: boolean) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onOpenThread: (threadId: ThreadId) => void;
+  /** Ends one running worker of the active turn. */
+  onStopSubagentRun?: ((providerThreadId: string) => void) | undefined;
   onRevertUserMessage: (messageId: MessageId) => void;
   onEditUserMessage?: (messageId: MessageId, text: string) => boolean | Promise<boolean>;
   onScrollToBottom: () => void;
@@ -98,6 +100,7 @@ export const ChatTranscriptPane = memo(function ChatTranscriptPane({
   onIsAtEndChange,
   onOpenTurnDiff,
   onOpenThread,
+  onStopSubagentRun,
   onRevertUserMessage,
   onEditUserMessage,
   onScrollToBottom,
@@ -135,6 +138,7 @@ export const ChatTranscriptPane = memo(function ChatTranscriptPane({
           turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
           onOpenTurnDiff={onOpenTurnDiff}
           onOpenThread={onOpenThread}
+          {...(onStopSubagentRun ? { onStopSubagentRun } : {})}
           revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
           onRevertUserMessage={onRevertUserMessage}
           {...(onEditUserMessage ? { onEditUserMessage } : {})}

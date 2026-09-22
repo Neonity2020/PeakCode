@@ -941,3 +941,133 @@ diffs-container {
   -webkit-background-clip: text;
   animation: ultrathink-rainbow 10s linear infinite;
 }
+
+/* ---------------------------------------------------------------------------------------------
+ * Subagent delegation card — worker state
+ *
+ * State has to be readable before any word is read, so each worker carries a hue, an icon and
+ * (while it is out) motion. The hues are mixed against `--foreground` rather than hard-coded:
+ * that makes one rule read as dark ink on the light card and as tinted light ink on the dark
+ * one, which is what tells "working" from "finished" in either theme.
+ * ------------------------------------------------------------------------------------------- */
+.subagent-state-running {
+  --subagent-state: var(--color-sky-500);
+  --subagent-tint: 17%;
+  --subagent-edge: 60%;
+}
+
+.subagent-state-completed {
+  --subagent-state: var(--color-emerald-500);
+  --subagent-tint: 13%;
+  --subagent-edge: 52%;
+}
+
+.subagent-state-failed {
+  --subagent-state: var(--color-rose-500);
+  --subagent-tint: 16%;
+  --subagent-edge: 60%;
+}
+
+.subagent-state-stopped {
+  --subagent-state: var(--color-amber-500);
+  --subagent-tint: 15%;
+  --subagent-edge: 55%;
+}
+
+.subagent-state-queued {
+  --subagent-state: var(--color-violet-500);
+  --subagent-tint: 13%;
+  --subagent-edge: 50%;
+}
+
+.subagent-state-idle {
+  --subagent-state: var(--color-neutral-500);
+  --subagent-tint: 8%;
+  --subagent-edge: 38%;
+}
+
+/* The node's own surface: tinted enough to be picked out of a fan, not enough to shout. */
+.subagent-state-surface {
+  border-color: color-mix(in srgb, var(--subagent-state) var(--subagent-edge), transparent);
+  background-color: color-mix(in srgb, var(--subagent-state) var(--subagent-tint), transparent);
+}
+
+/* The status badge, and the one line of live detail under a running worker. */
+.subagent-state-pill {
+  border-color: color-mix(in srgb, var(--subagent-state) var(--subagent-edge), transparent);
+  background-color: color-mix(in srgb, var(--subagent-state) 22%, transparent);
+  color: color-mix(in srgb, var(--subagent-state) 68%, var(--foreground));
+}
+
+.subagent-state-ink {
+  color: color-mix(in srgb, var(--subagent-state) 68%, var(--foreground));
+}
+
+.subagent-state-dot {
+  background-color: color-mix(in srgb, var(--subagent-state) 78%, var(--foreground));
+}
+
+/* An ungrouped line (the trunk) stays neutral — see TRUNK_BRANCH_CLASS in the card. */
+.subagent-state-branch {
+  color: color-mix(in srgb, var(--subagent-state) 72%, transparent);
+}
+
+/* ---------------------------------------------------------------------------------------------
+ * Subagent delegation card
+ *
+ * A worker's branch into the tree: dashes travel toward the node while the worker is still out,
+ * and the branch settles into a plain solid line once it is back. Both orientations are the same
+ * 8px repeating dash, moved along the axis the line runs on, so the animation reads as flow
+ * rather than as a blinking border.
+ * ------------------------------------------------------------------------------------------- */
+.subagent-branch-h {
+  height: 1px;
+  background-color: currentColor;
+  opacity: 0.55;
+}
+
+.subagent-branch-v {
+  width: 1px;
+  background-color: currentColor;
+  opacity: 0.55;
+}
+
+.subagent-branch-h[data-subagent-branch="running"],
+.subagent-branch-h[data-subagent-branch="queued"] {
+  background-image: repeating-linear-gradient(90deg, currentColor 0 4px, transparent 4px 8px);
+  background-color: transparent;
+  opacity: 1;
+  animation: subagent-branch-flow-x 900ms linear infinite;
+}
+
+.subagent-branch-v[data-subagent-branch="running"],
+.subagent-branch-v[data-subagent-branch="queued"] {
+  background-image: repeating-linear-gradient(180deg, currentColor 0 4px, transparent 4px 8px);
+  background-color: transparent;
+  opacity: 1;
+  animation: subagent-branch-flow-y 900ms linear infinite;
+}
+
+@keyframes subagent-branch-flow-x {
+  to {
+    background-position: 8px 0;
+  }
+}
+
+@keyframes subagent-branch-flow-y {
+  to {
+    background-position: 0 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .subagent-branch-h[data-subagent-branch="running"],
+  .subagent-branch-h[data-subagent-branch="queued"],
+  .subagent-branch-v[data-subagent-branch="running"],
+  .subagent-branch-v[data-subagent-branch="queued"] {
+    animation: none;
+    background-image: none;
+    background-color: currentColor;
+    opacity: 0.75;
+  }
+}

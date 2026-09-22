@@ -78,6 +78,17 @@ export type Messages = {
   appShell: {
     connecting: string;
   };
+  // Toasts emitted by the shared desktop-update flow (About panel + sidebar button).
+  desktopUpdate: {
+    updateAvailable: { title: string; description: (version: string) => string };
+    upToDate: { title: string; description: (version: string) => string };
+    checkFailedTitle: string;
+    downloadStartFailedTitle: string;
+    downloadFailedTitle: string;
+    downloaded: { title: string; description: string };
+    installFailedTitle: string;
+    unexpectedError: string;
+  };
   // The phone page a paired device opens: a remote control for this computer, with its
   // own copy because none of the desktop surface is rendered there.
   remoteControl: {
@@ -441,6 +452,7 @@ export type Messages = {
       agentHint: string;
       planHint: string;
       goalHint: string;
+      multiHint: string;
       switchHint: (label: string) => string;
       showPlanSidebar: string;
       hidePlanSidebar: string;
@@ -565,6 +577,7 @@ export type Messages = {
       default: string;
       plan: string;
       goal: string;
+      multi: string;
     };
     create: string;
     save: string;
@@ -742,6 +755,7 @@ export type Messages = {
       notifications: { label: string; description: string };
       behavior: { label: string; description: string };
       skills: { label: string; description: string };
+      subAgents: { label: string; description: string };
       piPackages: { label: string; description: string };
       worktrees: { label: string; description: string };
       archived: { label: string; description: string };
@@ -749,11 +763,13 @@ export type Messages = {
       advanced: { label: string; description: string };
       channels: { label: string; description: string };
       usage: { label: string; description: string };
+      about: { label: string; description: string };
     };
     groups: {
       basics: string;
       agent: string;
       data: string;
+      system: string;
     };
     general: {
       heading: string;
@@ -1109,6 +1125,10 @@ export type Messages = {
       providerStoredKeyHint: string;
       providerClearKeyButton: string;
       providerModelsLabel: string;
+      modelSelectPlaceholder: string;
+      modelSelectEmpty: string;
+      modelSelectHint: string;
+      providerIdHint: (id: string) => string;
       modelAddButton: string;
       modelFetchButton: string;
       remoteModelsTitle: (provider: string) => string;
@@ -1433,11 +1453,49 @@ export type Messages = {
       removeConfirm: (source: string) => string;
       removeAria: (source: string) => string;
     };
+    subAgents: {
+      heading: string;
+      description: string;
+      modelIntro: string;
+      newButton: string;
+      emptyTitle: string;
+      emptyDescription: string;
+      searchPlaceholder: string;
+      searchEmptyTitle: string;
+      loadFailedTitle: string;
+      loadFailedFallback: string;
+      installedLabel: (count: number) => string;
+      scopeUserLabel: string;
+      idLabel: string;
+      idHint: string;
+      nameLabel: string;
+      namePlaceholder: string;
+      roleLabel: string;
+      rolePlaceholder: string;
+      systemPromptLabel: string;
+      systemPromptPlaceholder: string;
+      modelLabel: string;
+      modelInheritLabel: string;
+      modelHint: string;
+      toolsLabel: string;
+      toolsHint: string;
+      toolsAllLabel: string;
+      enabledLabel: string;
+      enabledHint: string;
+      disabledLabel: string;
+      saveButton: string;
+      savingButton: string;
+      cancelButton: string;
+      editButton: string;
+      deleteButton: string;
+      deleteConfirm: (name: string) => string;
+      saveFailedTitle: string;
+      modelUnavailable: string;
+    };
     advanced: {
       heading: string;
       description: string;
       developerSection: string;
-      aboutSection: string;
       keybindings: {
         title: string;
         description: string;
@@ -1468,9 +1526,45 @@ export type Messages = {
         errorTitle: string;
         errorFallback: string;
       };
-      version: {
-        title: string;
+    };
+    about: {
+      tagline: string;
+      version: { title: string; description: string };
+      update: {
+        section: string;
+        checkButton: string;
+        checkingButton: string;
+        downloadButton: string;
+        downloadingButton: string;
+        installButton: string;
+        installingButton: string;
+        retryButton: string;
+        upToDateHint: (version: string) => string;
+        availableTitle: (version: string) => string;
+        availableHint: string;
+        downloadingHint: (percent: string) => string;
+        downloadedTitle: (version: string) => string;
+        downloadedHint: string;
+        errorHint: string;
+        unavailableHint: string;
+        releaseNotesTitle: string;
+        noReleaseNotes: string;
+      };
+      changelog: {
+        section: string;
         description: string;
+        button: string;
+        dialogTitle: string;
+        dialogDescription: string;
+        closeButton: string;
+      };
+      links: {
+        section: string;
+        documentation: { title: string; description: string };
+        community: { title: string; description: string };
+        feedback: { title: string; description: string };
+        source: { title: string; description: string };
+        openButton: string;
       };
     };
     themePack: {
@@ -1728,26 +1822,6 @@ export type Messages = {
       successDescription: (purged: number) => string;
       successDescriptionEmpty: string;
     };
-    providerUpdate: {
-      title: (providerName: string) => string;
-      titleMany: (count: number) => string;
-      description: (providerName: string) => string;
-      descriptionMany: (count: number) => string;
-      errorFallback: string;
-      stillOutdated: string;
-      requestFailed: string;
-      failedTitleAll: string;
-      failedTitleSome: string;
-      successTitleOne: (providerName: string) => string;
-      successTitleMany: (count: number) => string;
-      successDescription: string;
-      availableTitleOne: (providerName: string) => string;
-      availableTitleMany: (count: number) => string;
-      availableDescriptionOne: (providerName: string) => string;
-      availableDescriptionMany: (providerName: string, count: number) => string;
-      actionReview: string;
-      actionUpdateAll: string;
-    };
     keybindings: {
       invalidTitle: string;
       openConfigAction: string;
@@ -1778,6 +1852,25 @@ const en: Messages = {
   },
   appShell: {
     connecting: "Connecting to {name} server...",
+  },
+  desktopUpdate: {
+    updateAvailable: {
+      title: "Update available",
+      description: (version) => `Version ${version} is ready to download.`,
+    },
+    upToDate: {
+      title: "You're up to date",
+      description: (version) => `Peak Code ${version} is already the newest version.`,
+    },
+    checkFailedTitle: "Could not check for updates",
+    downloadStartFailedTitle: "Could not start update download",
+    downloadFailedTitle: "Could not download update",
+    downloaded: {
+      title: "Update downloaded",
+      description: "Restart the app from the update button to install it.",
+    },
+    installFailedTitle: "Could not install update",
+    unexpectedError: "An unexpected error occurred.",
   },
   remoteControl: {
     title: "Peak Code remote control",
@@ -2187,6 +2280,7 @@ const en: Messages = {
       agentHint: "Direct execution: read, edit, run, test",
       planHint: "Research only — propose a plan before changing code",
       goalHint: "Locked objective, runs autonomously to acceptance",
+      multiHint: "Orchestrate: split the task across sub-agents, then merge their results",
       switchHint: (label) => `Click to switch to ${label}`,
       showPlanSidebar: "Show plan sidebar",
       hidePlanSidebar: "Hide plan sidebar",
@@ -2320,6 +2414,7 @@ const en: Messages = {
       default: "Agent",
       plan: "Plan",
       goal: "Goal",
+      multi: "Multi-Agent",
     },
     create: "Create",
     save: "Save",
@@ -2518,6 +2613,10 @@ const en: Messages = {
         label: "Skills",
         description: "Installed skills available to agents in this workspace.",
       },
+      subAgents: {
+        label: "Sub-agents",
+        description: "Named workers for multi-agent mode, each with its own model.",
+      },
       worktrees: {
         label: "Worktrees",
         description: "Review and clean up the worktrees created by Peak Code.",
@@ -2536,7 +2635,7 @@ const en: Messages = {
       },
       advanced: {
         label: "Advanced",
-        description: "Keybindings, recovery, and version info.",
+        description: "Keybindings and recovery tools.",
       },
       channels: {
         label: "Channels",
@@ -2546,11 +2645,16 @@ const en: Messages = {
         label: "Usage",
         description: "Analyze the tokens every coding agent on this machine has consumed.",
       },
+      about: {
+        label: "About",
+        description: "App version, updates, and links.",
+      },
     },
     groups: {
       basics: "Basics",
       agent: "Agent",
       data: "Data & stats",
+      system: "System",
     },
     general: {
       heading: "General",
@@ -2934,6 +3038,10 @@ const en: Messages = {
         "A key is saved in Pi's credential store. It is never shown again — type a new one to replace it.",
       providerClearKeyButton: "Forget saved key",
       providerModelsLabel: "Models",
+      modelSelectPlaceholder: "Pick a model…",
+      modelSelectEmpty: "No models yet — fetch the list",
+      modelSelectHint: "Fetch the endpoint's model list and pick one (add more later if needed).",
+      providerIdHint: (id) => `Saved as “${id}”`,
       modelAddButton: "Add model",
       modelFetchButton: "Fetch model list",
       remoteModelsTitle: (provider) => `${provider} · available models`,
@@ -3297,11 +3405,52 @@ const en: Messages = {
       removeConfirm: (source) => `Uninstall ${source} and remove it from settings?`,
       removeAria: (source) => `Uninstall ${source}`,
     },
+    subAgents: {
+      heading: "Sub-agents",
+      description:
+        "Named workers the orchestrator delegates to in Multi-Agent mode. Each worker can run on its own model, so one turn can pair a strong planner with cheap search workers.",
+      modelIntro: "Leave the model on “Inherit default” to reuse the orchestrator's model.",
+      newButton: "New",
+      emptyTitle: "No sub-agents yet",
+      emptyDescription:
+        "Add a worker with a name, tools, and an optional model, then use Multi-Agent mode to delegate to it.",
+      searchPlaceholder: "Search sub-agents…",
+      searchEmptyTitle: "No sub-agents match your search",
+      loadFailedTitle: "Could not load sub-agents",
+      loadFailedFallback: "Check the server connection and try again.",
+      installedLabel: (count) => `Installed · ${count}`,
+      scopeUserLabel: "User",
+      idLabel: "Handle",
+      idHint:
+        "The name the orchestrator passes to `task`. Auto-derived from the name if left empty.",
+      nameLabel: "Name",
+      namePlaceholder: "e.g. Researcher",
+      roleLabel: "Description",
+      rolePlaceholder: "What this worker is for — the orchestrator reads this to pick one.",
+      systemPromptLabel: "Instructions",
+      systemPromptPlaceholder: "Extra instructions prepended to every task this worker gets.",
+      modelLabel: "Model",
+      modelInheritLabel: "Inherit default",
+      modelHint: "The model this worker runs on, independent of the orchestrator's.",
+      toolsLabel: "Tools",
+      toolsHint: "Comma-separated tool names. Leave empty to allow the full agent tool set.",
+      toolsAllLabel: "All tools",
+      enabledLabel: "Enabled",
+      enabledHint: "Disabled workers stay in the list but are not offered to the orchestrator.",
+      disabledLabel: "Disabled",
+      saveButton: "Save",
+      savingButton: "Saving…",
+      cancelButton: "Cancel",
+      editButton: "Edit",
+      deleteButton: "Delete",
+      deleteConfirm: (name) => `Delete sub-agent “${name}”?`,
+      saveFailedTitle: "Could not save the sub-agent",
+      modelUnavailable: "Not available on this server",
+    },
     advanced: {
       heading: "Advanced",
-      description: "Keybindings, recovery, and version info.",
+      description: "Keybindings and recovery tools.",
       developerSection: "Developer tools",
-      aboutSection: "About",
       keybindings: {
         title: "Keybindings",
         description:
@@ -3335,9 +3484,49 @@ const en: Messages = {
         errorTitle: "Repair failed",
         errorFallback: "Unable to repair local state.",
       },
+    },
+    about: {
+      tagline: "An AI assistant built for makers.",
       version: {
         title: "Version",
-        description: "Current application version.",
+        description: "Version of Peak Code installed on this device.",
+      },
+      update: {
+        section: "About Peak Code",
+        checkButton: "Check for updates",
+        checkingButton: "Checking...",
+        downloadButton: "Download update",
+        downloadingButton: "Downloading...",
+        installButton: "Restart and install",
+        installingButton: "Installing...",
+        retryButton: "Retry",
+        upToDateHint: (version) => `You're on the latest version (${version}).`,
+        availableTitle: (version) => `Version ${version} is available`,
+        availableHint: "Download it now, then restart to apply the update.",
+        downloadingHint: (percent) => `Downloading update — ${percent}%`,
+        downloadedTitle: (version) => `Version ${version} is ready to install`,
+        downloadedHint: "Restart Peak Code to finish installing the update.",
+        errorHint: "Something went wrong. You can try again.",
+        unavailableHint:
+          "Peak Code updates on its own in the packaged desktop app. Open the desktop client to check for updates.",
+        releaseNotesTitle: "What's new in this version",
+        noReleaseNotes: "Release notes for this version aren't available yet.",
+      },
+      changelog: {
+        section: "Release history",
+        description: "Browse every curated Peak Code release.",
+        button: "View changelog",
+        dialogTitle: "Complete changelog",
+        dialogDescription: "Every curated Peak Code release, newest first.",
+        closeButton: "Close",
+      },
+      links: {
+        section: "More",
+        documentation: { title: "Help docs", description: "Read the README and setup guides." },
+        community: { title: "Community", description: "Chat with other users on Discord." },
+        feedback: { title: "Send feedback", description: "Report an issue on GitHub." },
+        source: { title: "Source code", description: "Browse Peak Code on GitHub." },
+        openButton: "Open",
       },
     },
     changedSettingLabel: {
@@ -3599,27 +3788,6 @@ const en: Messages = {
       successDescription: (purged) => `${purged} chats removed from the database.`,
       successDescriptionEmpty: "No old chats needed cleanup.",
     },
-    providerUpdate: {
-      title: (providerName) => `Updating ${providerName}.`,
-      titleMany: (count) => `Updating ${count} providers.`,
-      description: (providerName) => `Updating ${providerName}.`,
-      descriptionMany: (count) => `Updating ${count} providers.`,
-      errorFallback: "The update command did not complete successfully.",
-      stillOutdated: "The provider still appears outdated after updating.",
-      requestFailed: "The update request failed.",
-      failedTitleAll: "Provider updates failed",
-      failedTitleSome: "Some provider updates failed",
-      successTitleOne: (providerName) => `${providerName} updated`,
-      successTitleMany: (count) => `${count} providers updated`,
-      successDescription: "New sessions will use the refreshed provider tools.",
-      availableTitleOne: (providerName) => `${providerName} update available`,
-      availableTitleMany: (count) => `${count} provider updates available`,
-      availableDescriptionOne: (providerName) => `${providerName} has a newer version available.`,
-      availableDescriptionMany: (providerName, count) =>
-        `${providerName} and ${count} more provider${count === 1 ? "" : "s"} have newer versions available.`,
-      actionReview: "Review updates",
-      actionUpdateAll: "Update all",
-    },
     keybindings: {
       invalidTitle: "Invalid keybindings configuration",
       openConfigAction: "Open keybindings.json",
@@ -3650,6 +3818,25 @@ const zh: Messages = {
   },
   appShell: {
     connecting: "正在连接 {name} 服务器…",
+  },
+  desktopUpdate: {
+    updateAvailable: {
+      title: "发现新版本",
+      description: (version) => `版本 ${version} 已可下载。`,
+    },
+    upToDate: {
+      title: "已是最新版本",
+      description: (version) => `Peak Code ${version} 已是最新版本。`,
+    },
+    checkFailedTitle: "检查更新失败",
+    downloadStartFailedTitle: "无法开始下载更新",
+    downloadFailedTitle: "下载更新失败",
+    downloaded: {
+      title: "更新已下载",
+      description: "点击更新按钮重启应用以完成安装。",
+    },
+    installFailedTitle: "安装更新失败",
+    unexpectedError: "发生了意外错误。",
   },
   remoteControl: {
     title: "Peak Code 远程控制",
@@ -4059,6 +4246,7 @@ const zh: Messages = {
       agentHint: "直接动手：读改跑测一条龙",
       planHint: "只调研不出手，先给方案",
       goalHint: "锁定目标，自主走到验收",
+      multiHint: "编排：把任务拆给子智能体，再合并它们的结果",
       switchHint: (label) => `点击切换到 ${label}`,
       showPlanSidebar: "显示计划侧边栏",
       hidePlanSidebar: "隐藏计划侧边栏",
@@ -4188,6 +4376,7 @@ const zh: Messages = {
       default: "Agent",
       plan: "Plan",
       goal: "Goal",
+      multi: "多智能体",
     },
     create: "创建",
     save: "保存",
@@ -4381,6 +4570,10 @@ const zh: Messages = {
         label: "技能",
         description: "当前工作区里智能体可用的技能。",
       },
+      subAgents: {
+        label: "子智能体",
+        description: "多智能体模式下的命名工人，每个可以单独指定模型。",
+      },
       worktrees: {
         label: "工作树",
         description: "查看并清理由 Peak Code 创建的工作树。",
@@ -4399,7 +4592,7 @@ const zh: Messages = {
       },
       advanced: {
         label: "高级",
-        description: "快捷键、恢复与版本信息。",
+        description: "快捷键与恢复工具。",
       },
       channels: {
         label: "频道",
@@ -4409,11 +4602,16 @@ const zh: Messages = {
         label: "使用统计",
         description: "归口统计本机各编码工具消耗的 Token。",
       },
+      about: {
+        label: "关于",
+        description: "应用版本、更新与相关链接。",
+      },
     },
     groups: {
       basics: "基础设置",
       agent: "Agent 能力",
       data: "数据与统计",
+      system: "系统",
     },
     general: {
       heading: "通用",
@@ -4779,6 +4977,10 @@ const zh: Messages = {
       providerStoredKeyHint: "密钥已保存到 Pi 的凭证库，之后不再回显；输入新值即可替换。",
       providerClearKeyButton: "清除已保存的密钥",
       providerModelsLabel: "模型",
+      modelSelectPlaceholder: "选择一个模型…",
+      modelSelectEmpty: "还没有模型 —— 先获取列表",
+      modelSelectHint: "先获取该地址的模型列表，再选一个（之后还可以继续加）。",
+      providerIdHint: (id) => `将保存为「${id}」`,
       modelAddButton: "添加模型",
       modelFetchButton: "获取模型列表",
       remoteModelsTitle: (provider) => `${provider} · 可用模型`,
@@ -5127,11 +5329,51 @@ const zh: Messages = {
       removeConfirm: (source) => `卸载 ${source} 并从设置中移除？`,
       removeAria: (source) => `卸载 ${source}`,
     },
+    subAgents: {
+      heading: "子智能体",
+      description:
+        "多智能体模式下由编排者派活的命名工人。每个工人都可以单独指定模型，于是同一轮里可以「大模型规划 + 小模型干活」。",
+      modelIntro: "模型留空（继承默认）就跟随编排者的模型。",
+      newButton: "新建",
+      emptyTitle: "还没有子智能体",
+      emptyDescription:
+        "新建一个工人：起个名字、选它可用的工具、按需指定模型，然后在多智能体模式里派活给它。",
+      searchPlaceholder: "搜索子智能体…",
+      searchEmptyTitle: "没有匹配的子智能体",
+      loadFailedTitle: "无法读取子智能体",
+      loadFailedFallback: "请检查与服务端的连接后重试。",
+      installedLabel: (count) => `已安装 · ${count}`,
+      scopeUserLabel: "用户",
+      idLabel: "句柄",
+      idHint: "编排者调用 `task` 时传的名字。留空则按名称自动生成。",
+      nameLabel: "名称",
+      namePlaceholder: "例如：调研员",
+      roleLabel: "说明",
+      rolePlaceholder: "这个工人是干什么的——编排者据此挑人。",
+      systemPromptLabel: "指令",
+      systemPromptPlaceholder: "每次派活时追加给这个工人的额外指令。",
+      modelLabel: "模型",
+      modelInheritLabel: "继承默认",
+      modelHint: "这个工人实际使用的模型，独立于编排者。",
+      toolsLabel: "工具",
+      toolsHint: "逗号分隔的工具名。留空表示允许全套 agent 工具。",
+      toolsAllLabel: "全部工具",
+      enabledLabel: "启用",
+      enabledHint: "停用的工人仍留在列表里，但不会被派活。",
+      disabledLabel: "已停用",
+      saveButton: "保存",
+      savingButton: "保存中…",
+      cancelButton: "取消",
+      editButton: "编辑",
+      deleteButton: "删除",
+      deleteConfirm: (name) => `删除子智能体「${name}」？`,
+      saveFailedTitle: "保存子智能体失败",
+      modelUnavailable: "本服务端不可用",
+    },
     advanced: {
       heading: "高级",
-      description: "快捷键、恢复与版本信息。",
+      description: "快捷键与恢复工具。",
       developerSection: "开发者工具",
-      aboutSection: "关于",
       keybindings: {
         title: "快捷键",
         description: "打开持久化的 `keybindings.json` 文件以直接编辑高级快捷键。",
@@ -5162,9 +5404,48 @@ const zh: Messages = {
         errorTitle: "修复失败",
         errorFallback: "无法修复本地状态。",
       },
+    },
+    about: {
+      tagline: "为创造者而生的 AI 助手。",
       version: {
         title: "版本",
-        description: "当前应用版本。",
+        description: "本设备上安装的 Peak Code 版本。",
+      },
+      update: {
+        section: "关于 Peak Code",
+        checkButton: "检查更新",
+        checkingButton: "检查中…",
+        downloadButton: "下载更新",
+        downloadingButton: "下载中…",
+        installButton: "重启并安装",
+        installingButton: "正在安装…",
+        retryButton: "重试",
+        upToDateHint: (version) => `已是最新版本（${version}）。`,
+        availableTitle: (version) => `发现新版本 ${version}`,
+        availableHint: "现在下载，然后重启应用即可完成更新。",
+        downloadingHint: (percent) => `正在下载更新 — ${percent}%`,
+        downloadedTitle: (version) => `版本 ${version} 已准备好安装`,
+        downloadedHint: "重启 Peak Code 以完成安装。",
+        errorHint: "出了点问题，可以重试。",
+        unavailableHint: "打包后的桌面客户端会自动检查更新。请在桌面客户端中检查更新。",
+        releaseNotesTitle: "本次更新内容",
+        noReleaseNotes: "该版本的更新说明暂未提供。",
+      },
+      changelog: {
+        section: "更新日志",
+        description: "浏览 Peak Code 的每一次发布。",
+        button: "查看更新日志",
+        dialogTitle: "完整更新日志",
+        dialogDescription: "按版本从新到旧列出所有 Peak Code 发布。",
+        closeButton: "关闭",
+      },
+      links: {
+        section: "更多",
+        documentation: { title: "帮助文档", description: "阅读 README 与配置指南。" },
+        community: { title: "加入社区", description: "在 Discord 上与其他用户交流。" },
+        feedback: { title: "意见反馈", description: "在 GitHub 上反馈问题。" },
+        source: { title: "源代码", description: "在 GitHub 上查看 Peak Code。" },
+        openButton: "打开",
       },
     },
     changedSettingLabel: {
@@ -5422,27 +5703,6 @@ const zh: Messages = {
       successTitle: "旧聊天已清理",
       successDescription: (purged) => `已从数据库移除 ${purged} 个聊天。`,
       successDescriptionEmpty: "无需清理旧聊天。",
-    },
-    providerUpdate: {
-      title: (providerName) => `正在更新 ${providerName}。`,
-      titleMany: (count) => `正在更新 ${count} 个提供方。`,
-      description: (providerName) => `正在更新 ${providerName}。`,
-      descriptionMany: (count) => `正在更新 ${count} 个提供方。`,
-      errorFallback: "更新命令未成功完成。",
-      stillOutdated: "更新后该提供方仍显示为旧版。",
-      requestFailed: "更新请求失败。",
-      failedTitleAll: "提供方更新失败",
-      failedTitleSome: "部分提供方更新失败",
-      successTitleOne: (providerName) => `${providerName} 已更新`,
-      successTitleMany: (count) => `已更新 ${count} 个提供方`,
-      successDescription: "新会话将使用已刷新的提供方工具。",
-      availableTitleOne: (providerName) => `${providerName} 有可用更新`,
-      availableTitleMany: (count) => `${count} 个提供方有可用更新`,
-      availableDescriptionOne: (providerName) => `${providerName} 有更新版本可用。`,
-      availableDescriptionMany: (providerName, count) =>
-        `${providerName} 及其他 ${count} 个提供方有更新版本可用。`,
-      actionReview: "查看更新",
-      actionUpdateAll: "全部更新",
     },
     keybindings: {
       invalidTitle: "快捷键配置无效",

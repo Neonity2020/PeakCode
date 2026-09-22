@@ -1,23 +1,12 @@
 import { LatestProposedPlanState } from "./session-logic.types";
-import { asRecord, asTrimmedString } from "./session-collab.logic";
 /**
  * SessionPlanLogic - Derives proposed-plan state for the transcript and sidebar.
  *
  * @module SessionPlanLogic
  */
-import type {
-  OrchestrationLatestTurn,
-  OrchestrationThreadActivity,
-  ThreadId,
-  TurnId,
-} from "@peakcode/contracts";
+import type { OrchestrationLatestTurn, ThreadId, TurnId } from "@peakcode/contracts";
 
 import { ProposedPlan, Thread } from "./types";
-
-export function isCollabAgentToolActivity(activity: OrchestrationThreadActivity): boolean {
-  const payload = asRecord(activity.payload);
-  return asTrimmedString(payload?.itemType) === "collab_agent_tool_call";
-}
 
 export function findLatestProposedPlan(
   proposedPlans: ReadonlyArray<ProposedPlan>,

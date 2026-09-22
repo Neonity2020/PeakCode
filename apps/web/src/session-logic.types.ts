@@ -59,6 +59,29 @@ export interface WorkLogSubagent {
   title?: string | undefined;
   statusLabel?: string | undefined;
   isActive?: boolean | undefined;
+  /** Tool calls the worker started, counted off its child thread. */
+  steps?: number | undefined;
+  /** Time from the worker's first step to its last, for the node's duration line. */
+  elapsedMs?: number | undefined;
+  /** Readable title of the worker's most recent tool call. */
+  latestStep?: string | undefined;
+  /** When that call happened, so the card can show how long the worker has been quiet. */
+  latestStepAt?: string | undefined;
+  /**
+   * When the worker was dispatched, as published on the delegation item.
+   *
+   * The card measures a running worker from here when its child thread has not reported any
+   * steps yet — otherwise a worker that has been out for ten minutes shows no duration at all.
+   */
+  startedAt?: string | undefined;
+  /**
+   * The worker's most recent tool calls, oldest first, each with the call's own id.
+   *
+   * Also published on the delegation item, so a node can be expanded into a record of what the
+   * worker did without opening its child thread. The id is what keeps two calls to the same tool
+   * distinct entries.
+   */
+  recentSteps?: readonly { id: string; title: string }[] | undefined;
 }
 
 export interface WorkLogSubagentAction {

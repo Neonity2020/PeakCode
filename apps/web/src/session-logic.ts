@@ -44,7 +44,6 @@ export {
   findLatestProposedPlan,
   findSidebarProposedPlan,
   hasActionableProposedPlan,
-  isCollabAgentToolActivity,
   toLatestProposedPlanState,
 } from "./session-plan.logic";
 export {

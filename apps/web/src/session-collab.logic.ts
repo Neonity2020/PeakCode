@@ -59,10 +59,21 @@ export function inferSubagentActionTool(item: Record<string, unknown> | null): s
   return "spawnAgent";
 }
 
-export function summarizeSubagentAction(tool: string, count: number): string {
+/**
+ * The card's headline.
+ *
+ * A settled delegation must not still read "Spawning 3 agents": the headline is the only line
+ * that says whether the workers are still out, so `status` decides between the in-flight and the
+ * finished wording. Unknown statuses keep the in-flight wording, which is the honest default for
+ * a delegation whose events stopped arriving.
+ */
+export function summarizeSubagentAction(tool: string, count: number, status?: string): string {
   const normalizedTool = normalizeCollabIdentifier(tool) ?? "";
   const effectiveCount = Math.max(1, count);
   const noun = effectiveCount === 1 ? "agent" : "agents";
+  if (isSettledSubagentStatus(status)) {
+    return `${effectiveCount} sub${noun === "agent" ? "agent" : "agents"} finished`;
+  }
   switch (normalizedTool) {
     case "spawnagent":
       return `Spawning ${effectiveCount} ${noun}`;
@@ -78,6 +89,22 @@ export function summarizeSubagentAction(tool: string, count: number): string {
     default:
       return effectiveCount === 1 ? "Agent activity" : `Agent activity (${effectiveCount})`;
   }
+}
+
+/** Whether a delegation status means every worker has come back. */
+function isSettledSubagentStatus(status: string | undefined): boolean {
+  const normalized = normalizeCollabIdentifier(status) ?? "";
+  return (
+    normalized === "completed" ||
+    normalized === "complete" ||
+    normalized === "done" ||
+    normalized === "finished" ||
+    normalized === "failed" ||
+    normalized === "error" ||
+    normalized === "stopped" ||
+    normalized === "cancelled" ||
+    normalized === "canceled"
+  );
 }
 
 export function extractCollabAction(
@@ -115,7 +142,7 @@ export function extractCollabAction(
   return {
     tool: tool ?? "spawnAgent",
     status,
-    summaryText: summarizeSubagentAction(tool ?? "spawnAgent", count),
+    summaryText: summarizeSubagentAction(tool ?? "spawnAgent", count, status),
     ...(model ? { model } : {}),
     ...(prompt ? { prompt } : {}),
   };
@@ -164,6 +191,15 @@ export function extractCollabSubagents(
         ...(state.prompt ? { prompt: state.prompt } : {}),
         ...(state.status ? { rawStatus: state.status } : {}),
         ...(state.message ? { latestUpdate: state.message } : {}),
+        // Progress published by the producer. It rides the same item that draws the card, so
+        // "how far along is this worker" no longer depends on the child thread's own
+        // subscription having landed (see `enrichSubagentWorkEntries`, which prefers the
+        // thread's finer-grained numbers when they exist).
+        ...(state.steps !== undefined ? { steps: state.steps } : {}),
+        ...(state.lastStep ? { latestStep: state.lastStep } : {}),
+        ...(state.lastStepAt ? { latestStepAt: state.lastStepAt } : {}),
+        ...(state.startedAt ? { startedAt: state.startedAt } : {}),
+        ...(state.recentSteps?.length ? { recentSteps: state.recentSteps } : {}),
       });
     }
     return [...mergedByThreadId.values()];

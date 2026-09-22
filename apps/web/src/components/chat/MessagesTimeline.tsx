@@ -42,6 +42,7 @@ import {
 import { Button } from "../ui/button";
 import { buildExpandedImagePreview, ExpandedImagePreview } from "./ExpandedImagePreview";
 import { ProposedPlanCard } from "./ProposedPlanCard";
+import { SubagentDelegationCard } from "./SubagentDelegationCard";
 import { DiffStatLabel } from "./DiffStatLabel";
 import { FileEntryIcon } from "./FileEntryIcon";
 import { MentionChipIcon } from "./MentionChipIcon";
@@ -92,12 +93,6 @@ import { basenameOfPath } from "../../file-icons";
 import { getChatTranscriptTextStyle } from "./chatTypography";
 import { DisclosureChevron } from "../ui/DisclosureChevron";
 import { getAppTypographyScale } from "../../lib/appTypography";
-import {
-  formatSubagentModelLabel,
-  humanizeSubagentStatus,
-  normalizeSubagentStatusKind,
-  resolveSubagentPresentation,
-} from "../../lib/subagentPresentation";
 import { RiRobot3Line } from "react-icons/ri";
 import { deriveUserMessagePreviewState } from "./userMessagePreview";
 
@@ -128,10 +123,6 @@ const SkillCubeIcon: LucideIcon = (props) => (
       strokeLinejoin="round"
     />
   </svg>
-);
-
-const AgentTaskIcon: LucideIcon = (props) => (
-  <RiRobot3Line className={props.className} style={props.style} />
 );
 
 const DEFAULT_AGENT_COLOR = { bg: "rgb(245 158 11 / 0.15)", text: "rgb(245 158 11)" };
@@ -191,6 +182,8 @@ interface MessagesTimelineProps {
   onToggleWorkGroup?: (groupId: string) => void;
   onOpenTurnDiff: (turnId: TurnId, filePath?: string) => void;
   onOpenThread?: (threadId: ThreadId) => void;
+  /** Ends one running worker of the active turn; absent when nothing can be stopped. */
+  onStopSubagentRun?: (providerThreadId: string) => void;
   revertTurnCountByUserMessageId: Map<MessageId, number>;
   onRevertUserMessage: (messageId: MessageId) => void;
   onEditUserMessage?: (messageId: MessageId, text: string) => boolean | Promise<boolean>;
@@ -232,6 +225,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
   onToggleWorkGroup,
   onOpenTurnDiff,
   onOpenThread,
+  onStopSubagentRun,
   revertTurnCountByUserMessageId,
   onRevertUserMessage,
   onEditUserMessage,
@@ -459,6 +453,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                   textFontSizePx: appTypographyScale.uiSmPx,
                   stepFontSizePx: normalizedChatFontSizePx,
                   ...(onOpenThread ? { onOpenThread } : {}),
+                  ...(onStopSubagentRun ? { onStopSubagentRun } : {}),
                 })}
               </div>
               {showOverflowToggle && (
@@ -777,6 +772,7 @@ export const MessagesTimeline = memo(function MessagesTimeline({
                         fileDiffStatByPath,
                         onOpenTurnDiff,
                         ...(onOpenThread ? { onOpenThread } : {}),
+                        ...(onStopSubagentRun ? { onStopSubagentRun } : {}),
                         ...(turnSummary?.turnId ? { turnId: turnSummary.turnId } : {}),
                       })}
                     </div>
@@ -1656,17 +1652,6 @@ function workEntryPreview(
     return `${names.length} files`;
   }
 
-  if (workEntry.itemType === "collab_agent_tool_call" && (workEntry.subagents?.length ?? 0) > 0) {
-    if (workEntry.subagentAction?.summaryText) {
-      return workEntry.subagentAction.summaryText;
-    }
-    const labels = workEntry.subagents!.map((subagent) => {
-      const presentation = subagentPrimaryLabel(subagent);
-      return presentation.nickname ?? presentation.primaryLabel ?? basename(subagent.threadId);
-    });
-    return labels.length === 1 ? labels[0]! : `${labels.length} subagents`;
-  }
-
   // For detail, try to extract a clean file path first
   if (workEntry.detail) {
     const filePath = extractFilePathFromDetail(workEntry.detail);
@@ -1709,8 +1694,6 @@ function workEntryIcon(workEntry: TimelineWorkEntry): LucideIcon {
       return SkillCubeIcon;
     case "dynamic_tool_call":
       return HammerIcon;
-    case "collab_agent_tool_call":
-      return AgentTaskIcon;
   }
 
   return workToneIcon(workEntry.tone).icon;
@@ -1727,7 +1710,6 @@ function prefersCompactWorkEntryRow(workEntry: TimelineWorkEntry): boolean {
   return (
     EntryIcon === TerminalIcon ||
     EntryIcon === HammerIcon ||
-    EntryIcon === AgentTaskIcon ||
     EntryIcon === SquarePenIcon ||
     EntryIcon === SkillCubeIcon
   );
@@ -1759,68 +1741,6 @@ function splitWorkEntryActionText(value: string): { action: string; rest: string
 
 function isFileChangeWorkEntry(workEntry: TimelineWorkEntry): boolean {
   return workEntry.requestKind === "file-change" || workEntry.itemType === "file_change";
-}
-
-function subagentPrimaryLabel(
-  subagent: NonNullable<TimelineWorkEntry["subagents"]>[number],
-): ReturnType<typeof resolveSubagentPresentation> {
-  return resolveSubagentPresentation({
-    nickname: subagent.nickname,
-    role: subagent.role,
-    title: subagent.title,
-    fallbackId: subagent.threadId,
-  });
-}
-
-function subagentSecondaryLabel(
-  subagent: NonNullable<TimelineWorkEntry["subagents"]>[number],
-  primaryLabel: string,
-): string | null {
-  const parts = [subagent.title, formatSubagentModelLabel(subagent.model)]
-    .filter((value): value is string => Boolean(value))
-    .filter((value) => value !== primaryLabel);
-  if (parts.length === 0) {
-    return null;
-  }
-  return parts.join(" • ");
-}
-
-function subagentStatusClasses(
-  statusLabel: string | undefined,
-  rawStatus: string | undefined,
-  isActive: boolean | undefined,
-): string {
-  switch (normalizeSubagentStatusKind(statusLabel ?? rawStatus, isActive)) {
-    case "running":
-      return "border-sky-500/18 bg-sky-500/8 text-sky-200/90";
-    case "completed":
-      return "border-emerald-500/18 bg-emerald-500/8 text-emerald-200/90";
-    case "failed":
-      return "border-rose-500/18 bg-rose-500/8 text-rose-200/90";
-    case "stopped":
-      return "border-amber-500/18 bg-amber-500/8 text-amber-200/90";
-    case "queued":
-      return "border-violet-500/18 bg-violet-500/8 text-violet-200/90";
-    case "idle":
-    default:
-      return "border-border/45 bg-background/85 text-muted-foreground/68";
-  }
-}
-
-function subagentCardSummary(workEntry: TimelineWorkEntry): string {
-  return (
-    workEntry.subagentAction?.summaryText ??
-    workEntryPreview(workEntry) ??
-    toolWorkEntryHeading(workEntry)
-  );
-}
-
-function subagentCardMeta(workEntry: TimelineWorkEntry): string | null {
-  const modelLabel = formatSubagentModelLabel(workEntry.subagentAction?.model);
-  if (modelLabel && workEntry.subagentAction?.prompt) {
-    return `${modelLabel} • ${workEntry.subagentAction.prompt}`;
-  }
-  return modelLabel ?? workEntry.subagentAction?.prompt ?? null;
 }
 
 function commandTooltipContent(command: string, displayText: string) {
@@ -1855,6 +1775,7 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   turnId?: TurnId;
   onOpenTurnDiff?: (turnId: TurnId, filePath?: string) => void;
   onOpenThread?: (threadId: ThreadId) => void;
+  onStopSubagentRun?: (providerThreadId: string) => void;
 }) {
   const {
     workEntry,
@@ -1865,11 +1786,11 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
     turnId,
     onOpenTurnDiff,
     onOpenThread,
+    onStopSubagentRun,
   } = props;
   const compact = density === "compact";
   const EntryIcon = workEntryIcon(workEntry);
-  const usesTrailingCompactIcon =
-    EntryIcon === TerminalIcon || EntryIcon === HammerIcon || EntryIcon === AgentTaskIcon;
+  const usesTrailingCompactIcon = EntryIcon === TerminalIcon || EntryIcon === HammerIcon;
   const showIconRight = compact && usesTrailingCompactIcon;
   const showIconLeft = !compact;
   const showInlineWebSearchIcon = compact && workEntry.itemType === "web_search";
@@ -1887,13 +1808,6 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   const showSubagentRows =
     workEntry.itemType === "collab_agent_tool_call" &&
     ((workEntry.subagents?.length ?? 0) > 0 || Boolean(workEntry.subagentAction));
-  const visibleSubagents = workEntry.subagents?.slice(0, 3) ?? [];
-  const hiddenSubagentCount = Math.max(
-    0,
-    (workEntry.subagents?.length ?? 0) - visibleSubagents.length,
-  );
-  const subagentSummary = subagentCardSummary(workEntry);
-  const subagentMeta = subagentCardMeta(workEntry);
 
   // Use the text font size (matching the UI settings) for tool call rows
   const rowFontSizePx = textFontSizePx;
@@ -1955,150 +1869,13 @@ const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
           })}
         </div>
       ) : showSubagentRows ? (
-        <div className="space-y-1.5">
-          <div
-            className={cn(
-              "flex items-center transition-[opacity,translate] duration-200",
-              compact ? "gap-1.5" : "gap-2",
-            )}
-          >
-            <span
-              className={cn(
-                "flex shrink-0 items-center justify-center text-muted-foreground/40",
-                compact ? "size-4" : "size-5",
-              )}
-            >
-              <EntryIcon className={compact ? "size-2.5" : "size-3"} />
-            </span>
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <p
-                className={cn(
-                  compact ? "truncate leading-5" : "truncate leading-6",
-                  "font-medium text-foreground/72",
-                )}
-                style={{ fontSize: `${rowFontSizePx}px` }}
-                title={hoverText}
-              >
-                <span>{subagentSummary}</span>
-              </p>
-              {subagentMeta ? (
-                <p
-                  className="truncate leading-4 text-muted-foreground/32"
-                  style={{ fontSize: `${Math.max(11, rowFontSizePx - 1)}px` }}
-                  title={subagentMeta}
-                >
-                  {subagentMeta}
-                </p>
-              ) : null}
-            </div>
-          </div>
-          {visibleSubagents.length > 0 || hiddenSubagentCount > 0 ? (
-            <div
-              className={cn(
-                "space-y-[5px] rounded-[14px] border border-border/45 bg-background/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
-                compact ? "px-2.5 py-2" : "px-3 py-[9px]",
-              )}
-            >
-              {visibleSubagents.map((subagent) => {
-                const presentation = subagentPrimaryLabel(subagent);
-                const primaryLabel = presentation.primaryLabel;
-                const secondaryLabel = subagentSecondaryLabel(subagent, primaryLabel);
-                const displayStatusLabel =
-                  subagent.statusLabel ??
-                  humanizeSubagentStatus(subagent.rawStatus, subagent.isActive);
-                const canOpenThread = Boolean(onOpenThread);
-                return (
-                  <div
-                    key={`${workEntry.id}:${subagent.threadId}`}
-                    className="flex items-start gap-2.5 rounded-xl border border-border/28 bg-background/82 px-[11px] py-2"
-                  >
-                    <span
-                      className={cn(
-                        "mt-1.5 size-1.5 shrink-0 rounded-full",
-                        subagent.isActive ? "bg-sky-300/95" : "bg-muted-foreground/22",
-                      )}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div
-                        className="truncate font-semibold leading-[18px] text-foreground/90"
-                        style={{ fontSize: `${rowFontSizePx}px` }}
-                        title={presentation.fullLabel}
-                      >
-                        <span style={{ color: presentation.accentColor }}>
-                          {presentation.nickname ?? primaryLabel}
-                        </span>
-                        {presentation.role ? (
-                          <span className="ml-1 text-[11px] font-medium text-muted-foreground/48">
-                            ({presentation.role})
-                          </span>
-                        ) : null}
-                      </div>
-                      {secondaryLabel ? (
-                        <div
-                          className="truncate pt-0.5 leading-4 text-muted-foreground/56"
-                          style={{ fontSize: `${Math.max(11, rowFontSizePx - 1)}px` }}
-                          title={secondaryLabel}
-                        >
-                          {secondaryLabel}
-                        </div>
-                      ) : null}
-                      {subagent.latestUpdate ? (
-                        <div
-                          className="flex items-baseline gap-1.5 pt-1 text-muted-foreground/42"
-                          style={{ fontSize: `${Math.max(10, rowFontSizePx - 2)}px` }}
-                          title={subagent.latestUpdate}
-                        >
-                          <span className="shrink-0 uppercase tracking-[0.14em] text-muted-foreground/30">
-                            Latest
-                          </span>
-                          <span className="truncate">{subagent.latestUpdate}</span>
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      {displayStatusLabel ? (
-                        <span
-                          className={cn(
-                            "shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-medium tracking-[0.08em]",
-                            subagentStatusClasses(
-                              displayStatusLabel,
-                              subagent.rawStatus,
-                              subagent.isActive,
-                            ),
-                          )}
-                        >
-                          {displayStatusLabel}
-                        </span>
-                      ) : null}
-                      <button
-                        type="button"
-                        className={cn(
-                          "shrink-0 rounded-full border border-border/45 px-2.5 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground/62 transition-colors",
-                          canOpenThread
-                            ? "hover:border-foreground/15 hover:text-foreground/84"
-                            : "cursor-default opacity-50",
-                        )}
-                        disabled={!canOpenThread}
-                        onClick={() =>
-                          onOpenThread?.(
-                            ThreadId.makeUnsafe(subagent.resolvedThreadId ?? subagent.threadId),
-                          )
-                        }
-                      >
-                        Open thread
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-              {hiddenSubagentCount > 0 ? (
-                <div className="pl-4 text-[10px] uppercase tracking-[0.12em] text-muted-foreground/46">
-                  +{hiddenSubagentCount} more
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+        <SubagentDelegationCard
+          workEntry={workEntry}
+          chatMetaFontSizePx={chatMetaFontSizePx}
+          textFontSizePx={rowFontSizePx}
+          {...(onOpenThread ? { onOpenThread } : {})}
+          {...(onStopSubagentRun ? { onStopWorker: onStopSubagentRun } : {})}
+        />
       ) : (
         (() => {
           const rowContent = (
@@ -2221,6 +1998,7 @@ function renderActivityRowList(
     turnId?: TurnId;
     onOpenTurnDiff?: (turnId: TurnId, filePath?: string) => void;
     onOpenThread?: (threadId: ThreadId) => void;
+    onStopSubagentRun?: (providerThreadId: string) => void;
   },
 ): ReactNode {
   return rows.map((activityRow) => {
@@ -2244,6 +2022,7 @@ function renderActivityRowList(
         {...(props.turnId ? { turnId: props.turnId } : {})}
         {...(props.onOpenTurnDiff ? { onOpenTurnDiff: props.onOpenTurnDiff } : {})}
         {...(props.onOpenThread ? { onOpenThread: props.onOpenThread } : {})}
+        {...(props.onStopSubagentRun ? { onStopSubagentRun: props.onStopSubagentRun } : {})}
       />
     ));
   });

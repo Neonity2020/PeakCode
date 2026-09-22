@@ -98,7 +98,10 @@ import {
 import {
   createRelevantWorkLogThreadsSelector,
   createThreadLineageSelector,
+  localSubagentThreadId,
 } from "./ChatView.selectors";
+import { useStopSubAgentRunMutation } from "../subAgentsReactQuery";
+import { retainThreadDetailSubscription } from "../threadDetailSubscriptionRetention";
 import { useMessages } from "../i18n";
 import {
   clampCollapsedComposerCursor,
@@ -1230,6 +1233,50 @@ export default function ChatView({
     () => rawWorkLogEntries.some((entry) => (entry.subagents?.length ?? 0) > 0),
     [rawWorkLogEntries],
   );
+  /**
+   * A stable key of the child threads behind every worker on the delegation card.
+   *
+   * A joined key rather than the array itself: the list is rebuilt whenever the work log does, and
+   * re-running the subscription effect on every rebuild would release and re-retain subscriptions
+   * for no reason. It is derived from the card's own payload, so resolving the ids does not depend
+   * on the details that are still missing.
+   */
+  const subagentThreadKey = useMemo(() => {
+    const threadIds = new Set<ThreadId>();
+    for (const entry of rawWorkLogEntries) {
+      for (const subagent of entry.subagents ?? []) {
+        if (subagent.resolvedThreadId) {
+          threadIds.add(ThreadId.makeUnsafe(subagent.resolvedThreadId));
+          continue;
+        }
+        if (!activeThread?.id) continue;
+        const providerThreadId = subagent.providerThreadId ?? subagent.threadId;
+        if (providerThreadId) {
+          threadIds.add(localSubagentThreadId(activeThread.id, providerThreadId));
+        }
+      }
+    }
+    return [...threadIds].join("\u0000");
+  }, [activeThread?.id, rawWorkLogEntries]);
+  /**
+   * Keep those child threads subscribed for as long as their card is on screen.
+   *
+   * Thread details are fetched per thread and only for the threads the UI retains, which used to
+   * mean the sidebar's *visible* rows. A subagent thread sits inside a collapsed parent by
+   * default, so nothing ever retained one: the card had no steps to show, and opening a worker's
+   * thread gave an empty conversation — work that cannot be inspected reads as work that never
+   * happened, so the card holds the subscription itself.
+   */
+  useEffect(() => {
+    const threadIds = subagentThreadKey
+      ? subagentThreadKey.split("\u0000").map((id) => ThreadId.makeUnsafe(id))
+      : [];
+    if (threadIds.length === 0) return;
+    const releases = threadIds.map((threadId) => retainThreadDetailSubscription(threadId));
+    return () => {
+      for (const release of releases) release();
+    };
+  }, [subagentThreadKey]);
   const relevantWorkLogThreads = useStore(
     useMemo(
       () =>
@@ -1248,9 +1295,16 @@ export default function ChatView({
             rawWorkLogEntries,
             relevantWorkLogThreads,
             activeThread?.id ?? null,
+            { dispatchedTurnSettled: latestTurnSettled },
           )
         : rawWorkLogEntries,
-    [activeThread?.id, hasWorkLogSubagents, rawWorkLogEntries, relevantWorkLogThreads],
+    [
+      activeThread?.id,
+      hasWorkLogSubagents,
+      latestTurnSettled,
+      rawWorkLogEntries,
+      relevantWorkLogThreads,
+    ],
   );
   const latestTurnHasToolActivity = useMemo(
     () => hasToolActivityForTurn(threadActivities, activeLatestTurn?.turnId),
@@ -6594,6 +6648,25 @@ export default function ChatView({
     },
     [navigate],
   );
+  /**
+   * End one running worker without touching the rest of the turn.
+   *
+   * A Multi-Agent turn of broad workers is exactly when this matters: one worker stuck on a bad
+   * sub-task used to leave the only options as "kill everything" or "wait". The card's own stream
+   * settles the worker (`status: stopped`) once the runtime reports it, so nothing is patched
+   * locally here — the optimistic update would have to invent a step count and an outcome.
+   */
+  const stopSubAgentRunMutation = useStopSubAgentRunMutation();
+  const onStopSubagentRun = useCallback(
+    (providerThreadId: string) => {
+      if (!activeThread?.id) return;
+      stopSubAgentRunMutation.mutate({
+        threadId: activeThread.id,
+        providerThreadId,
+      });
+    },
+    [activeThread?.id, stopSubAgentRunMutation],
+  );
   const onRevertUserMessage = useCallback(
     (messageId: MessageId) => {
       const targetTurnCount = revertTurnCountByUserMessageId.get(messageId);
@@ -7470,6 +7543,7 @@ export default function ChatView({
                 turnDiffSummaryByAssistantMessageId={turnDiffSummaryByAssistantMessageId}
                 onOpenTurnDiff={onOpenTurnDiff}
                 onOpenThread={onNavigateToThread}
+                onStopSubagentRun={onStopSubagentRun}
                 revertTurnCountByUserMessageId={revertTurnCountByUserMessageId}
                 onRevertUserMessage={onRevertUserMessage}
                 onEditUserMessage={onEditUserMessage}

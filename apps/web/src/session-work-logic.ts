@@ -1,5 +1,4 @@
 import { WorkLogEntry, DerivedWorkLogEntry } from "./session-logic.types";
-import { isCollabAgentToolActivity } from "./session-plan.logic";
 import { asRecord, extractCollabAction, extractCollabSubagents } from "./session-collab.logic";
 import {
   extractToolCommand,
@@ -25,6 +24,15 @@ import type { OrchestrationThreadActivity, TurnId } from "@peakcode/contracts";
 import { summarizeToolRawOutput } from "@peakcode/shared/toolOutputSummary";
 import { deriveReadableToolTitle, normalizeCompactToolLabel } from "./lib/toolCallLabel";
 
+/**
+ * Derive the transcript's work rows from a turn's activities.
+ *
+ * Delegation activities are deliberately kept: a `collab_agent_tool_call` entry is not a step
+ * in the agent's own work, it is the *subagent card* — the only place the transcript shows which
+ * workers ran, on which model, and how each one ended. `SimpleWorkEntryRow` renders it as that
+ * card rather than as a step, and `DEDICATED_ROW_ITEM_TYPES` keeps it from folding into a
+ * neighbouring read/step group.
+ */
 export function deriveWorkLogEntries(
   activities: ReadonlyArray<OrchestrationThreadActivity>,
   latestTurnId: TurnId | undefined,
@@ -37,7 +45,6 @@ export function deriveWorkLogEntries(
           (activity.kind === "context-compaction" && activity.turnId === null)
         : true,
     )
-    .filter((activity) => !isCollabAgentToolActivity(activity))
     .filter((activity) => activity.kind !== "task.started" && activity.kind !== "task.completed")
     .filter((activity) => activity.kind !== "account.rate-limits.updated")
     .filter(

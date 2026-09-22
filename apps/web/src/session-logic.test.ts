@@ -1950,52 +1950,82 @@ describe("deriveWorkLogEntries", () => {
     expect(entries[0]?.id).toBe("a-complete-same-timestamp");
   });
 
-  it("omits collab subagent tool lifecycle rows from the chat work log", () => {
+  it("keeps a collab delegation as ONE subagent card entry with every worker on it", () => {
+    // Shape mirrors what the pi adapter emits for a Multi-Agent turn: one item per delegation,
+    // republished as its workers settle (see buildSubagentDelegationItem on the server).
+    const delegationItem = (status: "inProgress" | "completed", workerStatus: string) => ({
+      tool: "spawnAgent",
+      status,
+      message: status === "completed" ? "2/2 finished" : "0/2 finished",
+      receiverThreadIds: ["explore-1", "general-2"],
+      receiverAgents: [
+        {
+          threadId: "explore-1",
+          agentNickname: "Explore",
+          agentRole: "explore",
+          requestedModel: "deepseek/deepseek-chat",
+          prompt: "map the parser",
+        },
+        {
+          threadId: "general-2",
+          agentNickname: "General",
+          agentRole: "general",
+          model: "openai/gpt-5-mini",
+          prompt: "fix the loader",
+        },
+      ],
+      agentStates: {
+        "explore-1": { agentNickname: "Explore", agentRole: "explore", status: workerStatus },
+        "general-2": { agentNickname: "General", agentRole: "general", status: workerStatus },
+      },
+    });
     const activities: OrchestrationThreadActivity[] = [
       makeActivity({
-        id: "collab-update",
+        id: "collab-started",
         createdAt: "2026-02-23T00:00:01.000Z",
-        kind: "tool.updated",
-        summary: "Spawn subagents",
+        kind: "tool.started",
+        summary: "2 subagents started",
         payload: {
           itemType: "collab_agent_tool_call",
-          title: "Spawn agent",
-          data: {
-            item: {
-              receiverAgents: [
-                {
-                  threadId: "subagent:thread-1:agent-1",
-                  agentNickname: "Locke",
-                  agentRole: "explorer",
-                },
-                {
-                  threadId: "subagent:thread-1:agent-2",
-                  agentNickname: "Ada",
-                  agentRole: "worker",
-                },
-              ],
-            },
-          },
+          status: "inProgress",
+          title: "2 subagents",
+          data: { toolCallId: "pi-delegation-1", item: delegationItem("inProgress", "running") },
         },
       }),
       makeActivity({
-        id: "collab-complete",
+        id: "collab-completed",
         createdAt: "2026-02-23T00:00:02.000Z",
         kind: "tool.completed",
-        summary: "Spawn subagents",
+        summary: "2 subagents",
         payload: {
           itemType: "collab_agent_tool_call",
-          title: "Spawn agent",
-          data: {
-            item: {
-              receiverThreadIds: ["subagent:thread-1:agent-1", "subagent:thread-1:agent-2"],
-            },
-          },
+          status: "completed",
+          title: "2 subagents",
+          data: { toolCallId: "pi-delegation-1", item: delegationItem("completed", "completed") },
         },
       }),
     ];
 
-    expect(deriveWorkLogEntries(activities, undefined)).toEqual([]);
+    const entries = deriveWorkLogEntries(activities, undefined);
+
+    // One card for the whole delegation: the stable item id collapses the lifecycle into it.
+    expect(entries).toHaveLength(1);
+    const entry = entries[0]!;
+    expect(entry.itemType).toBe("collab_agent_tool_call");
+    expect(entry.subagents?.map((subagent) => subagent.nickname)).toEqual(["Explore", "General"]);
+    expect(entry.subagents?.map((subagent) => subagent.rawStatus)).toEqual([
+      "completed",
+      "completed",
+    ]);
+    // A bound model and an inherited one both have to reach the row; only the bound one may be
+    // read as the worker's own model selection (that distinction lives in the payload).
+    expect(entry.subagents?.map((subagent) => subagent.model)).toEqual([
+      "deepseek/deepseek-chat",
+      "openai/gpt-5-mini",
+    ]);
+    // Headline and meta reflect the settled state, not "Spawning 2 agents".
+    expect(entry.subagentAction?.summaryText).toBe("2 subagents finished");
+    expect(entry.subagentAction?.prompt).toBe("2/2 finished");
   });
 });
 

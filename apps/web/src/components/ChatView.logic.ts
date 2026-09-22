@@ -27,8 +27,10 @@ import {
 } from "../lib/terminalContext";
 import {
   humanizeSubagentStatus,
+  normalizeSubagentStatusKind,
   resolveSubagentPresentationForThread,
 } from "../lib/subagentPresentation";
+import { deriveSubagentProgress } from "../lib/subagentProgress";
 import { hasLiveTurnTailWork, type WorkLogEntry } from "../session-logic";
 import { localSubagentThreadId } from "./ChatView.selectors";
 import type { ProviderModelOption } from "../providerModelOptions";
@@ -598,6 +600,24 @@ function humanizeSubagentRawStatus(rawStatus: string | undefined): string | unde
   return humanizeSubagentStatus(rawStatus);
 }
 
+/**
+ * A match only counts when exactly one child thread fits.
+ *
+ * `subagentAgentId` is the worker *handle* (`explore`), not a run identity, so a worker
+ * dispatched again in a later turn produces a child thread that looks identical to the earlier
+ * one. Taking the first candidate therefore showed a fresh worker an older run's step count,
+ * elapsed time, last step and even its "Idle" state — the card reported the previous run as if
+ * it were the current one. An ambiguous handle is left unresolved instead: the card then shows
+ * no steps until the real child thread has hydrated, which is a gap, not a wrong answer.
+ */
+function uniqueSubagentThreadMatch(
+  threads: ReadonlyArray<Thread>,
+  predicate: (thread: Thread) => boolean,
+): Thread | undefined {
+  const matches = threads.filter(predicate);
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
 function resolveTimelineSubagentThread(input: {
   subagent: NonNullable<WorkLogEntry["subagents"]>[number];
   parentThreadId: ThreadIdType | null;
@@ -621,7 +641,8 @@ function resolveTimelineSubagentThread(input: {
     }
 
     if (input.subagent.agentId) {
-      const matchedByAgent = input.threads.find(
+      const matchedByAgent = uniqueSubagentThreadMatch(
+        input.threads,
         (thread) =>
           thread.parentThreadId === input.parentThreadId &&
           thread.subagentAgentId === input.subagent.agentId,
@@ -633,16 +654,29 @@ function resolveTimelineSubagentThread(input: {
   }
 
   if (input.subagent.agentId) {
-    return input.threads.find((thread) => thread.subagentAgentId === input.subagent.agentId);
+    return uniqueSubagentThreadMatch(
+      input.threads,
+      (thread) => thread.subagentAgentId === input.subagent.agentId,
+    );
   }
 
   return undefined;
 }
 
+/**
+ * Attach what the UI needs to each delegated worker: the child thread it can be opened in, and
+ * the progress that only that thread knows.
+ *
+ * Two sources meet here. The delegation payload knows what the *orchestrator* saw — a worker was
+ * dispatched, on which model, and whether it came back. The child thread knows what the *worker*
+ * did, step by step (see `makeSubagentStream` on the server). The card shows both, so this is
+ * where they get joined.
+ */
 export function enrichSubagentWorkEntries(
   workEntries: ReadonlyArray<WorkLogEntry>,
   threads: ReadonlyArray<Thread>,
   parentThreadId: ThreadIdType | null,
+  options?: { readonly dispatchedTurnSettled?: boolean },
 ): WorkLogEntry[] {
   if (workEntries.length === 0) {
     return [];
@@ -671,14 +705,61 @@ export function enrichSubagentWorkEntries(
       const nextSubagent = Object.assign({}, subagent);
       if (matchedThread) {
         nextSubagent.resolvedThreadId = matchedThread.id;
+        const progress = deriveSubagentProgress(matchedThread.activities);
+        if (progress.steps > 0) {
+          nextSubagent.steps = progress.steps;
+        }
+        if (progress.elapsedMs !== null) {
+          nextSubagent.elapsedMs = progress.elapsedMs;
+        }
+        if (progress.latestStep) {
+          nextSubagent.latestStep = progress.latestStep;
+        }
+        if (progress.latestStepAt) {
+          nextSubagent.latestStepAt = progress.latestStepAt;
+        }
       }
       if (matchedPresentation) {
         nextSubagent.title = matchedPresentation.fullLabel;
       }
-      if (status.label ?? fallbackStatusLabel) {
-        nextSubagent.statusLabel = status.label ?? fallbackStatusLabel;
+      // A worker with a dispatch time always has a duration, even before its child thread has
+      // reported a single step. Without this a worker that had been out for ten minutes showed no
+      // duration at all, which reads exactly like a worker that never started.
+      if (nextSubagent.elapsedMs === undefined && nextSubagent.startedAt) {
+        const startedMs = Date.parse(nextSubagent.startedAt);
+        if (!Number.isNaN(startedMs)) {
+          nextSubagent.elapsedMs = Math.max(0, Date.now() - startedMs);
+        }
       }
-      if (status.isActive || fallbackStatusLabel === "Running") {
+      // A worker can only be *doing work* while the turn that dispatched it is running. The
+      // delegation payload says "running" at dispatch time and only changes when the worker
+      // reports back, so an interrupted turn leaves that word behind forever — the card would
+      // claim six agents were working long after everything stopped. Reconciling against the
+      // turn is what makes "is it done?" answerable at all.
+      const abandoned =
+        options?.dispatchedTurnSettled === true &&
+        terminalSubagentStatusLabel(subagent.rawStatus) === undefined;
+      if (abandoned) {
+        nextSubagent.statusLabel = "Interrupted";
+        return nextSubagent;
+      }
+      // A finished worker must not read "Idle": the child thread only ever knows whether it is
+      // *live*, while the delegation is the one that knows the run ended. So a terminal state
+      // from the payload wins, and the thread is consulted only while the worker is out.
+      const settledLabel = terminalSubagentStatusLabel(subagent.rawStatus);
+      const payloadSaysRunning =
+        settledLabel === undefined && normalizeSubagentStatusKind(subagent.rawStatus) === "running";
+      // A thread-derived label may only *add* information. A child thread whose session is not
+      // live yields "Idle", and letting that win made a worker that its own delegation reports as
+      // running read "Idle" — the exact opposite of what the user needs to see at a glance. The
+      // payload is the producer's own account of the run; when it says running, the row is
+      // working, and only its *step* detail depends on the thread.
+      const resolvedLabel =
+        settledLabel ?? (payloadSaysRunning ? undefined : status.label) ?? fallbackStatusLabel;
+      if (resolvedLabel) {
+        nextSubagent.statusLabel = resolvedLabel;
+      }
+      if (settledLabel === undefined && (status.isActive || payloadSaysRunning)) {
         nextSubagent.isActive = true;
       }
       return nextSubagent;
@@ -689,4 +770,20 @@ export function enrichSubagentWorkEntries(
       subagents,
     };
   });
+}
+
+/**
+ * The label for a worker the orchestrator has already heard back from, or undefined while it is
+ * still out. `stopped` is deliberately not included: the payload only ever reports running,
+ * completed or failed, and a stale "stopped" should not be able to mask a live worker.
+ */
+function terminalSubagentStatusLabel(rawStatus: string | undefined): string | undefined {
+  switch (normalizeSubagentStatusKind(rawStatus)) {
+    case "completed":
+      return "Completed";
+    case "failed":
+      return "Failed";
+    default:
+      return undefined;
+  }
 }

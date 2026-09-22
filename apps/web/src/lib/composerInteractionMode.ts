@@ -30,6 +30,7 @@ const INTERACTION_MODE_LABELS: Record<ProviderInteractionMode, string> = {
   default: "Agent",
   plan: "Plan",
   goal: "Goal",
+  multi: "Multi-Agent",
 };
 
 /** The user-facing name for a mode, matching the composer menu. */
