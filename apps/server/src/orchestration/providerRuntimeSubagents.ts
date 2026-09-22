@@ -19,6 +19,12 @@ export interface SubagentIdentity {
   readonly role?: string;
   readonly model?: string;
   readonly modelIsRequestedHint?: boolean;
+  /**
+   * The task the worker was given. `resolveSubagentIdentityFromDirectory` carries it through (it
+   * comes off the same payload as the nickname), and the child thread's title uses it to tell
+   * same-named workers apart.
+   */
+  readonly prompt?: string;
 }
 
 export function extractCollabPayload(
@@ -45,19 +51,30 @@ export function extractSubagentIdentity(
   ) as SubagentIdentity | undefined;
 }
 
+/**
+ * A child thread's title.
+ *
+ * The delegated task is appended when the payload carries one, because identity alone does not
+ * distinguish workers: a Multi-Agent turn can dispatch the same `explore` worker eight times, and
+ * eight child threads all titled "Explore [explore]" are unusable in the sidebar. The task is
+ * what tells them apart.
+ */
 export function subagentThreadTitle(identity: {
   nickname?: string | undefined;
   role?: string | undefined;
   providerThreadId?: string | undefined;
+  prompt?: string | undefined;
 }): string {
-  if (identity.nickname && identity.role) {
-    return `${identity.nickname} [${identity.role}]`;
-  }
-  if (identity.nickname) {
-    return identity.nickname;
-  }
-  if (identity.role) {
-    return `Subagent [${identity.role}]`;
-  }
-  return identity.providerThreadId ? `Subagent ${identity.providerThreadId}` : "Subagent";
+  const base =
+    identity.nickname && identity.role
+      ? `${identity.nickname} [${identity.role}]`
+      : identity.nickname
+        ? identity.nickname
+        : identity.role
+          ? `Subagent [${identity.role}]`
+          : identity.providerThreadId
+            ? `Subagent ${identity.providerThreadId}`
+            : "Subagent";
+  const task = identity.prompt?.trim();
+  return task ? `${base} · ${task}` : base;
 }

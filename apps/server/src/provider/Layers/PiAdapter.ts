@@ -82,6 +82,14 @@ import { PiAdapter, type PiAdapterShape } from "../Services/PiAdapter.ts";
 import type { ProviderThreadSnapshot } from "../Services/ProviderAdapter.ts";
 import { createModelRuntimeCache } from "../modelRuntimeCache.ts";
 import { classifyPiTurnFailure } from "../piTurnFailure.ts";
+import {
+  buildSubagentDelegationItem,
+  delegationSettleMessage,
+  type PiDelegatedWorker,
+  type PiDelegationWorkerStatus,
+} from "../piSubagentDelegation.ts";
+import { makeSubagentStream, type SubagentStream } from "../piSubagentWorkerStream.ts";
+import { makeStallWatchdog, type StallWatchdog } from "../piSubagentWatchdog.ts";
 import { extractProposedPlanMarkdown, withProviderPlanModePrompt } from "../planMode.ts";
 import { type EventNdjsonLogger, makeEventNdjsonLogger } from "./EventNdjsonLogger.ts";
 import {
@@ -129,6 +137,144 @@ export interface PiAdapterLiveOptions {
 
 function makeAgentDir(agentDir: string | undefined): string {
   return trimToUndefined(agentDir) ?? getAgentDir();
+}
+
+/**
+ * The final text of a sub-agent session.
+ *
+ * A worker's whole value is that its intermediate tool chatter stays in its own context;
+ * only the closing answer comes back to the orchestrator. That answer is the last assistant
+ * message's text parts — walked newest-first so a trailing empty assistant turn (an aborted
+ * or tool-only message) does not shadow the real conclusion.
+ */
+function subagentFinalText(messages: readonly unknown[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || typeof message !== "object") continue;
+    const record = message as { role?: unknown; content?: unknown };
+    if (record.role !== "assistant" || !Array.isArray(record.content)) continue;
+    const text = record.content
+      .flatMap((part) => {
+        if (!part || typeof part !== "object") return [];
+        const chunk = part as { type?: unknown; text?: unknown };
+        return chunk.type === "text" && typeof chunk.text === "string" ? [chunk.text] : [];
+      })
+      .join("")
+      .trim();
+    if (text.length > 0) return text;
+  }
+  return "";
+}
+
+/**
+ * Tools a worker must never get.
+ *
+ * `task` would let a worker spawn workers (unbounded fan-out); the interactive tools
+ * (`ask_user`, `request_permissions`) have no thread of their own to prompt on; and the
+ * per-conversation bookkeeping tools (`goal`, `write_plan`, `checkpoint`, `rewind`) would
+ * mutate the orchestrator's turn state from inside a worker.
+ */
+const SUBAGENT_EXCLUDED_TOOLS = [
+  "task",
+  "goal",
+  "write_plan",
+  "ask_user",
+  "request_permissions",
+  "checkpoint",
+  "rewind",
+  "browser",
+  "computer",
+  "schedule_task",
+  "kanban_comment",
+  "kanban_task",
+] as const;
+
+/**
+ * Tools whose own lifecycle row is replaced by the delegation card.
+ *
+ * `task` is the toolkit's delegation tool. Its worker runs in an in-memory session and the
+ * interesting part is the *workers* — name, model, status — which the delegation tracker
+ * reports. A generic "Delegate to subagent" row beside that card would only duplicate it, worse.
+ */
+const DELEGATION_TOOL_NAMES: ReadonlySet<string> = new Set(["task"]);
+
+/**
+ * How long a worker may say nothing before it is treated as stuck.
+ *
+ * Generous on purpose: the window measures *silence*, not runtime, so a worker chewing through a
+ * large tree or waiting on a slow command keeps resetting it. Ten minutes of nothing at all is
+ * not a slow worker, it is a dead one — and it matches the window the approval and question gates
+ * already use.
+ */
+const SUBAGENT_STALL_TIMEOUT_MS = 10 * 60_000;
+
+/** A worker session that is still running, and whether the user asked it to stop. */
+interface PiLiveSubagent {
+  abort: () => Promise<void>;
+  /** Set before aborting, so the run reports "stopped" rather than "failed". */
+  stopped: boolean;
+  /** Set when the watchdog ended it, so the run reports why rather than a bare failure. */
+  stalled: boolean;
+  /** Reset on every event the worker produces; fires when it goes quiet for too long. */
+  watchdog: StallWatchdog;
+}
+
+/**
+ * One turn's worth of delegated workers, aggregated into a single transcript card.
+ *
+ * `itemId` stays fixed for the card's lifetime and `settled` records whether the last worker has
+ * come back — together they decide whether a new delegation joins this card or opens a new one.
+ */
+interface PiDelegationState {
+  readonly itemId: RuntimeItemId;
+  workers: PiDelegatedWorker[];
+  settled: boolean;
+}
+
+/**
+ * How many tool calls a worker made.
+ *
+ * The count is the only cheap signal of how much work a sub-agent did — the card shows it next
+ * to the conclusion so "3 steps" and "68 steps" are distinguishable at a glance.
+ */
+function subagentStepCount(messages: readonly unknown[]): number {
+  let steps = 0;
+  for (const message of messages) {
+    if (!message || typeof message !== "object") continue;
+    const content = (message as { content?: unknown }).content;
+    if (!Array.isArray(content)) continue;
+    for (const part of content) {
+      if (part && typeof part === "object" && (part as { type?: unknown }).type === "toolCall") {
+        steps += 1;
+      }
+    }
+  }
+  return steps;
+}
+
+/**
+ * The worker's standing instructions.
+ *
+ * Two things are non-negotiable for a worker and are stated every turn: it cannot ask the
+ * user (there is no UI bound to it), and its final message is the *only* thing the
+ * orchestrator sees — so "summarise for a reader who saw none of your steps" is the
+ * difference between a usable delegation and a useless one.
+ */
+function makeSubagentPromptExtension(workerPrompt: string | undefined): ExtensionFactory {
+  return (pi) => {
+    pi.on("before_agent_start", (event) => {
+      const sections = [
+        "You are a sub-agent, delegated one self-contained sub-task by an orchestrator.",
+        "Work only on that sub-task. You cannot ask the user questions.",
+        "Your final message is the only thing the orchestrator receives: it never sees your",
+        "intermediate steps. End with a concise, self-contained conclusion — what you did, the",
+        "evidence (files, commands, outputs), and anything still unresolved or uncertain.",
+      ];
+      const extra = workerPrompt?.trim();
+      if (extra) sections.push(extra);
+      return { systemPrompt: `${sections.join("\n")}\n\n${event.systemPrompt}` };
+    });
+  };
 }
 
 /**
@@ -265,6 +411,268 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       }
     };
 
+    /**
+     * Per-thread state for the transcript's subagent card.
+     *
+     * A turn's `task` calls run concurrently — pi executes every tool call of one assistant
+     * message in parallel — so the card has to aggregate workers registered by separate
+     * `runSubagent` invocations. An entry is reused while workers are still running and replaced
+     * once they have all settled, which is what gives each new round of delegation its own card.
+     */
+    const subagentDelegations = new Map<ThreadId, PiDelegationState>();
+
+    /**
+     * Worker sessions that are still running, per orchestrating thread.
+     *
+     * They need their own register because a worker runs in a *separate* session: aborting the
+     * orchestrator's session does not reach it. Without this, stopping a turn left every worker it
+     * had dispatched running to completion — the user stopped the work and kept paying for it.
+     */
+    const liveSubagents = new Map<ThreadId, Map<string, PiLiveSubagent>>();
+
+    const registerLiveSubagent = (
+      threadId: ThreadId,
+      providerThreadId: string,
+      abort: () => Promise<void>,
+      onStall: () => void,
+    ): PiLiveSubagent => {
+      const forThread = liveSubagents.get(threadId) ?? new Map<string, PiLiveSubagent>();
+      const entry: PiLiveSubagent = {
+        abort,
+        stopped: false,
+        stalled: false,
+        watchdog: makeStallWatchdog({ timeoutMs: SUBAGENT_STALL_TIMEOUT_MS, onStall }),
+      };
+      forThread.set(providerThreadId, entry);
+      liveSubagents.set(threadId, forThread);
+      return entry;
+    };
+
+    const unregisterLiveSubagent = (threadId: ThreadId, providerThreadId: string): void => {
+      const forThread = liveSubagents.get(threadId);
+      if (!forThread) return;
+      forThread.get(providerThreadId)?.watchdog.stop();
+      forThread.delete(providerThreadId);
+      if (forThread.size === 0) liveSubagents.delete(threadId);
+    };
+
+    /**
+     * End every worker a thread still has out, and remember that they were *stopped*.
+     *
+     * Order matters: the orchestrator's turn is parked inside the `task` call awaiting these very
+     * workers, so aborting the orchestrator first would leave it waiting on them (the same trap
+     * `cancelPendingInteractions` exists for). Ending the workers releases the tool call.
+     */
+    const stopLiveSubagents = async (threadId: ThreadId): Promise<void> => {
+      const forThread = liveSubagents.get(threadId);
+      if (!forThread) return;
+      const entries = [...forThread.entries()];
+      for (const [, entry] of entries) {
+        entry.stopped = true;
+        entry.watchdog.stop();
+      }
+      await Promise.all(entries.map(([, entry]) => entry.abort().catch(() => undefined)));
+    };
+
+    /**
+     * End one worker, leaving its siblings and the orchestrating turn alone.
+     *
+     * A delegation of broad workers is precisely the case where this matters: the user can see
+     * (now that progress is published on the card) that one of four workers is stuck on a bad
+     * sub-task, and killing the whole turn to stop it would throw away the orchestrator's context
+     * and the other three workers' results.
+     *
+     * The run's own path finishes the job: aborting the session rejects the worker's `prompt`,
+     * `runSubagent` sees `live.stopped` and returns its "ended before it finished" text, and the
+     * settle that already happened here is what the card renders. Reporting the stop *before*
+     * the abort is deliberate — the same reason the stall watchdog does it: an abort that never
+     * settles must not leave the card claiming the worker is still working.
+     */
+    const stopSubagent = async (threadId: ThreadId, providerThreadId: string): Promise<boolean> => {
+      const live = liveSubagents.get(threadId)?.get(providerThreadId);
+      if (!live) return false;
+      live.stopped = true;
+      live.watchdog.stop();
+      settleSubagentDelegation(threadId, {
+        providerThreadId,
+        status: "stopped",
+        message: "Stopped by you.",
+      });
+      await live.abort().catch(() => undefined);
+      return true;
+    };
+
+    /**
+     * Publish the current delegation state as one `collab_agent_tool_call` item.
+     *
+     * The item id is stable for the whole delegation, and that is what keeps every update
+     * collapsed into a single card on the web side (`deriveToolLifecycleCollapseKey` takes the
+     * key from `data.toolCallId`). Without it each update would become another row.
+     *
+     * No `raw` payload: nothing in the pi SDK produced these events, so there is nothing for the
+     * native event log to record.
+     */
+    const emitSubagentDelegation = (
+      ctx: PiSessionContext,
+      delegation: PiDelegationState,
+      phase: "started" | "updated" | "completed",
+    ) => {
+      const parentModel = ctx.runtime.session.model;
+      const inheritedModel = parentModel ? `${parentModel.provider}/${parentModel.id}` : undefined;
+      const item = buildSubagentDelegationItem({
+        workers: delegation.workers,
+        ...(inheritedModel ? { inheritedModel } : {}),
+        settled: delegation.settled,
+      });
+      const total = delegation.workers.length;
+      offerRuntimeEvent({
+        ...makeEventBase(ctx),
+        itemId: delegation.itemId,
+        type:
+          phase === "started"
+            ? "item.started"
+            : phase === "completed"
+              ? "item.completed"
+              : "item.updated",
+        payload: {
+          itemType: "collab_agent_tool_call",
+          status: delegation.settled ? "completed" : "inProgress",
+          title: `${total} subagent${total === 1 ? "" : "s"}`,
+          data: { toolCallId: delegation.itemId, item },
+        },
+      } satisfies ProviderRuntimeEvent);
+    };
+
+    /** Record a worker the orchestrator just delegated to, and republish the card. */
+    const beginSubagentDelegation = (
+      threadId: ThreadId,
+      worker: Omit<PiDelegatedWorker, "status" | "message" | "providerThreadId">,
+    ): string => {
+      const ctx = sessions.get(threadId);
+      const providerThreadId = `${worker.workerId}-${crypto.randomUUID().slice(0, 8)}`;
+      if (!ctx) return providerThreadId;
+      const running = subagentDelegations.get(threadId);
+      const delegation: PiDelegationState =
+        running && !running.settled
+          ? running
+          : {
+              itemId: RuntimeItemId.makeUnsafe(`pi-delegation-${crypto.randomUUID()}`),
+              workers: [],
+              settled: false,
+            };
+      delegation.workers.push({
+        ...worker,
+        providerThreadId,
+        status: "running",
+        message: worker.description,
+        progress: { startedAt: new Date().toISOString() },
+      });
+      subagentDelegations.set(threadId, delegation);
+      emitSubagentDelegation(ctx, delegation, running && !running.settled ? "updated" : "started");
+      return providerThreadId;
+    };
+
+    /** Mark one worker settled and republish; the card closes once the last one lands. */
+    const settleSubagentDelegation = (
+      threadId: ThreadId,
+      input: {
+        readonly providerThreadId: string;
+        readonly status: PiDelegationWorkerStatus;
+        readonly message?: string | undefined;
+      },
+    ): void => {
+      const ctx = sessions.get(threadId);
+      const delegation = subagentDelegations.get(threadId);
+      if (!ctx || !delegation) return;
+      const index = delegation.workers.findIndex(
+        (worker) => worker.providerThreadId === input.providerThreadId,
+      );
+      if (index < 0) return;
+      delegation.workers[index] = {
+        ...delegation.workers[index]!,
+        status: input.status,
+        ...(input.message ? { message: input.message } : {}),
+      };
+      delegation.settled = delegation.workers.every((worker) => worker.status !== "running");
+      // A settled worker's card must go out immediately — the throttle exists for the per-step
+      // stream, and a delayed "done" is the one delay the user would notice.
+      subagentProgressEmittedAt.delete(delegation.itemId);
+      subagentStepIds.delete(input.providerThreadId);
+      emitSubagentDelegation(ctx, delegation, delegation.settled ? "completed" : "updated");
+    };
+
+    /**
+     * How often a busy worker's progress reaches the card.
+     *
+     * A worker can start dozens of tool calls per minute, and every republication is an event plus
+     * a projected activity row. One every couple of seconds is enough for "it is working and here
+     * is what it is doing" — and the card's own per-second "quiet for Ns" ticker covers the rest —
+     * while keeping the transcript's write volume proportional to the *turn* rather than to the
+     * worker's tool count.
+     */
+    const SUBAGENT_PROGRESS_EMIT_INTERVAL_MS = 2_000;
+    const subagentProgressEmittedAt = new Map<string, number>();
+    /** Tool call ids already counted per worker, so a replayed stream cannot inflate "N steps". */
+    const subagentStepIds = new Map<string, Set<string>>();
+    /**
+     * How many of a worker's tool calls its card keeps as an inspectable record.
+     *
+     * The card shows "15 steps · read_file · 4s ago" live; this is what answers "doing *what*"
+     * when the user expands it. A dozen or so is the window that fits, and the full history is
+     * still on the worker's child thread — the point here is that inspecting a worker must not
+     * depend on that second subscription having landed.
+     */
+    const SUBAGENT_RECENT_STEPS = 12;
+
+    /**
+     * Record a tool call a live worker started, and republish the card (throttled).
+     *
+     * This is what keeps a long delegation readable: previously a worker's steps were only
+     * visible through its child thread's separate subscription, so a worker 167 tool calls deep
+     * still rendered as "waiting for its first step" whenever that subscription had not landed.
+     */
+    const recordSubagentStep = (
+      threadId: ThreadId,
+      providerThreadId: string,
+      step: { readonly toolCallId: string; readonly summary: string },
+    ): void => {
+      const ctx = sessions.get(threadId);
+      const delegation = subagentDelegations.get(threadId);
+      if (!ctx || !delegation) return;
+      const index = delegation.workers.findIndex(
+        (worker) => worker.providerThreadId === providerThreadId,
+      );
+      if (index < 0) return;
+      const worker = delegation.workers[index]!;
+      const progress = worker.progress ?? {};
+      const seen = subagentStepIds.get(providerThreadId) ?? new Set<string>();
+      const recentSteps = [...(progress.recentSteps ?? [])];
+      // One entry per distinct tool call, oldest first: the record reads as the sequence of what
+      // the worker did, and a repeated *call id* (a replayed stream) must not double it while a
+      // repeated *title* (reading two files) legitimately appears twice.
+      if (!seen.has(step.toolCallId)) {
+        seen.add(step.toolCallId);
+        subagentStepIds.set(providerThreadId, seen);
+        recentSteps.push({ id: step.toolCallId, title: step.summary });
+      }
+      delegation.workers[index] = {
+        ...worker,
+        progress: {
+          ...progress,
+          steps: seen.size,
+          lastStep: step.summary,
+          lastStepAt: new Date().toISOString(),
+          recentSteps: recentSteps.slice(-SUBAGENT_RECENT_STEPS),
+        },
+      };
+
+      const now = Date.now();
+      const lastEmit = subagentProgressEmittedAt.get(delegation.itemId) ?? 0;
+      if (now - lastEmit < SUBAGENT_PROGRESS_EMIT_INTERVAL_MS) return;
+      subagentProgressEmittedAt.set(delegation.itemId, now);
+      emitSubagentDelegation(ctx, delegation, "updated");
+    };
+
     const offerRuntimeError = (
       context: PiSessionContext,
       input: {
@@ -341,6 +749,9 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       context.unsubscribe?.();
       context.unsubscribe = undefined;
       context.stopped = true;
+      // A worker outlives the orchestrator's session otherwise: it runs in its own session, on
+      // its own model, and nothing else would ever end it.
+      await stopLiveSubagents(context.session.threadId);
       // Answer every in-flight prompt with "cancel" before tearing down: the tool-call
       // handler is awaiting these promises, and the timers would otherwise outlive the
       // session and fire into a disposed runtime.
@@ -457,6 +868,8 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             toolName: event.toolName,
             args: event.args,
           });
+          // Delegation is reported as one aggregated card instead (see DELEGATION_TOOL_NAMES).
+          if (DELEGATION_TOOL_NAMES.has(event.toolName)) return;
           offerRuntimeEvent({
             ...makeEventBase(context),
             itemId,
@@ -486,6 +899,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             toolName: event.toolName,
             output: detail,
           });
+          if (DELEGATION_TOOL_NAMES.has(event.toolName)) return;
           offerRuntimeEvent({
             ...makeEventBase(context),
             itemId: tracked.itemId,
@@ -524,6 +938,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             output: detail,
             result: event.result,
           });
+          if (DELEGATION_TOOL_NAMES.has(event.toolName)) return;
           offerRuntimeEvent({
             ...makeEventBase(context),
             itemId: tracked.itemId,
@@ -957,10 +1372,29 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
         // is no longer part of this decision: write tools stay available under
         // `approval-required` and every one of them goes through the approval gate below.
         const toolkitConversationId = threadConversationKey(input.threadId);
+        // Late-bound: a worker runs with the *same* toolkit catalogue it is itself part of,
+        // so the runner cannot be defined before `toolkitTools`. Until it is assigned, `task`
+        // reports that delegation is unavailable rather than silently returning nothing.
+        let runSubagent:
+          | ((opts: {
+              description: string;
+              prompt: string;
+              subagentType: string;
+              model?: string | null;
+              systemPrompt?: string;
+              tools?: readonly string[];
+              /** Registry display name, so the delegation card can label the worker. */
+              name?: string | undefined;
+            }) => Promise<string>)
+          | undefined;
         const toolkitTools = buildThreadToolkitTools({
           cwd,
           conversationId: toolkitConversationId,
           callbacks: {
+            spawnSubagent: (opts) =>
+              runSubagent
+                ? runSubagent(opts)
+                : Promise.reject(new Error("Subagents are unavailable in this session.")),
             askUser: (questions) => promptForQuestions(input.threadId, questions),
             // The checklist persists to SQLite; PeakCode has no todo panel yet, but a
             // stored checklist still beats the tool refusing to run.
@@ -1033,6 +1467,144 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
               cause,
             }),
         });
+        /**
+         * Run one delegated sub-task on a worker with its own session and, when the
+         * registry binds one, its own model.
+         *
+         * The worker gets an in-memory session (its transcript is not a PeakCode thread —
+         * it is a scratch context whose only output is the returned string), the same
+         * approval gate as the parent, and the excluded-tool list so it cannot fan out or
+         * touch the orchestrator's turn state. A model that is configured but no longer
+         * available fails loudly: silently falling back to the parent's model would bill
+         * the caller for a routing decision they did not get.
+         */
+        runSubagent = async (opts) => {
+          const workerModel = opts.model
+            ? findModelInRegistry(modelRuntime, opts.model)
+            : undefined;
+          if (opts.model && !workerModel) {
+            throw new Error(
+              `Sub-agent model '${opts.model}' is not available. Pick another in Settings → Sub-agents.`,
+            );
+          }
+          // Register before the session is built so the card shows the worker as running from
+          // the moment it is dispatched — a worker that fails to start still has to appear, and
+          // only then can the row explain why.
+          const providerThreadId = beginSubagentDelegation(input.threadId, {
+            workerId: opts.subagentType,
+            name: opts.name ?? opts.subagentType,
+            description: opts.description,
+            ...(opts.model ? { model: opts.model } : {}),
+          });
+          let worker: { dispose: () => void } | undefined;
+          let liveSubagent: PiLiveSubagent | undefined;
+          let workerStream: SubagentStream | undefined;
+          let stopWorkerStream: (() => void) | undefined;
+          try {
+            const services = await createAgentSessionServices({
+              cwd,
+              agentDir,
+              modelRuntime,
+              resourceLoaderOptions: {
+                extensionFactories: [
+                  approvalExtension,
+                  makeSubagentPromptExtension(opts.systemPrompt),
+                ],
+              },
+            });
+            const workerToolAllowlist = (opts.tools ?? []).filter(
+              (name) => !(SUBAGENT_EXCLUDED_TOOLS as readonly string[]).includes(name),
+            );
+            const { session: workerSession } = await createAgentSessionFromServices({
+              services,
+              sessionManager: SessionManager.inMemory(cwd),
+              ...(workerModel ? { model: workerModel } : {}),
+              thinkingLevel: DEFAULT_PI_THINKING_LEVEL,
+              customTools: toolkitTools,
+              excludeTools: [...SUBAGENT_EXCLUDED_TOOLS],
+              ...(workerToolAllowlist.length > 0 ? { tools: workerToolAllowlist } : {}),
+            });
+            worker = workerSession;
+            const live = registerLiveSubagent(
+              input.threadId,
+              providerThreadId,
+              () => workerSession.abort(),
+              () => {
+                // Report first, then abort: if the session is wedged enough that `abort` never
+                // settles, the card must still stop claiming this worker is working.
+                live.stalled = true;
+                settleSubagentDelegation(input.threadId, {
+                  providerThreadId,
+                  status: "failed",
+                  message: `No output for ${Math.round(SUBAGENT_STALL_TIMEOUT_MS / 60_000)} minutes — stopped.`,
+                });
+                void workerSession.abort().catch(() => undefined);
+              },
+            );
+            liveSubagent = live;
+            // Mirror the worker's steps into its child thread so the card's rows open something
+            // real: without this the thread exists but is empty (see makeSubagentStream).
+            const stream = makeSubagentStream({
+              provider: PROVIDER,
+              threadId: input.threadId,
+              providerThreadId,
+              providerParentThreadId: runtime.session.sessionId,
+              emit: offerRuntimeEvent,
+              onActivity: (step) => {
+                live.watchdog.touch();
+                if (step) recordSubagentStep(input.threadId, providerThreadId, step);
+              },
+            });
+            workerStream = stream;
+            stopWorkerStream = workerSession.subscribe((event) => stream.handle(event));
+            await workerSession.prompt([opts.description, "", opts.prompt].join("\n"));
+            const text = subagentFinalText(workerSession.messages);
+            // `agent_end` normally closes the turn; if the run ended without one (an aborted or
+            // failed prompt can), the child thread would otherwise stay "running" forever.
+            stream.finish();
+            if (live.stopped || live.stalled) {
+              // The watchdog reported the stall with its own reason; a stop was reported too.
+              if (live.stopped) {
+                settleSubagentDelegation(input.threadId, {
+                  providerThreadId,
+                  status: "stopped",
+                  message: "Stopped before it finished.",
+                });
+              }
+              return "(subagent ended before it finished)";
+            }
+            settleSubagentDelegation(input.threadId, {
+              providerThreadId,
+              status: "completed",
+              message: delegationSettleMessage({
+                steps: subagentStepCount(workerSession.messages),
+                answer: text,
+              }),
+            });
+            return text || "(subagent returned no output)";
+          } catch (error) {
+            stopWorkerStream?.();
+            // An aborted prompt rejects, so the `finish()` in the try body is skipped — close the
+            // child thread's turn here or a stopped worker's thread reads as still running.
+            workerStream?.finish();
+            // A stopped or stalled worker already has its own, more accurate reason on the card.
+            if (!liveSubagent?.stopped && !liveSubagent?.stalled) {
+              settleSubagentDelegation(input.threadId, {
+                providerThreadId,
+                status: "failed",
+                message: error instanceof Error ? error.message : String(error),
+              });
+            }
+            if (liveSubagent?.stopped || liveSubagent?.stalled) {
+              return "(subagent ended before it finished)";
+            }
+            throw error;
+          } finally {
+            stopWorkerStream?.();
+            unregisterLiveSubagent(input.threadId, providerThreadId);
+            worker?.dispose();
+          }
+        };
         const now = new Date().toISOString();
         const model = runtime.session.model
           ? `${runtime.session.model.provider}/${runtime.session.model.id}`
@@ -1358,12 +1930,16 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       requireSession(threadId).pipe(
         Effect.flatMap((context) =>
           Effect.tryPromise({
-            try: () => {
+            try: async () => {
               // Release the user gates before aborting. `abort()` waits for the run to go
               // idle, and a run parked on an approval or question cannot go idle until that
               // gate is answered — answering it here is what lets the abort land now rather
               // than after the 10-minute timeout.
               cancelPendingInteractions(context);
+              // Same argument for delegated workers, and it goes further: the turn is parked
+              // inside the `task` call that awaits them, so it cannot go idle until they end.
+              // Stopping the turn has to mean stopping the work it started.
+              await stopLiveSubagents(threadId);
               return context.runtime.session.abort();
             },
             catch: (cause) =>
@@ -1752,6 +2328,17 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       sendTurn,
       steerTurn,
       interruptTurn,
+      stopSubagent: (input) =>
+        Effect.tryPromise({
+          try: () => stopSubagent(input.threadId, input.providerThreadId),
+          catch: (cause) =>
+            new ProviderAdapterRequestError({
+              provider: PROVIDER,
+              method: "subagent/stop",
+              detail: toMessage(cause, "Failed to stop the sub-agent."),
+              cause,
+            }),
+        }),
       respondToRequest: (threadId, requestId, decision) =>
         Effect.gen(function* () {
           const context = yield* requireSession(threadId);

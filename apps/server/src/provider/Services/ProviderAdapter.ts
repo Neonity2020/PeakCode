@@ -113,6 +113,18 @@ export interface ProviderAdapterShape<TError> {
   ) => Effect.Effect<void, TError>;
 
   /**
+   * End one delegated worker of a running turn, leaving its siblings alone.
+   *
+   * Optional: an adapter only implements it when a turn can own workers of its own. `true` means a
+   * live worker was found and stopped; `false` means there was nothing to stop, which the UI reads
+   * as "already finished" rather than as an error.
+   */
+  readonly stopSubagent?: (input: {
+    readonly threadId: ThreadId;
+    readonly providerThreadId: string;
+  }) => Effect.Effect<boolean, TError>;
+
+  /**
    * Respond to an interactive approval request.
    */
   readonly respondToRequest: (

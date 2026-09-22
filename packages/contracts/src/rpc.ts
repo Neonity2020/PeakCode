@@ -161,6 +161,13 @@ import {
   ServerVoiceTranscriptionResult,
 } from "./server";
 import {
+  SubAgentsDeleteInput,
+  SubAgentsListInput,
+  SubAgentsSaveInput,
+  SubAgentsSavedInput,
+} from "./subAgents";
+import { ProviderStopSubagentInput } from "./provider";
+import {
   TerminalClearInput,
   TerminalCloseInput,
   TerminalEvent,
@@ -678,6 +685,37 @@ export const WsSkillsSetEnabledRpc = Rpc.make(WS_METHODS.skillsSetEnabled, {
   error: WsRpcError,
 });
 
+export const WsSubAgentsListRpc = Rpc.make(WS_METHODS.subAgentsList, {
+  payload: SubAgentsListInput,
+  success: SubAgentsSavedInput,
+  error: WsRpcError,
+});
+
+export const WsSubAgentsSaveRpc = Rpc.make(WS_METHODS.subAgentsSave, {
+  payload: SubAgentsSaveInput,
+  success: SubAgentsSavedInput,
+  error: WsRpcError,
+});
+
+export const WsSubAgentsDeleteRpc = Rpc.make(WS_METHODS.subAgentsDelete, {
+  payload: SubAgentsDeleteInput,
+  success: SubAgentsSavedInput,
+  error: WsRpcError,
+});
+
+/**
+ * End one worker a running Multi-Agent turn has out.
+ *
+ * `success: Schema.Boolean` is "a live worker was found and stopped", not "the call worked": a
+ * worker that already finished is a no-op the UI can ignore, and reporting `true` for it would
+ * make a stale card look like it had just been stopped.
+ */
+export const WsSubAgentsStopRunRpc = Rpc.make(WS_METHODS.subAgentsStopRun, {
+  payload: ProviderStopSubagentInput,
+  success: Schema.Boolean,
+  error: WsRpcError,
+});
+
 export const WsProviderListPluginsRpc = Rpc.make(WS_METHODS.providerListPlugins, {
   payload: ProviderListPluginsInput,
   success: ProviderListPluginsResult,
@@ -916,6 +954,10 @@ export const WsRpcGroup = RpcGroup.make(
   WsProviderListAgentsRpc,
   WsSkillsListLocalRpc,
   WsSkillsSetEnabledRpc,
+  WsSubAgentsListRpc,
+  WsSubAgentsSaveRpc,
+  WsSubAgentsDeleteRpc,
+  WsSubAgentsStopRunRpc,
   WsAutomationListRpc,
   WsAutomationGetRpc,
   WsAutomationCreateRpc,

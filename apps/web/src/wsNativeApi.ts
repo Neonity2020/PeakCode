@@ -612,6 +612,13 @@ export function createWsNativeApi(): NativeApi {
       listLocal: () => transport.request(WS_METHODS.skillsListLocal, null),
       setEnabled: (input) => transport.request(WS_METHODS.skillsSetEnabled, input),
     },
+    subAgents: {
+      list: () => transport.request(WS_METHODS.subAgentsList, {}),
+      save: (input) => transport.request(WS_METHODS.subAgentsSave, input),
+      delete: (input) => transport.request(WS_METHODS.subAgentsDelete, input),
+      /** End one worker a running Multi-Agent turn has out; `false` = nothing was running. */
+      stopRun: (input) => transport.request(WS_METHODS.subAgentsStopRun, input),
+    },
     orchestration: {
       getSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getSnapshot),
       getShellSnapshot: () => transport.request(ORCHESTRATION_WS_METHODS.getShellSnapshot),

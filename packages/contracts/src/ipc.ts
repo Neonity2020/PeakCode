@@ -142,7 +142,13 @@ import type {
   SetSkillEnabledInput,
   SetSkillEnabledResult,
 } from "./providerDiscovery";
-import type { ProviderCompactThreadInput } from "./provider";
+import {
+  SubAgentsDeleteInput,
+  SubAgentsListInput,
+  SubAgentsSaveInput,
+  SubAgentsSavedInput,
+} from "./subAgents";
+import type { ProviderCompactThreadInput, ProviderStopSubagentInput } from "./provider";
 import type {
   AgentApprovalModeSetInput,
   AgentApprovalModeSetResult,
@@ -522,6 +528,14 @@ export interface NativeApi {
   skills: {
     listLocal: () => Promise<ListLocalUserSkillsResult>;
     setEnabled: (input: SetSkillEnabledInput) => Promise<SetSkillEnabledResult>;
+  };
+  /** Named workers the multi-agent orchestrator delegates to (Settings → Sub-agents). */
+  subAgents: {
+    list: (input: SubAgentsListInput) => Promise<SubAgentsSavedInput>;
+    save: (input: SubAgentsSaveInput) => Promise<SubAgentsSavedInput>;
+    delete: (input: SubAgentsDeleteInput) => Promise<SubAgentsSavedInput>;
+    /** Ends one running worker of a Multi-Agent turn; `false` = nothing was running. */
+    stopRun: (input: ProviderStopSubagentInput) => Promise<boolean>;
   };
   /** Composer toolbar state: approval policy + context usage for a thread. */
   agentRuntime: {

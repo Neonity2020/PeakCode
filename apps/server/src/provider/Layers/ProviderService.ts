@@ -24,6 +24,7 @@ import {
   ProviderSteerTurnInput,
   ProviderSessionStartInput,
   ProviderStopSessionInput,
+  ProviderStopSubagentInput,
   ProviderStartOptions,
   EventId,
   type ProviderRuntimeEvent,
@@ -1074,6 +1075,39 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
         });
       });
 
+    const stopSubagent: ProviderServiceShape["stopSubagent"] = (rawInput) =>
+      Effect.gen(function* () {
+        const input = yield* decodeInputOrValidationError({
+          operation: "ProviderService.stopSubagent",
+          schema: ProviderStopSubagentInput,
+          payload: rawInput,
+        });
+        const routed = yield* resolveRoutableSession({
+          threadId: input.threadId,
+          operation: "ProviderService.stopSubagent",
+          // Same rule as a turn stop: a worker can only be stopped by the session that owns it,
+          // and recovering one here would abort a fresh runtime while the real worker runs on.
+          allowRecovery: false,
+        });
+        const stop = routed.adapter.stopSubagent;
+        if (!routed.isActive || !stop) {
+          yield* Effect.logInfo("provider sub-agent stop skipped: no live session or unsupported", {
+            threadId: input.threadId,
+          });
+          return false;
+        }
+        const stopped = yield* stop({
+          threadId: routed.threadId,
+          providerThreadId: input.providerThreadId,
+        });
+        if (stopped) {
+          yield* analytics.record("provider.subagent.stopped", {
+            provider: routed.adapter.provider,
+          });
+        }
+        return stopped;
+      });
+
     const respondToRequest: ProviderServiceShape["respondToRequest"] = (rawInput) =>
       Effect.gen(function* () {
         const input = yield* decodeInputOrValidationError({
@@ -1381,6 +1415,7 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       steerTurn,
       startReview,
       interruptTurn,
+      stopSubagent,
       abandonTurn,
       respondToRequest,
       respondToUserInput,

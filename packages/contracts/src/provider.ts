@@ -121,6 +121,21 @@ export const ProviderStopSessionInput = Schema.Struct({
 });
 export type ProviderStopSessionInput = typeof ProviderStopSessionInput.Type;
 
+/**
+ * End one delegated worker, leaving its siblings and the orchestrating turn alone.
+ *
+ * `providerThreadId` is the worker id the delegation card published; `threadId` is the
+ * orchestrator's thread. Stopping the whole turn already aborts every worker it had out, but a
+ * delegation of several broad workers is exactly the case where the user wants to drop *one* of
+ * them and keep the rest of the turn — killing the turn to kill one worker throws away the
+ * orchestrator's context and every sibling's work.
+ */
+export const ProviderStopSubagentInput = Schema.Struct({
+  threadId: ThreadId,
+  providerThreadId: TrimmedNonEmptyString,
+});
+export type ProviderStopSubagentInput = typeof ProviderStopSubagentInput.Type;
+
 export const ProviderCompactThreadInput = Schema.Struct({
   threadId: ThreadId,
 });

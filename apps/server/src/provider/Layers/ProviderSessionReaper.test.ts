@@ -98,7 +98,15 @@ async function withReaper(
               getCommandReadModel: () => unsupported(),
               getCounts: () => unsupported(),
               getSnapshotSequence: () => unsupported(),
-              getShellSnapshot: () => unsupported(),
+              // The sweep reads what the projection claims, so the harness has to serve the
+              // same shell it hands out by id.
+              getShellSnapshot: () =>
+                Effect.succeed({
+                  snapshotSequence: 0,
+                  projects: [],
+                  threads: [input.threadShell],
+                  updatedAt: new Date().toISOString(),
+                }),
               getActiveProjectByWorkspaceRoot: () => unsupported(),
               getProjectShellById: () => unsupported(),
               getFirstActiveThreadIdByProjectId: () => unsupported(),
@@ -131,6 +139,7 @@ function makeProviderService(input: {
     steerTurn: () => unsupported(),
     startReview: () => unsupported(),
     interruptTurn: () => unsupported(),
+    stopSubagent: () => unsupported(),
     abandonTurn: () => unsupported(),
     respondToRequest: () => unsupported(),
     respondToUserInput: () => unsupported(),
@@ -193,6 +202,40 @@ describe("ProviderSessionReaperLive", () => {
     // resume cursor, and the next message would start a conversation with no memory.
     expect(stopRuntimeSession).toHaveBeenCalledWith({ threadId });
     expect(dispatched).toEqual([]);
+  });
+
+  it("settles a child thread that claims a turn, which has no provider binding of its own", async () => {
+    // A delegated worker's child thread is written by runtime events alone: no provider session
+    // was ever started for it, so it has no binding. A sweep driven by bindings walked straight
+    // past it, leaving it "running" through every restart with nothing for the user to press.
+    const threadId = ThreadId.makeUnsafe("subagent:thread-parent:explore-1a2b3c4d");
+    const turnId = TurnId.makeUnsafe("turn-worker-1");
+    const dispatched: DispatchedCommand[] = [];
+
+    await withReaper(
+      {
+        threadShell: makeThreadShell({ threadId, activeTurnId: turnId }),
+        directory: {
+          upsert: () => Effect.void,
+          getProvider: () => unsupported(),
+          getBinding: () => unsupported(),
+          remove: () => Effect.void,
+          listThreadIds: () => Effect.succeed([]),
+          listBindings: () => Effect.succeed([]),
+        },
+        providerService: makeProviderService({ stopRuntimeSession: vi.fn(() => Effect.void) }),
+        dispatched,
+      },
+      async () => {
+        await waitFor(
+          () => dispatched.filter((command) => command.type === "thread.session.set").length === 1,
+        );
+      },
+    );
+
+    expect(
+      dispatched.find((command) => command.type === "thread.session.set")?.session,
+    ).toMatchObject({ threadId, status: "interrupted", activeTurnId: null });
   });
 
   it("settles a turn the projection still calls running when no session is live", async () => {

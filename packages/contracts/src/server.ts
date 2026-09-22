@@ -10,7 +10,7 @@ import { KeybindingRule, ResolvedKeybindingsConfig } from "./keybindings";
 import { EditorId } from "./editor";
 import { ProviderKind } from "./orchestration";
 import { ServerSettings, ServerSettingsPatch } from "./settings";
-import { ModelProvidersFile } from "./modelProviders";
+import { ModelProviderApiKind, ModelProvidersFile } from "./modelProviders";
 import { PiPackagesSnapshot } from "./piPackages";
 import { ExecutionEnvironmentDescriptor } from "./environment";
 
@@ -512,10 +512,29 @@ export const ServerTestModelProviderResult = Schema.Struct({
 });
 export type ServerTestModelProviderResult = typeof ServerTestModelProviderResult.Type;
 
+/**
+ * Values from the "add provider" form, for a provider that does not exist in
+ * `models.json` yet.
+ *
+ * Without this the create form could only offer a model picker *after* saving the
+ * provider — the two-step flow the form is meant to remove. Every field is optional:
+ * whatever the form left blank falls back to the saved config, so the same RPC serves
+ * both the create form and the saved provider's "fetch models" button.
+ */
+export const ServerListProviderModelsDraft = Schema.Struct({
+  baseUrl: Schema.optional(TrimmedNonEmptyString),
+  /** A literal key from the form; a reference (`$ENV`, `!cmd`) is left to pi to resolve. */
+  apiKey: Schema.optional(Schema.String),
+  api: Schema.optional(ModelProviderApiKind),
+  authHeader: Schema.optional(Schema.Boolean),
+});
+export type ServerListProviderModelsDraft = typeof ServerListProviderModelsDraft.Type;
+
 export const ServerListProviderModelsInput = Schema.Struct({
   agentDir: Schema.optional(TrimmedNonEmptyString),
-  /** Provider key in models.json; its saved baseUrl/credential are used. */
+  /** Provider key in models.json; its saved baseUrl/credential are used when no draft is given. */
   provider: TrimmedNonEmptyString,
+  draft: Schema.optional(ServerListProviderModelsDraft),
 });
 export type ServerListProviderModelsInput = typeof ServerListProviderModelsInput.Type;
 

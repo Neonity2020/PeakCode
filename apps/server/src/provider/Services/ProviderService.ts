@@ -25,6 +25,7 @@ import type {
   ProviderSession,
   ProviderSessionStartInput,
   ProviderStopSessionInput,
+  ProviderStopSubagentInput,
   ThreadId,
   TurnId,
   ProviderTurnStartResult,
@@ -84,6 +85,16 @@ export interface ProviderServiceShape {
   readonly interruptTurn: (
     input: ProviderInterruptTurnInput,
   ) => Effect.Effect<void, ProviderServiceError>;
+
+  /**
+   * End one delegated worker of a running turn, leaving the turn and its siblings alone.
+   *
+   * `true` = a live worker was stopped; `false` = nothing was running under that id (already
+   * finished, or the provider does not own workers at all).
+   */
+  readonly stopSubagent: (
+    input: ProviderStopSubagentInput,
+  ) => Effect.Effect<boolean, ProviderServiceError>;
 
   /**
    * Stop a turn, and free the runtime when the provider will not stop it.

@@ -112,6 +112,13 @@ function makeFakePiAdapter(provider: ProviderKind = "pi") {
     ): Effect.Effect<void, ProviderAdapterError> => Effect.void,
   );
 
+  const stopSubagent = vi.fn(
+    (_input: {
+      readonly threadId: ThreadId;
+      readonly providerThreadId: string;
+    }): Effect.Effect<boolean, ProviderAdapterError> => Effect.succeed(true),
+  );
+
   const respondToRequest = vi.fn(
     (
       _threadId: ThreadId,
@@ -183,6 +190,7 @@ function makeFakePiAdapter(provider: ProviderKind = "pi") {
     startSession,
     sendTurn,
     interruptTurn,
+    stopSubagent,
     respondToRequest,
     respondToUserInput,
     stopSession,
@@ -216,6 +224,7 @@ function makeFakePiAdapter(provider: ProviderKind = "pi") {
     startSession,
     sendTurn,
     interruptTurn,
+    stopSubagent,
     respondToRequest,
     respondToUserInput,
     stopSession,
@@ -575,6 +584,18 @@ routing.layer("ProviderServiceLive routing", (it) => {
       yield* provider.interruptTurn({ threadId: session.threadId });
       assert.deepEqual(routing.pi.interruptTurn.mock.calls, [
         [session.threadId, undefined, undefined],
+      ]);
+
+      // One worker of that turn, not the whole turn: the adapter is asked by delegation id and
+      // its `false` (nothing was running under it) is passed through rather than treated as an
+      // error, so a stale card settles instead of showing a failed stop.
+      const stoppedWorker = yield* provider.stopSubagent({
+        threadId: session.threadId,
+        providerThreadId: "explore-abc12345",
+      });
+      assert.equal(stoppedWorker, true);
+      assert.deepEqual(routing.pi.stopSubagent.mock.calls, [
+        [{ threadId: session.threadId, providerThreadId: "explore-abc12345" }],
       ]);
 
       yield* provider.respondToRequest({

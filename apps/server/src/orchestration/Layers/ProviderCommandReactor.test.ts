@@ -175,6 +175,7 @@ describe("ProviderCommandReactor", () => {
       Effect.succeed(null),
     );
     const interruptTurn = vi.fn<ProviderServiceShape["interruptTurn"]>(() => Effect.void);
+    const stopSubagent = vi.fn<ProviderServiceShape["stopSubagent"]>(() => Effect.succeed(false));
     const abandonTurn = vi.fn<ProviderServiceShape["abandonTurn"]>(() =>
       Effect.succeed("stopped" as const),
     );
@@ -280,6 +281,7 @@ describe("ProviderCommandReactor", () => {
       startReview: unsupported as ProviderServiceShape["startReview"],
       forkThread,
       interruptTurn: interruptTurn as ProviderServiceShape["interruptTurn"],
+      stopSubagent: stopSubagent as ProviderServiceShape["stopSubagent"],
       abandonTurn: abandonTurn as ProviderServiceShape["abandonTurn"],
       respondToRequest: respondToRequest as ProviderServiceShape["respondToRequest"],
       respondToUserInput: respondToUserInput as ProviderServiceShape["respondToUserInput"],

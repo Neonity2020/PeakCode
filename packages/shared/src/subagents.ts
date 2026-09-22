@@ -21,6 +21,22 @@ export interface ParsedSubagentAgentState {
   prompt?: string | undefined;
   status?: string | undefined;
   message?: string | undefined;
+  /** Distinct tool calls the worker has started, as published on the delegation item. */
+  steps?: number | undefined;
+  /** Title of the worker's most recent tool call. */
+  lastStep?: string | undefined;
+  /** When `lastStep` happened, for the card's "N ago" ticker. */
+  lastStepAt?: string | undefined;
+  /** When the worker started, for the card's elapsed time. */
+  startedAt?: string | undefined;
+  /** The worker's most recent tool calls, oldest first — the record the card expands to show. */
+  recentSteps?: readonly ParsedSubagentWorkerStep[] | undefined;
+}
+
+/** One entry of a worker's published record. */
+export interface ParsedSubagentWorkerStep {
+  id: string;
+  title: string;
 }
 
 export interface ParsedSubagentIdentityHint {
@@ -65,6 +81,66 @@ function firstStringValue(
     const value = asTrimmedString(object[key]);
     if (value) {
       return value;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * A worker's published record.
+ *
+ * Entries are `{ id, title }`. A bare string is accepted as a legacy/loose shape — an entry
+ * without an id still renders (its title is what the user reads), and dropping the whole record
+ * because a producer sent only titles would be a worse trade than a positional key on the client.
+ */
+function readSubagentWorkerSteps(
+  object: Record<string, unknown> | null | undefined,
+): readonly ParsedSubagentWorkerStep[] {
+  if (!object) {
+    return [];
+  }
+  for (const key of ["recentSteps", "recent_steps"]) {
+    const value = object[key];
+    if (!Array.isArray(value)) {
+      continue;
+    }
+    const entries: ParsedSubagentWorkerStep[] = [];
+    value.forEach((entry, index) => {
+      const title =
+        asTrimmedString(entry) ??
+        firstStringValue(asRecord(entry), ["title", "summary", "name", "label"]);
+      if (!title) {
+        return;
+      }
+      const id = firstStringValue(asRecord(entry), ["id", "toolCallId", "tool_call_id"]);
+      entries.push({ id: id ?? `step-${index}`, title });
+    });
+    if (entries.length > 0) {
+      return entries;
+    }
+  }
+  return [];
+}
+
+function firstNumberValue(
+  object: Record<string, unknown> | null | undefined,
+  keys: readonly string[],
+): number | undefined {
+  if (!object) {
+    return undefined;
+  }
+  for (const key of keys) {
+    const value = object[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    // A worker's progress can also arrive as a numeric string (a provider that stringifies its
+    // counters). Reading it is safe; a non-numeric string is ignored rather than coerced to NaN.
+    if (typeof value === "string" && value.trim().length > 0) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
     }
   }
   return undefined;
@@ -359,6 +435,21 @@ function buildSubagentAgentState(
             "latest_update",
           ]),
         }
+      : {}),
+    ...(firstNumberValue(object, ["steps", "stepCount", "step_count"]) !== undefined
+      ? { steps: firstNumberValue(object, ["steps", "stepCount", "step_count"]) }
+      : {}),
+    ...(firstStringValue(object, ["lastStep", "last_step"])
+      ? { lastStep: firstStringValue(object, ["lastStep", "last_step"]) }
+      : {}),
+    ...(firstStringValue(object, ["lastStepAt", "last_step_at"])
+      ? { lastStepAt: firstStringValue(object, ["lastStepAt", "last_step_at"]) }
+      : {}),
+    ...(firstStringValue(object, ["startedAt", "started_at"])
+      ? { startedAt: firstStringValue(object, ["startedAt", "started_at"]) }
+      : {}),
+    ...(readSubagentWorkerSteps(object).length > 0
+      ? { recentSteps: readSubagentWorkerSteps(object) }
       : {}),
   };
 }

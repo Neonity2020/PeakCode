@@ -6,7 +6,7 @@ import {
   abandonedTurnId,
   abandonedTurnSession,
   providerSessionRunsTurn,
-  sessionClaimsActiveTurn,
+  selectAbandonedTurnThreads,
 } from "../../orchestration/abandonedTurn";
 import { OrchestrationEngineService } from "../../orchestration/Services/OrchestrationEngine";
 import { ProjectionSnapshotQuery } from "../../orchestration/Services/ProjectionSnapshotQuery";
@@ -102,22 +102,30 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
       const now = Date.now();
       const nowIso = new Date(now).toISOString();
 
+      // Sweep every thread the projection says is running, not only the ones with a provider
+      // binding: a delegated worker's child thread never had one, so a binding-driven sweep
+      // leaves it claiming to run forever (see selectAbandonedTurnThreads).
+      const shellSnapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+      for (const threadId of selectAbandonedTurnThreads({
+        threads: shellSnapshot.threads,
+        liveSessionsByThread,
+      })) {
+        const thread = yield* projectionSnapshotQuery
+          .getThreadShellById(threadId)
+          .pipe(Effect.map(Option.getOrUndefined));
+        if (thread) {
+          yield* settleAbandonedTurn(thread, nowIso);
+        }
+      }
+
       for (const binding of bindings) {
         const thread = yield* projectionSnapshotQuery
           .getThreadShellById(binding.threadId)
           .pipe(Effect.map(Option.getOrUndefined));
 
-        // No session at all, or one with no turn in flight: either way nothing is running the
-        // turn the projection claims, so the claim is stale and only this can clear it.
-        if (
-          !providerSessionRunsTurn(liveSessionsByThread.get(binding.threadId)) &&
-          sessionClaimsActiveTurn(thread?.session)
-        ) {
-          if (thread) {
-            yield* settleAbandonedTurn(thread, nowIso);
-          }
-          continue;
-        }
+        // A session that still claims a turn was already handled above; the rest of this loop
+        // is about reclaiming idle runtimes.
+        if (providerSessionRunsTurn(liveSessionsByThread.get(binding.threadId))) continue;
 
         if (binding.status === "stopped") continue;
         if (!binding.lastSeenAt) continue;

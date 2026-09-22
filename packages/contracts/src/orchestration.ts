@@ -88,8 +88,13 @@ export const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
  * - `goal`    — the full tool set plus the `goal` tool. The agent keeps the objective and
  *               acceptance criteria in state and the harness continues the work across
  *               turns until the goal is completed, abandoned, or out of budget.
+ * - `multi`   — multi-agent orchestration. The agent on this thread is the orchestrator:
+ *               it decomposes the request across the configured sub-agents (see Settings →
+ *               Sub-agents), delegates through `task`, checks each result, merges them, and
+ *               reports back. Workers run on their own model, so a heavy planner can drive
+ *               cheap search workers (or the reverse).
  */
-export const ProviderInteractionMode = Schema.Literals(["default", "plan", "goal"]);
+export const ProviderInteractionMode = Schema.Literals(["default", "plan", "goal", "multi"]);
 export type ProviderInteractionMode = typeof ProviderInteractionMode.Type;
 export const DEFAULT_PROVIDER_INTERACTION_MODE: ProviderInteractionMode = "default";
 const SidechatSourceThreadId = Schema.optional(Schema.NullOr(ThreadId)).pipe(

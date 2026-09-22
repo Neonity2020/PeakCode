@@ -1,7 +1,8 @@
 // FILE: abandonedTurn.ts
 // Purpose: End a turn that no process owns any more.
 // Layer: Orchestration support
-// Exports: sessionClaimsActiveTurn, providerSessionRunsTurn, abandonedTurnSession, abandonedTurnId
+// Exports: sessionClaimsActiveTurn, providerSessionRunsTurn, abandonedTurnSession, abandonedTurnId,
+//          selectAbandonedTurnThreads
 
 import {
   DEFAULT_RUNTIME_MODE,
@@ -76,4 +77,68 @@ export function abandonedTurnSession(input: {
 /** Turn id to attribute the closing activity to, when the session carried one. */
 export function abandonedTurnId(session: OrchestrationSession | null | undefined): TurnId | null {
   return session?.activeTurnId ?? null;
+}
+
+/**
+ * The threads whose projected session claims a turn that nothing is running.
+ *
+ * This is deliberately driven by what the *projection* claims, not by the provider-session
+ * directory. A thread can carry a live-looking session without ever having had a provider
+ * binding of its own: a delegated worker's child thread is written by runtime events alone.
+ * Sweeping bindings would therefore walk past exactly the threads that go stale when the process
+ * that was reporting on them disappears — which is how a subagent could sit at "running" through
+ * every restart, with no way for the user to end it or even tell.
+ *
+ * The invariant: after a restart nothing may claim to be in flight, and every thread is judged by
+ * the same rule — does a live provider session actually run this turn?
+ *
+ * ## Why a worker is judged by its parent instead
+ *
+ * A worker runs in its own session that the provider directory never learns about (`runSubagent`
+ * creates it inside the adapter), so "no live session runs it" is true of every worker at all
+ * times — and this sweep therefore ended every *live* worker's turn on every pass, five minutes
+ * into a healthy run. The card then read "Idle" while its worker kept making tool calls for
+ * minutes afterwards, and the worker's thread was marked interrupted while it was still working.
+ *
+ * A delegated worker's liveness is its orchestrator's turn plus the adapter's live-worker
+ * registry, and this sweep can see neither. So a child is only abandoned once its parent is:
+ * while the parent still claims an active turn, its workers are the parent's business — and when
+ * the parent is finally settled (or was never running a turn), the children follow on the same
+ * pass, because a worker cannot outlive the turn that dispatched it.
+ */
+export function selectAbandonedTurnThreads(input: {
+  readonly threads: ReadonlyArray<{
+    readonly id: ThreadId;
+    readonly session: OrchestrationSession | null | undefined;
+    readonly parentThreadId?: ThreadId | null | undefined;
+  }>;
+  readonly liveSessionsByThread: ReadonlyMap<ThreadId, ProviderSession>;
+}): ReadonlyArray<ThreadId> {
+  const byId = new Map(input.threads.map((thread) => [thread.id, thread] as const));
+  const running = (threadId: ThreadId): boolean =>
+    providerSessionRunsTurn(input.liveSessionsByThread.get(threadId));
+
+  const memo = new Map<ThreadId, boolean>();
+  const isAbandoned = (thread: (typeof input.threads)[number], depth = 0): boolean => {
+    const cached = memo.get(thread.id);
+    if (cached !== undefined) {
+      return cached;
+    }
+    let result = false;
+    if (sessionClaimsActiveTurn(thread.session) && !running(thread.id)) {
+      const parentId = thread.parentThreadId ?? null;
+      const parent = parentId ? byId.get(parentId) : undefined;
+      // Depth guard: the projection's parent links are a forest, but a corrupted link must not
+      // be able to hang the sweep.
+      result =
+        depth > 8 ||
+        !parent ||
+        !sessionClaimsActiveTurn(parent.session) ||
+        isAbandoned(parent, depth + 1);
+    }
+    memo.set(thread.id, result);
+    return result;
+  };
+
+  return input.threads.filter((thread) => isAbandoned(thread)).map((thread) => thread.id);
 }

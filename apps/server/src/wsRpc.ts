@@ -47,6 +47,7 @@ import { getProviderUsageSnapshot } from "./providerUsageSnapshot";
 import { getUsageSessionDetail, getUsageStatistics } from "./usageStatistics";
 import { listLocalUserSkills } from "./localSkills";
 import { isSkillEnabled, setSkillEnabled } from "@peakcode/agent-toolkit/skills/enablement";
+import { deleteSubAgentSnapshot, listSubAgentsSnapshot, saveSubAgentSnapshot } from "./subAgents";
 import { ServerEnvironment } from "./environment/Services/ServerEnvironment";
 import { ServerLifecycleEvents } from "./serverLifecycleEvents";
 import { ServerRuntimeStartup } from "./serverRuntimeStartup";
@@ -66,6 +67,11 @@ import type {
   ListAutomationsInput,
   RunAutomationInput,
   UpdateAutomationInput,
+} from "@peakcode/contracts";
+import type {
+  ProviderStopSubagentInput,
+  SubAgentsDeleteInput,
+  SubAgentsSaveInput,
 } from "@peakcode/contracts";
 import type {
   KanbanCreateTaskInput,
@@ -799,6 +805,27 @@ export const makeWsRpcLayer = () =>
             }),
             "Failed to update the skill",
           ),
+
+        // Sub-agent registry (multi-agent workers)
+        [WS_METHODS.subAgentsList]: () =>
+          rpcEffect(
+            Effect.sync(() => listSubAgentsSnapshot()),
+            "Failed to list sub-agents",
+          ),
+        [WS_METHODS.subAgentsSave]: (input: SubAgentsSaveInput) =>
+          rpcEffect(
+            Effect.sync(() => saveSubAgentSnapshot(input)),
+            "Failed to save the sub-agent",
+          ),
+        [WS_METHODS.subAgentsDelete]: (input: SubAgentsDeleteInput) =>
+          rpcEffect(
+            Effect.sync(() => deleteSubAgentSnapshot(input)),
+            "Failed to delete the sub-agent",
+          ),
+        // Ending one worker of a running Multi-Agent turn. `false` means nothing was running
+        // under that id — the card settles it as finished rather than as a failed stop.
+        [WS_METHODS.subAgentsStopRun]: (input: ProviderStopSubagentInput) =>
+          rpcEffect(providerService.stopSubagent(input), "Failed to stop the sub-agent"),
 
         // Automation methods
         [WS_METHODS.automationList]: (input: ListAutomationsInput) =>

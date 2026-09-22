@@ -63,7 +63,7 @@ export function scheduleTaskFromConversation(input: {
   return installedHost.scheduleTask(input);
 }
 
-const MODES: ReadonlyArray<AutomationMode> = ["default", "plan", "goal"];
+const MODES: ReadonlyArray<AutomationMode> = ["default", "plan", "goal", "multi"];
 
 const isAutomationMode = (value: string): value is AutomationMode =>
   (MODES as ReadonlyArray<string>).includes(value);

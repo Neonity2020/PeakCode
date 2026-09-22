@@ -23,6 +23,13 @@ import {
 import { Effect, Exit, Layer, ManagedRuntime, PubSub, Scope, Stream } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 
+import {
+  decodeSubagentAgentStates,
+  decodeSubagentReceiverAgents,
+} from "@peakcode/shared/subagents";
+
+import { asObject } from "../providerRuntimeEventFields.ts";
+import { buildSubagentDelegationItem } from "../../provider/piSubagentDelegation.ts";
 import { OrchestrationEventStoreLive } from "../../persistence/Layers/OrchestrationEventStore.ts";
 import { OrchestrationCommandReceiptRepositoryLive } from "../../persistence/Layers/OrchestrationCommandReceipts.ts";
 import { SqlitePersistenceMemory } from "../../persistence/Layers/Sqlite.ts";
@@ -74,6 +81,7 @@ function createProviderServiceHarness() {
     startReview: () => unsupported(),
     forkThread: () => Effect.succeed(null),
     interruptTurn: () => unsupported(),
+    stopSubagent: () => unsupported(),
     abandonTurn: () => unsupported(),
     respondToRequest: () => unsupported(),
     respondToUserInput: () => unsupported(),
@@ -3488,6 +3496,82 @@ describe("ProviderRuntimeIngestion", () => {
     );
 
     expect(childThread.title).toBe("Harper [reviewer]");
+  });
+
+  it("turns a Multi-Agent delegation card into child threads and keeps every worker on it", async () => {
+    // End-to-end over the payload the pi adapter actually emits for `task` workers: built by
+    // buildSubagentDelegationItem, stored as an activity, then decoded back out. This is the hop
+    // with no other coverage — the builder is tested against the decoders and the decoders
+    // against hand-written payloads, so a field lost to activity bounding would break the card
+    // while both of those stayed green.
+    const harness = await createHarness();
+    const now = new Date().toISOString();
+    const item = buildSubagentDelegationItem({
+      workers: [
+        {
+          providerThreadId: "explore-1a2b3c4d",
+          workerId: "explore",
+          name: "Explore",
+          description: "map the parser",
+          status: "completed",
+          message: "12 steps · Found 3 call sites.",
+        },
+        {
+          providerThreadId: "general-5e6f7a8b",
+          workerId: "general",
+          name: "General",
+          description: "fix the loader",
+          model: "openai/gpt-5-mini",
+          status: "running",
+        },
+      ],
+      inheritedModel: "deepseek/deepseek-chat",
+      settled: false,
+    });
+
+    harness.emit({
+      type: "item.updated",
+      eventId: asEventId("evt-delegation-card"),
+      provider: "pi",
+      createdAt: now,
+      threadId: asThreadId("thread-1"),
+      turnId: asTurnId("turn-parent"),
+      itemId: asItemId("pi-delegation-1"),
+      payload: {
+        itemType: "collab_agent_tool_call",
+        status: "inProgress",
+        title: "2 subagents",
+        data: { toolCallId: "pi-delegation-1", item },
+      },
+    });
+
+    await waitForThread(
+      harness.engine,
+      (entry) =>
+        entry.id === "subagent:thread-1:general-5e6f7a8b" && entry.subagentNickname === "General",
+      2000,
+      asThreadId("subagent:thread-1:general-5e6f7a8b"),
+    );
+
+    const parentThread = await waitForThread(harness.engine, (entry) =>
+      entry.activities.some((activity) => activity.id === "evt-delegation-card"),
+    );
+    const cardActivity = parentThread.activities.find(
+      (activity) => activity.id === "evt-delegation-card",
+    );
+    // The web reads the item out of `payload.data.item`, so that is exactly what has to survive.
+    const stored = asObject(
+      asObject((cardActivity?.payload as Record<string, unknown> | undefined)?.data)?.item,
+    )!;
+
+    expect(decodeSubagentReceiverAgents(stored, []).map((agent) => agent.nickname)).toEqual([
+      "Explore",
+      "General",
+    ]);
+    expect(decodeSubagentAgentStates(stored)).toMatchObject({
+      "explore-1a2b3c4d": { status: "completed", message: "12 steps · Found 3 call sites." },
+      "general-5e6f7a8b": { status: "running" },
+    });
   });
 
   it("continues processing runtime events after a single event handler failure", async () => {

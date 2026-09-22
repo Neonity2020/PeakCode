@@ -89,7 +89,8 @@ import {
   ProviderListSkillsInput,
   ListLocalUserSkillsInput,
 } from "./providerDiscovery";
-import { ProviderCompactThreadInput } from "./provider";
+import { SubAgentsDeleteInput, SubAgentsListInput, SubAgentsSaveInput } from "./subAgents";
+import { ProviderCompactThreadInput, ProviderStopSubagentInput } from "./provider";
 import {
   CreateAutomationInput,
   DeleteAutomationInput,
@@ -193,6 +194,13 @@ export const WS_METHODS = {
   // Local user skills (home-dir scan, independent of provider)
   skillsListLocal: "skills.listLocal",
   skillsSetEnabled: "skills.setEnabled",
+
+  // Sub-agents (multi-agent worker registry)
+  subAgentsList: "subAgents.list",
+  subAgentsSave: "subAgents.save",
+  subAgentsDelete: "subAgents.delete",
+  /** End one worker a Multi-Agent turn currently has out. */
+  subAgentsStopRun: "subAgents.stopRun",
 
   // Kanban methods
   agentRuntimeGet: "agentRuntime.get",
@@ -335,6 +343,12 @@ const WebSocketRequestBody = Schema.Union([
   tagRequestBody(WS_METHODS.providerListModels, ProviderListModelsInput),
   tagRequestBody(WS_METHODS.providerListAgents, ProviderListAgentsInput),
   tagRequestBody(WS_METHODS.skillsListLocal, ListLocalUserSkillsInput),
+
+  // Sub-agents
+  tagRequestBody(WS_METHODS.subAgentsList, SubAgentsListInput),
+  tagRequestBody(WS_METHODS.subAgentsSave, SubAgentsSaveInput),
+  tagRequestBody(WS_METHODS.subAgentsDelete, SubAgentsDeleteInput),
+  tagRequestBody(WS_METHODS.subAgentsStopRun, ProviderStopSubagentInput),
 
   // Automation methods
   tagRequestBody(WS_METHODS.automationList, ListAutomationsInput),

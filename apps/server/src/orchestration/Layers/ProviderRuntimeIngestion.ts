@@ -643,7 +643,7 @@ const make = Effect.gen(function* () {
         providerThreadId: string,
         identity?: Pick<
           SubagentIdentity,
-          "agentId" | "nickname" | "role" | "model" | "modelIsRequestedHint"
+          "agentId" | "nickname" | "role" | "model" | "modelIsRequestedHint" | "prompt"
         >,
       ) =>
         Effect.gen(function* () {
@@ -669,6 +669,7 @@ const make = Effect.gen(function* () {
                 nickname: identity?.nickname,
                 role: identity?.role,
                 providerThreadId,
+                prompt: identity?.prompt,
               }),
               modelSelection: resolvedModelSelection ?? parentThread.modelSelection,
               runtimeMode: parentThread.runtimeMode,
@@ -704,6 +705,7 @@ const make = Effect.gen(function* () {
                           identity?.nickname ?? existingThreadShell.subagentNickname ?? undefined,
                         role: identity?.role ?? existingThreadShell.subagentRole ?? undefined,
                         providerThreadId,
+                        prompt: identity?.prompt,
                       }),
                     }
                   : {}),
@@ -732,6 +734,7 @@ const make = Effect.gen(function* () {
                   nickname: identity?.nickname,
                   role: identity?.role,
                   providerThreadId,
+                  prompt: identity?.prompt,
                 }),
                 parentThreadId: parentThread.id,
                 subagentAgentId: identity?.agentId ?? null,
