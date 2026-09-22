@@ -137,4 +137,4 @@ export function automationFormEquals(
   );
 }
 
-export const AUTOMATION_MODES: ReadonlyArray<AutomationMode> = ["default", "plan", "goal"];
+export const AUTOMATION_MODES: ReadonlyArray<AutomationMode> = ["default", "plan", "goal", "multi"];

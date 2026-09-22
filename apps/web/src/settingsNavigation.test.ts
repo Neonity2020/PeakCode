@@ -43,11 +43,13 @@ describe("settingsNavigation", () => {
       "Basics",
       "Agent",
       "Data & stats",
+      "System",
     ]);
     expect(buildSettingsNavGroups(MESSAGES.zh).map((g) => g.label)).toEqual([
       "基础设置",
       "Agent 能力",
       "数据与统计",
+      "系统",
     ]);
   });
 
@@ -62,6 +64,17 @@ describe("settingsNavigation", () => {
     const skills = buildSettingsNavItems(MESSAGES.zh).find((item) => item.id === "skills");
     expect(skills?.label).toBe("技能");
     expect(skills?.group).toBe("agent");
+  });
+
+  it("lists the sub-agents section under the agent group", () => {
+    const subAgents = buildSettingsNavItems(MESSAGES.zh).find((item) => item.id === "subAgents");
+
+    expect(subAgents?.label).toBe("子智能体");
+    expect(subAgents?.group).toBe("agent");
+    expect(buildSettingsNavItems(MESSAGES.en).find((item) => item.id === "subAgents")?.label).toBe(
+      "Sub-agents",
+    );
+    expect(normalizeSettingsSection("subAgents")).toBe("subAgents");
   });
 
   it("lists the model providers section under the basics group", () => {
@@ -81,5 +94,16 @@ describe("settingsNavigation", () => {
       "Usage",
     );
     expect(normalizeSettingsSection("usage")).toBe("usage");
+  });
+
+  it("lists the about section under its own system group", () => {
+    const about = buildSettingsNavItems(MESSAGES.zh).find((item) => item.id === "about");
+
+    expect(about?.label).toBe("关于");
+    expect(about?.group).toBe("system");
+    expect(buildSettingsNavItems(MESSAGES.en).find((item) => item.id === "about")?.label).toBe(
+      "About",
+    );
+    expect(normalizeSettingsSection("about")).toBe("about");
   });
 });

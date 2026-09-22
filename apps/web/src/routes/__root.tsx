@@ -1,12 +1,10 @@
 import {
-  PROVIDER_DISPLAY_NAMES,
   ThreadId,
   type OrchestrationEvent,
   type OrchestrationShellSnapshot,
   type OrchestrationShellStreamEvent,
   type OrchestrationThread,
   type ServerConfig,
-  type ServerProviderStatus,
 } from "@peakcode/contracts";
 import { defaultTerminalTitleForCliKind } from "@peakcode/shared/terminalThreads";
 import {
@@ -18,7 +16,7 @@ import {
   useRouterState,
   useSearch,
 } from "@tanstack/react-router";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { QueryClient, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Throttler } from "@tanstack/react-pacer";
 
@@ -39,7 +37,7 @@ import {
   serverQueryKeys,
   serverSettingsQueryOptions,
 } from "../lib/serverReactQuery";
-import { ensureNativeApi, readNativeApi } from "../nativeApi";
+import { readNativeApi } from "../nativeApi";
 import {
   finalizePromotedDraftThreads,
   markPromotedDraftThreads,
@@ -86,7 +84,6 @@ import {
 
 const SHELL_SNAPSHOT_BOOTSTRAP_FALLBACK_DELAY_MS = 1_500;
 const THREAD_DETAIL_CATCHUP_INTERVAL_MS = 1_500;
-const seenProviderUpdateNotificationKeys = new Set<string>();
 
 function shellThreadHasStarted(thread: OrchestrationShellSnapshot["threads"][number]): boolean {
   return thread.latestTurn !== null || thread.session !== null;
@@ -150,187 +147,12 @@ function RootRouteView() {
           <GlobalShortcutsDialog />
           <GlobalWhatsNewSurface />
           <TaskCompletionNotifications />
-          <ProviderUpdateNotifications />
           <DesktopProjectBootstrap />
           <Outlet />
         </AnchoredToastProvider>
       </ToastProvider>
     </I18nProvider>
   );
-}
-
-function ProviderUpdateNotifications() {
-  const messages = useMessages();
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
-  const serverConfigQuery = useQuery(serverConfigQueryOptions());
-  const [isUpdatingAll, setIsUpdatingAll] = useState(false);
-  const updateToastIdRef = useRef<ReturnType<typeof toastManager.add> | null>(null);
-  const outdatedProviders = useMemo(
-    () =>
-      (serverConfigQuery.data?.providers ?? []).filter(
-        (provider) =>
-          provider.versionAdvisory?.status === "behind_latest" &&
-          provider.versionAdvisory.canUpdate,
-      ),
-    [serverConfigQuery.data?.providers],
-  );
-
-  const updateAll = useCallback(
-    async (providers: ReadonlyArray<ServerProviderStatus>) => {
-      if (isUpdatingAll || providers.length === 0) {
-        return;
-      }
-
-      setIsUpdatingAll(true);
-      if (updateToastIdRef.current) {
-        toastManager.update(updateToastIdRef.current, {
-          type: "loading",
-          title: messages.notification.providerUpdate.titleMany(providers.length),
-          description:
-            providers.length === 1
-              ? messages.notification.providerUpdate.description(
-                  PROVIDER_DISPLAY_NAMES[providers[0]!.provider],
-                )
-              : messages.notification.providerUpdate.descriptionMany(providers.length),
-          actionProps: undefined,
-          data: undefined,
-          timeout: 0,
-        });
-      }
-
-      const api = ensureNativeApi();
-      const failures: Array<{ provider: ServerProviderStatus; reason: string }> = [];
-
-      for (const provider of providers) {
-        try {
-          const result = await api.server.updateProvider({ provider: provider.provider });
-          const refreshed = result.providers.find((entry) => entry.provider === provider.provider);
-          const updateState = refreshed?.updateState;
-          if (updateState?.status === "failed" || updateState?.status === "unchanged") {
-            failures.push({
-              provider,
-              reason: updateState.message ?? messages.notification.providerUpdate.errorFallback,
-            });
-          } else if (refreshed?.versionAdvisory?.status === "behind_latest") {
-            failures.push({
-              provider,
-              reason: messages.notification.providerUpdate.stillOutdated,
-            });
-          }
-        } catch (error) {
-          failures.push({
-            provider,
-            reason:
-              error instanceof Error
-                ? error.message
-                : messages.notification.providerUpdate.requestFailed,
-          });
-        }
-      }
-
-      await queryClient.invalidateQueries({ queryKey: serverQueryKeys.config() });
-      setIsUpdatingAll(false);
-
-      if (failures.length > 0) {
-        if (updateToastIdRef.current) {
-          toastManager.close(updateToastIdRef.current);
-          updateToastIdRef.current = null;
-        }
-        toastManager.add({
-          type: "error",
-          title:
-            failures.length === providers.length
-              ? messages.notification.providerUpdate.failedTitleAll
-              : messages.notification.providerUpdate.failedTitleSome,
-          description: failures
-            .map(
-              ({ provider, reason }) => `${PROVIDER_DISPLAY_NAMES[provider.provider]}: ${reason}`,
-            )
-            .join("\n"),
-        });
-        return;
-      }
-
-      if (updateToastIdRef.current) {
-        toastManager.update(updateToastIdRef.current, {
-          type: "success",
-          title:
-            providers.length === 1
-              ? messages.notification.providerUpdate.successTitleOne(
-                  PROVIDER_DISPLAY_NAMES[providers[0]!.provider],
-                )
-              : messages.notification.providerUpdate.successTitleMany(providers.length),
-          description: messages.notification.providerUpdate.successDescription,
-          timeout: 6000,
-        });
-        updateToastIdRef.current = null;
-      } else {
-        toastManager.add({
-          type: "success",
-          title:
-            providers.length === 1
-              ? messages.notification.providerUpdate.successTitleOne(
-                  PROVIDER_DISPLAY_NAMES[providers[0]!.provider],
-                )
-              : messages.notification.providerUpdate.successTitleMany(providers.length),
-          description: messages.notification.providerUpdate.successDescription,
-        });
-      }
-    },
-    [isUpdatingAll, queryClient, messages],
-  );
-
-  useEffect(() => {
-    if (outdatedProviders.length === 0 || isUpdatingAll) {
-      return;
-    }
-
-    const newNotifications = outdatedProviders.filter((provider) => {
-      const notificationKey = `${provider.provider}:${provider.versionAdvisory?.latestVersion ?? "unknown"}`;
-      if (seenProviderUpdateNotificationKeys.has(notificationKey)) {
-        return false;
-      }
-      seenProviderUpdateNotificationKeys.add(notificationKey);
-      return true;
-    });
-
-    if (newNotifications.length === 0) {
-      return;
-    }
-
-    const firstProvider = outdatedProviders[0]!;
-    const additionalCount = outdatedProviders.length - 1;
-    const providerName = PROVIDER_DISPLAY_NAMES[firstProvider.provider];
-    const title =
-      outdatedProviders.length === 1
-        ? messages.notification.providerUpdate.availableTitleOne(providerName)
-        : messages.notification.providerUpdate.availableTitleMany(outdatedProviders.length);
-    const description =
-      outdatedProviders.length === 1
-        ? messages.notification.providerUpdate.availableDescriptionOne(providerName)
-        : messages.notification.providerUpdate.availableDescriptionMany(
-            providerName,
-            additionalCount,
-          );
-
-    updateToastIdRef.current = toastManager.add({
-      type: "warning",
-      title,
-      description,
-      timeout: 0,
-      data: {
-        secondaryActionProps: {
-          children: messages.notification.providerUpdate.actionUpdateAll,
-          onClick: () => {
-            void updateAll(outdatedProviders);
-          },
-        },
-      },
-    });
-  }, [isUpdatingAll, navigate, outdatedProviders, updateAll]);
-
-  return null;
 }
 
 function GlobalShortcutsDialog() {

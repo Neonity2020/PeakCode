@@ -6,7 +6,7 @@
 import { type ThreadId, DEFAULT_GIT_TEXT_GENERATION_MODEL } from "@peakcode/contracts";
 import { createFileRoute, useNavigate, useSearch } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   MAX_CHAT_FONT_SIZE_PX,
   MIN_CHAT_FONT_SIZE_PX,
@@ -15,12 +15,19 @@ import {
   type LanguageSetting,
   useAppSettings,
 } from "../appSettings";
-import { APP_VERSION } from "../branding";
+import { AboutSettingsPanel } from "../components/AboutSettingsPanel";
 import { ModelProvidersSettingsPanel } from "../components/ModelProvidersSettingsPanel";
 import { ImChannelsSettingsPanel } from "../components/ImChannelsSettingsPanel";
 import { PiPackagesSettingsPanel } from "../components/PiPackagesSettingsPanel";
 import { SettingsNav } from "../components/SettingsNav";
+import {
+  SettingResetButton,
+  SettingsCard,
+  SettingsRow,
+  SettingsSection,
+} from "../components/settingsPrimitives";
 import { SkillsPanel } from "../components/SkillsPanel";
+import { SubAgentsSettingsPanel } from "../components/SubAgentsSettingsPanel";
 import { UsageStatsPanel } from "../components/UsageStatsPanel";
 import { SidebarHeaderNavigationControls } from "../components/SidebarHeaderNavigationControls";
 import { Button } from "../components/ui/button";
@@ -36,12 +43,11 @@ import { Switch } from "../components/ui/switch";
 import { toastManager } from "../components/ui/toast";
 import { ThemePackEditor } from "../components/ThemePackEditor";
 import { SidebarHeaderTrigger, SidebarInset } from "../components/ui/sidebar";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "../components/ui/tooltip";
 import { resolveAndPersistPreferredEditor } from "../editorPreferences";
 import { isElectron } from "../env";
 import { useTheme } from "../hooks/useTheme";
 import { gitRemoveWorktreeMutationOptions } from "../lib/gitReactQuery";
-import { ArchiveIcon, ChevronDownIcon, RotateCcwIcon, Undo2Icon } from "../lib/icons";
+import { ArchiveIcon, ChevronDownIcon, RotateCcwIcon } from "../lib/icons";
 import { providerModelsQueryOptions } from "../lib/providerDiscoveryReactQuery";
 import {
   serverConfigQueryOptions,
@@ -76,130 +82,8 @@ import { formatWorktreePathForDisplay } from "../worktreeCleanup";
 const NO_DEFAULT_MODEL_OPTION = "__first-available-model__";
 
 // ── Settings UI primitives ────────────────────────────────────────────────
-
-/**
- * A titled group of settings: bold heading, optional description, then the
- * card that holds the rows.
- */
-function SettingsSection({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="space-y-3">
-      <header className="px-0.5">
-        <h2 className="text-[14px] leading-5 font-semibold text-foreground">{title}</h2>
-        {description ? (
-          <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">{description}</p>
-        ) : null}
-      </header>
-      {children}
-    </section>
-  );
-}
-
-/** White card that groups rows; rows draw their own separators. */
-function SettingsCard({ children }: { children: ReactNode }) {
-  return (
-    <div
-      className="overflow-hidden rounded-xl border border-[color:var(--color-border-light)] bg-[var(--color-background-panel)]"
-      data-slot="settings-card"
-    >
-      {children}
-    </div>
-  );
-}
-
-function SettingsRow({
-  title,
-  description,
-  status,
-  resetAction,
-  control,
-  children,
-  onClick,
-}: {
-  title: string;
-  description: string;
-  status?: ReactNode;
-  resetAction?: ReactNode;
-  control?: ReactNode;
-  children?: ReactNode;
-  onClick?: () => void;
-}) {
-  return (
-    <div
-      className="group/settings-row border-b border-[color:var(--color-border-light)] px-5 py-4 transition-colors last:border-b-0 hover:bg-[var(--sidebar-accent)]"
-      data-slot="settings-row"
-    >
-      <div
-        className={cn(
-          "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
-          onClick && "cursor-pointer",
-        )}
-        onClick={onClick}
-      >
-        <div className="min-w-0 flex-1 space-y-0.5">
-          <div className="flex min-h-5 items-center gap-1.5">
-            <h3 className="text-sm font-medium text-foreground">{title}</h3>
-            <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center opacity-0 transition-opacity group-hover/settings-row:opacity-100 group-focus-within/settings-row:opacity-100">
-              {resetAction}
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground">{description}</p>
-          {status ? <div className="pt-1 text-[11px] text-muted-foreground">{status}</div> : null}
-        </div>
-        {control ? (
-          <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto sm:justify-end">
-            {control}
-          </div>
-        ) : null}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function SettingResetButton({
-  label,
-  onClick,
-  tooltip,
-  ariaLabel,
-}: {
-  label: string;
-  onClick: () => void;
-  tooltip?: string;
-  ariaLabel?: string;
-}) {
-  const resolvedTooltip = tooltip ?? "Reset to default";
-  const resolvedAriaLabel = ariaLabel ?? `Reset ${label} to default`;
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <Button
-            size="icon-xs"
-            variant="ghost"
-            aria-label={resolvedAriaLabel}
-            className="size-5 rounded-sm p-0 text-muted-foreground hover:text-foreground"
-            onClick={(event) => {
-              event.stopPropagation();
-              onClick();
-            }}
-          >
-            <Undo2Icon className="size-3" />
-          </Button>
-        }
-      />
-      <TooltipPopup side="top">{resolvedTooltip}</TooltipPopup>
-    </Tooltip>
-  );
-}
+// SettingsSection / SettingsCard / SettingsRow / SettingResetButton live in
+// components/settingsPrimitives.tsx so standalone panels share the same chrome.
 
 function normalizeManagedWorktreePath(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -1754,18 +1638,6 @@ function SettingsRouteView() {
           </SettingsRow>
         </SettingsCard>
       </SettingsSection>
-
-      <SettingsSection title={messages.settings.advanced.aboutSection}>
-        <SettingsCard>
-          <SettingsRow
-            title={messages.settings.advanced.version.title}
-            description={messages.settings.advanced.version.description}
-            control={
-              <code className="text-xs font-medium text-muted-foreground">{APP_VERSION}</code>
-            }
-          />
-        </SettingsCard>
-      </SettingsSection>
     </div>
   );
 
@@ -1781,6 +1653,8 @@ function SettingsRouteView() {
         return renderBehaviorPanel();
       case "skills":
         return <SkillsPanel />;
+      case "subAgents":
+        return <SubAgentsSettingsPanel />;
       case "worktrees":
         return renderWorktreesPanel();
       case "archived":
@@ -1805,6 +1679,8 @@ function SettingsRouteView() {
         );
       case "advanced":
         return renderAdvancedPanel();
+      case "about":
+        return <AboutSettingsPanel />;
       default:
         return null;
     }

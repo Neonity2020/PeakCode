@@ -10,6 +10,8 @@ import {
   ArchiveIcon,
   BellIcon,
   BookIcon,
+  BotIcon,
+  InfoIcon,
   type LucideIcon,
   PackageIcon,
   PaletteIcon,
@@ -27,16 +29,18 @@ export const SETTINGS_SECTION_IDS = [
   "behavior",
   "channels",
   "skills",
+  "subAgents",
   "piPackages",
   "modelProviders",
   "worktrees",
   "archived",
   "usage",
   "advanced",
+  "about",
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
-export type SettingsNavGroupId = "basics" | "agent" | "data";
+export type SettingsNavGroupId = "basics" | "agent" | "data" | "system";
 
 export type SettingsNavItem = {
   id: SettingsSectionId;
@@ -105,6 +109,13 @@ const SETTINGS_NAV_ITEM_SPECS_INTERNAL: readonly SettingsNavItemSpec[] = [
     descriptionKey: "skills",
   },
   {
+    id: "subAgents",
+    group: "agent",
+    icon: BotIcon,
+    labelKey: "subAgents",
+    descriptionKey: "subAgents",
+  },
+  {
     id: "piPackages",
     group: "agent",
     icon: PackageIcon,
@@ -139,9 +150,21 @@ const SETTINGS_NAV_ITEM_SPECS_INTERNAL: readonly SettingsNavItemSpec[] = [
     labelKey: "advanced",
     descriptionKey: "advanced",
   },
+  {
+    id: "about",
+    group: "system",
+    icon: InfoIcon,
+    labelKey: "about",
+    descriptionKey: "about",
+  },
 ] as const;
 
-const SETTINGS_NAV_GROUP_IDS: readonly SettingsNavGroupId[] = ["basics", "agent", "data"] as const;
+const SETTINGS_NAV_GROUP_IDS: readonly SettingsNavGroupId[] = [
+  "basics",
+  "agent",
+  "data",
+  "system",
+] as const;
 
 export function buildSettingsNavItems(messages: Messages): readonly SettingsNavItem[] {
   return SETTINGS_NAV_ITEM_SPECS_INTERNAL.map((spec) => {

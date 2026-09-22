@@ -82,7 +82,6 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { restrictToFirstScrollableAncestor, restrictToVerticalAxis } from "@dnd-kit/modifiers";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  type DesktopUpdateState,
   type OrchestrationShellSnapshot,
   ProjectId,
   type ProviderKind,
@@ -162,6 +161,7 @@ import {
 } from "./SidebarSearchPalette";
 import { useHandleNewChat } from "../hooks/useHandleNewChat";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useDesktopUpdate } from "../hooks/useDesktopUpdate";
 import { selectThreadTerminalState, useTerminalStateStore } from "../terminalStateStore";
 import { useFilesExplorerStore } from "../filesExplorerStore";
 import { toastManager } from "./ui/toast";
@@ -172,15 +172,11 @@ import {
 } from "./Sidebar.uiState";
 import {
   getArm64IntelBuildWarningDescription,
-  getDesktopUpdateActionError,
   getDesktopUpdateButtonPresentation,
   getDesktopUpdateButtonTooltip,
-  isDesktopUpdateButtonDisabled,
-  resolveDesktopUpdateButtonAction,
   shouldShowArm64IntelBuildWarning,
   shouldHighlightDesktopUpdateError,
   shouldShowDesktopUpdateButton,
-  shouldToastDesktopUpdateActionResult,
 } from "./desktopUpdate.logic";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "./ui/alert";
 import { Button } from "./ui/button";
@@ -508,10 +504,8 @@ export default function Sidebar() {
   const intentThreadRetentionByIdRef = useRef(
     new Map<ThreadId, { release: () => void; timeoutId: number }>(),
   );
-  const [desktopUpdateState, setDesktopUpdateState] = useState<DesktopUpdateState | null>(null);
   const [renamingWorkspaceId, setRenamingWorkspaceId] = useState<string | null>(null);
   const [renamingWorkspaceTitle, setRenamingWorkspaceTitle] = useState("");
-  const [installingDesktopUpdate, setInstallingDesktopUpdate] = useState(false);
   const selectedThreadIds = useThreadSelectionStore((s) => s.selectedThreadIds);
   const toggleThreadSelection = useThreadSelectionStore((s) => s.toggleThread);
   const rangeSelectTo = useThreadSelectionStore((s) => s.rangeSelectTo);
@@ -4202,38 +4196,10 @@ export default function Sidebar() {
     visibleSidebarThreadIds,
   ]);
 
-  useEffect(() => {
-    if (!isElectron) return;
-    const bridge = window.desktopBridge;
-    if (
-      !bridge ||
-      typeof bridge.getUpdateState !== "function" ||
-      typeof bridge.onUpdateState !== "function"
-    ) {
-      return;
-    }
-
-    let disposed = false;
-    let receivedSubscriptionUpdate = false;
-    const unsubscribe = bridge.onUpdateState((nextState) => {
-      if (disposed) return;
-      receivedSubscriptionUpdate = true;
-      setDesktopUpdateState(nextState);
-    });
-
-    void bridge
-      .getUpdateState()
-      .then((nextState) => {
-        if (disposed || receivedSubscriptionUpdate) return;
-        setDesktopUpdateState(nextState);
-      })
-      .catch(() => undefined);
-
-    return () => {
-      disposed = true;
-      unsubscribe();
-    };
-  }, []);
+  const desktopUpdate = useDesktopUpdate();
+  const desktopUpdateState = desktopUpdate.state;
+  const installingDesktopUpdate = desktopUpdate.installing;
+  const requestDesktopUpdateAction = desktopUpdate.requestAction;
 
   const showDesktopUpdateButton = isElectron && shouldShowDesktopUpdateButton(desktopUpdateState);
 
@@ -4243,11 +4209,8 @@ export default function Sidebar() {
       })
     : "Update available";
 
-  const desktopUpdateButtonDisabled =
-    isDesktopUpdateButtonDisabled(desktopUpdateState) || installingDesktopUpdate;
-  const desktopUpdateButtonAction = desktopUpdateState
-    ? resolveDesktopUpdateButtonAction(desktopUpdateState)
-    : "none";
+  const desktopUpdateButtonDisabled = desktopUpdate.disabled;
+  const desktopUpdateButtonAction = desktopUpdate.action;
   const desktopUpdateButtonPresentation = getDesktopUpdateButtonPresentation(desktopUpdateState, {
     installing: installingDesktopUpdate,
   });
@@ -4366,113 +4329,12 @@ export default function Sidebar() {
     ],
   );
 
+  // The sidebar button is one of two entry points into the shared update flow
+  // (the About settings panel is the other). State and wording live in
+  // `useDesktopUpdate` so both stay in lockstep.
   const handleDesktopUpdateButtonClick = useCallback(() => {
-    const bridge = window.desktopBridge;
-    if (!bridge || !desktopUpdateState) return;
-    if (desktopUpdateButtonDisabled || desktopUpdateButtonAction === "none") return;
-
-    // Keep the sidebar action as the single visible entry point for manual checks.
-    if (desktopUpdateButtonAction === "check") {
-      void bridge
-        .checkForUpdates()
-        .then((nextState) => {
-          setInstallingDesktopUpdate(false);
-          setDesktopUpdateState(nextState);
-          if (nextState.status === "available") {
-            toastManager.add({
-              type: "success",
-              title: "Update available",
-              description: `Version ${nextState.availableVersion ?? "available"} is ready to download.`,
-            });
-            return;
-          }
-
-          if (nextState.status === "up-to-date") {
-            toastManager.add({
-              type: "info",
-              title: "You're up to date",
-              description: `Peak Code ${nextState.currentVersion} is already the newest version.`,
-            });
-            return;
-          }
-
-          if (nextState.status === "error") {
-            toastManager.add({
-              type: "error",
-              title: "Could not check for updates",
-              description: nextState.message ?? "An unexpected error occurred.",
-            });
-          }
-        })
-        .catch((error) => {
-          toastManager.add({
-            type: "error",
-            title: "Could not check for updates",
-            description: error instanceof Error ? error.message : "An unexpected error occurred.",
-          });
-        });
-      return;
-    }
-
-    if (desktopUpdateButtonAction === "download") {
-      void bridge
-        .downloadUpdate()
-        .then((result) => {
-          setInstallingDesktopUpdate(false);
-          setDesktopUpdateState(result.state);
-          if (result.completed) {
-            toastManager.add({
-              type: "success",
-              title: "Update downloaded",
-              description: "Restart the app from the update button to install it.",
-            });
-          }
-          if (!shouldToastDesktopUpdateActionResult(result)) return;
-          const actionError = getDesktopUpdateActionError(result);
-          if (!actionError) return;
-          toastManager.add({
-            type: "error",
-            title: "Could not download update",
-            description: actionError,
-          });
-        })
-        .catch((error) => {
-          toastManager.add({
-            type: "error",
-            title: "Could not start update download",
-            description: error instanceof Error ? error.message : "An unexpected error occurred.",
-          });
-        });
-      return;
-    }
-
-    if (desktopUpdateButtonAction === "install") {
-      setInstallingDesktopUpdate(true);
-      persistAppStateNow();
-      void bridge
-        .installUpdate()
-        .then((result) => {
-          setDesktopUpdateState(result.state);
-          setInstallingDesktopUpdate(false);
-          if (!shouldToastDesktopUpdateActionResult(result)) return;
-          const actionError = getDesktopUpdateActionError(result);
-          if (!actionError) return;
-          toastManager.add({
-            type: "error",
-            title: "Could not install update",
-            description: actionError,
-          });
-        })
-        .catch((error) => {
-          setInstallingDesktopUpdate(false);
-          toastManager.add({
-            type: "error",
-            title: "Could not install update",
-            description: error instanceof Error ? error.message : "An unexpected error occurred.",
-          });
-        });
-    }
-  }, [desktopUpdateButtonAction, desktopUpdateButtonDisabled, desktopUpdateState]);
+    requestDesktopUpdateAction({ beforeInstall: persistAppStateNow });
+  }, [requestDesktopUpdateAction]);
 
   const expandThreadListForProject = useCallback((projectCwd: string) => {
     const cwdKey = normalizeSidebarProjectThreadListCwd(projectCwd);

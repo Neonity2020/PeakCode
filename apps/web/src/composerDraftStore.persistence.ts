@@ -454,6 +454,7 @@ export function normalizePersistedDraftThreads(
         interactionMode:
           candidateDraftThread.interactionMode === "plan" ||
           candidateDraftThread.interactionMode === "goal" ||
+          candidateDraftThread.interactionMode === "multi" ||
           candidateDraftThread.interactionMode === "default"
             ? candidateDraftThread.interactionMode
             : DEFAULT_INTERACTION_MODE,
