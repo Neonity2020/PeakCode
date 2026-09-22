@@ -2,7 +2,11 @@
 // Purpose: React Query hooks for the "Model Providers" settings surface.
 // Layer: Web data fetching helpers
 
-import type { ModelProvidersFile, ServerSaveModelProvidersInput } from "@peakcode/contracts";
+import type {
+  ModelProvidersFile,
+  ServerListProviderModelsDraft,
+  ServerSaveModelProvidersInput,
+} from "@peakcode/contracts";
 import {
   queryOptions,
   useMutation,
@@ -63,12 +67,16 @@ export function useSaveModelProvidersMutation() {
 /**
  * Read the provider's own `/models` list. Mutating on demand (not a query)
  * matches the UI: the list is only fetched when the user asks for it.
+ *
+ * `draft` carries the "add provider" form's unsaved Base URL / key / api, so one call
+ * backs both the saved provider's fetch button and the create form's model picker.
  */
 export function useListProviderModelsMutation(agentDir?: string) {
   return useMutation({
-    mutationFn: (provider: string) =>
+    mutationFn: (input: { provider: string; draft?: ServerListProviderModelsDraft }) =>
       ensureNativeApi().server.listProviderModels({
-        provider,
+        provider: input.provider,
+        ...(input.draft ? { draft: input.draft } : {}),
         ...(agentDir ? { agentDir } : {}),
       }),
   });

@@ -10,7 +10,11 @@ import type {
 } from "@peakcode/contracts";
 import { useMutation } from "@tanstack/react-query";
 import { ensureNativeApi } from "../nativeApi";
-import { cleanModelProviderDraft, patchModelProvider } from "../lib/modelProviderDraft";
+import {
+  cleanModelProviderDraft,
+  patchModelProvider,
+  providerIdFromName,
+} from "../lib/modelProviderDraft";
 import { cn } from "~/lib/utils";
 import { useMessages } from "../i18n";
 import {
@@ -106,10 +110,17 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
 
   const [draft, setDraft] = useState<Draft | null>(null);
   const [templateId, setTemplateId] = useState<string>(EMPTY_TEMPLATE_ID);
-  const [customKey, setCustomKey] = useState("");
   const [customName, setCustomName] = useState("");
   const [customBaseUrl, setCustomBaseUrl] = useState("");
   const [customApiKey, setCustomApiKey] = useState("");
+  /**
+   * The create form's model picker. `options` is whatever the endpoint returned when the
+   * user asked for it; `selected` is what the provider will be created with. Both live
+   * here (not in the draft) because they describe a provider that does not exist yet.
+   */
+  const [customModelOptions, setCustomModelOptions] = useState<readonly string[]>([]);
+  const [customModels, setCustomModels] = useState<readonly string[]>([]);
+  const [customModelsError, setCustomModelsError] = useState<string | null>(null);
   const [enableKey, setEnableKey] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
@@ -297,16 +308,19 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     setRemoteModelsOpen(true);
     setRemoteModelsError(null);
     const request = () =>
-      listModels.mutate(key, {
-        onSuccess: (result) => {
-          setRemoteModels(result.models);
-          setRemoteModelsError(null);
+      listModels.mutate(
+        { provider: key },
+        {
+          onSuccess: (result) => {
+            setRemoteModels(result.models);
+            setRemoteModelsError(null);
+          },
+          onError: (error) => {
+            setRemoteModels([]);
+            setRemoteModelsError(error instanceof Error ? error.message : String(error));
+          },
         },
-        onError: (error) => {
-          setRemoteModels([]);
-          setRemoteModelsError(error instanceof Error ? error.message : String(error));
-        },
-      });
+      );
     if (isDirty) {
       persistDraft(draft, request);
       return;
@@ -321,6 +335,39 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     const added = ids.filter((id) => !have.has(id)).map((id) => ({ id }));
     if (added.length === 0) return;
     commitModels(key, [...models, ...added]);
+  };
+
+  /** The provider key the create form will save under, given what is already configured. */
+  const customProviderId = providerIdFromName(customName, Object.keys(draft ?? {}));
+
+  /**
+   * Ask the endpoint the form points at which models it serves.
+   *
+   * Runs against the *draft* values, not a saved provider — that is what lets the create
+   * form offer a model picker in the same step the provider is defined.
+   */
+  const fetchCustomProviderModels = () => {
+    setCustomModelsError(null);
+    listModels.mutate(
+      {
+        provider: customProviderId,
+        draft: {
+          ...(customBaseUrl.trim() ? { baseUrl: customBaseUrl.trim() } : {}),
+          ...(customApiKey.trim() ? { apiKey: customApiKey.trim() } : {}),
+          api: "openai-completions",
+        },
+      },
+      {
+        onSuccess: (result) => {
+          setCustomModelOptions(result.models);
+          setCustomModelsError(null);
+        },
+        onError: (error) => {
+          setCustomModelOptions([]);
+          setCustomModelsError(error instanceof Error ? error.message : String(error));
+        },
+      },
+    );
   };
 
   const handleSave = () => {
@@ -360,32 +407,33 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
     );
   };
 
-  const addFromTemplate = () => {
+  /** Create (or update) a provider from the create form; returns its key, or null. */
+  const addFromTemplate = (): string | null => {
     if (templateId === EMPTY_TEMPLATE_ID) {
-      if (customKey.trim().length === 0) return;
-      const key = customKey.trim();
-      const existing = draft[key];
-      // A provider is configuration from the moment it is added: it is written out with
-      // the name, endpoint and key the form was filled with.
+      const name = customName.trim();
+      if (name.length === 0) return null;
+      // One step: the provider is written with its name, endpoint, key and the model
+      // picked in this same form. The key is derived from the name so no field asks for
+      // an identifier the user could fill with the secret instead.
+      const key = providerIdFromName(name, Object.keys(draft));
+      const models = customModels.map((id) => ({ id }));
       commitDraft({
         ...draft,
         [key]: {
-          ...existing,
-          name: customName.trim().length > 0 ? customName.trim() : (existing?.name ?? key),
-          api: existing?.api ?? "openai-completions",
+          ...draft[key],
+          name,
+          api: draft[key]?.api ?? "openai-completions",
           ...(customBaseUrl.trim().length > 0 ? { baseUrl: customBaseUrl.trim() } : {}),
           ...(customApiKey.trim().length > 0 ? { apiKey: customApiKey.trim() } : {}),
+          ...(models.length > 0 ? { models } : {}),
         },
       });
-      setCustomKey("");
-      setCustomName("");
-      setCustomBaseUrl("");
-      setCustomApiKey("");
-      return;
+      resetCustomForm();
+      return key;
     }
 
     const template = MODEL_PROVIDER_TEMPLATE_BY_ID.get(templateId);
-    if (!template) return;
+    if (!template) return null;
     const key = template.id;
     const exists = draft[key] !== undefined;
     const config = modelProviderTemplateToConfig(template, customApiKey);
@@ -404,6 +452,17 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
         description: mp.providerExistsHint(draft[key]?.name ?? key),
       });
     }
+    return key;
+  };
+
+  /** Clear the create form so the next "new provider" starts blank. */
+  const resetCustomForm = () => {
+    setCustomName("");
+    setCustomBaseUrl("");
+    setCustomApiKey("");
+    setCustomModelOptions([]);
+    setCustomModels([]);
+    setCustomModelsError(null);
   };
 
   const templateOptions: ReadonlyArray<{
@@ -518,16 +577,6 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
             />
           </label>
           <label className="block">
-            <span className={PANEL_LABEL_CLASS}>{mp.providerKeyLabel}</span>
-            <Input
-              className={cn("mt-1 font-mono text-xs", PANEL_CONTROL_CLASS)}
-              value={customKey}
-              placeholder="my-provider"
-              spellCheck={false}
-              onChange={(event) => setCustomKey(event.target.value)}
-            />
-          </label>
-          <label className="block">
             <span className={PANEL_LABEL_CLASS}>{mp.providerBaseUrlLabel}</span>
             <Input
               className={cn("mt-1 font-mono text-xs", PANEL_CONTROL_CLASS)}
@@ -570,6 +619,56 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
           onChange={(event) => setCustomApiKey(event.target.value)}
         />
       </label>
+      {templateId === EMPTY_TEMPLATE_ID ? (
+        <div className="block">
+          <div className="flex items-center justify-between gap-2">
+            <span className={PANEL_LABEL_CLASS}>{mp.providerModelsLabel}</span>
+            <Button
+              type="button"
+              size="xs"
+              className={PANEL_SECONDARY_BUTTON_CLASS}
+              disabled={listModels.isPending || customBaseUrl.trim().length === 0}
+              onClick={fetchCustomProviderModels}
+            >
+              {listModels.isPending ? (
+                <Loader2Icon data-icon="inline-start" className="animate-spin" />
+              ) : (
+                <RefreshCwIcon data-icon="inline-start" />
+              )}
+              {mp.modelFetchButton}
+            </Button>
+          </div>
+          <Select
+            value={customModels[0] ?? null}
+            onValueChange={(value) => {
+              if (typeof value === "string" && value.length > 0) setCustomModels([value]);
+            }}
+          >
+            <SelectTrigger
+              className={cn("mt-1 w-full font-mono text-xs", PANEL_SELECT_CLASS)}
+              aria-label={mp.providerModelsLabel}
+            >
+              <SelectValue>{customModels[0] ?? mp.modelSelectPlaceholder}</SelectValue>
+            </SelectTrigger>
+            {/* No items until the endpoint has been asked: an empty dropdown is honest
+                about there being nothing to pick yet, unlike a fabricated option. */}
+            <SelectPopup>
+              {customModelOptions.map((id) => (
+                <SelectItem key={id} hideIndicator value={id}>
+                  {id}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {customModelsError ??
+              (customModelOptions.length === 0 ? mp.modelSelectEmpty : mp.modelSelectHint)}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {mp.providerIdHint(customProviderId)}
+          </p>
+        </div>
+      ) : null}
       <p className="text-xs text-muted-foreground">{mp.providerApiKeyHint}</p>
       <div className="flex items-center gap-2">
         <Button
@@ -577,14 +676,16 @@ export function ModelProvidersSettingsPanel({ agentDir = "" }: { agentDir?: stri
           size="sm"
           className={PANEL_PRIMARY_BUTTON_CLASS}
           onClick={() => {
-            addFromTemplate();
-            const nextKey = templateId === EMPTY_TEMPLATE_ID ? customKey.trim() : templateId;
-            if (nextKey.length > 0) {
-              setSelectedKey(nextKey);
+            const createdKey = addFromTemplate();
+            if (createdKey !== null && createdKey.length > 0) {
+              setSelectedKey(createdKey);
               setAddProviderOpen(false);
             }
           }}
-          disabled={templateId === EMPTY_TEMPLATE_ID && customKey.trim().length === 0}
+          disabled={
+            templateId === EMPTY_TEMPLATE_ID &&
+            (customName.trim().length === 0 || customBaseUrl.trim().length === 0)
+          }
         >
           <PlusIcon className="size-3.5" />
           {mp.addButton}

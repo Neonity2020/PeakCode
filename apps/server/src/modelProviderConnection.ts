@@ -116,9 +116,12 @@ export function modelListHeaders(input: {
 }
 
 /**
- * Fetch the provider's own `/models` list using the saved config. The request
- * runs here (not in the browser) so `apiKey` can stay a `!shell`/env reference
- * resolved through pi's auth, and so CORS never applies.
+ * Fetch the provider's own `/models` list.
+ *
+ * Runs here (not in the browser) so `apiKey` can stay a `!shell`/env reference resolved
+ * through pi's auth, and so CORS never applies. `input.draft` carries the "add provider"
+ * form's unsaved values and wins over the saved config field-by-field; that is what lets
+ * the create form offer a model picker before the provider exists on disk.
  */
 export async function listProviderModels(
   input: ServerListProviderModelsInput,
@@ -132,18 +135,30 @@ export async function listProviderModels(
     throw new Error("Pi could not load the model configuration. Check models.json.");
   }
 
+  const draft = input.draft;
   const config = await readSavedProviderConfig(agentDir, input.provider);
-  const baseUrl = (runtime.getProvider(input.provider)?.baseUrl ?? config?.baseUrl ?? "").trim();
+  const baseUrl = (
+    draft?.baseUrl ??
+    runtime.getProvider(input.provider)?.baseUrl ??
+    config?.baseUrl ??
+    ""
+  ).trim();
   if (baseUrl.length === 0) {
     throw new Error("This provider has no Base URL. Set one and save, then fetch the model list.");
   }
   const urls = modelListUrls(baseUrl);
-  const api = config?.api;
+  const api = draft?.api ?? config?.api;
   const requestAuth = await runtime.getAuth(input.provider);
+  // A key typed into the form outranks the stored one (the user is looking at the field);
+  // only when the form left it blank does the saved credential apply.
+  const draftKey = draft?.apiKey?.trim();
+  const apiKey =
+    draftKey !== undefined && draftKey.length > 0 ? draftKey : requestAuth?.auth.apiKey;
+  const authHeader = draft?.authHeader ?? config?.authHeader;
   const headers = modelListHeaders({
-    ...(requestAuth?.auth.apiKey !== undefined ? { apiKey: requestAuth.auth.apiKey } : {}),
+    ...(apiKey !== undefined ? { apiKey } : {}),
     ...(api !== undefined ? { api } : {}),
-    ...(config?.authHeader !== undefined ? { authHeader: config.authHeader } : {}),
+    ...(authHeader !== undefined ? { authHeader } : {}),
     headers: stringHeaders(
       runtime.getProvider(input.provider)?.headers,
       config?.headers,

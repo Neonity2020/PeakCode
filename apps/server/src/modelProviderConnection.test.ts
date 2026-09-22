@@ -246,4 +246,39 @@ describe("listProviderModels", () => {
     await expect(listProviderModels({ provider: "custom" })).rejects.toThrow(/no Base URL/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  // The create form fetches before the provider exists on disk: the draft supplies both
+  // the endpoint and the key, so the saved config and the credential store are empty.
+  it("uses the form's draft for a provider that is not saved yet", async () => {
+    runtime.getProvider.mockReturnValue(undefined);
+    runtime.getAuth.mockResolvedValue(undefined);
+    vi.mocked(readSavedProviderConfig).mockResolvedValue(undefined);
+    fetchMock.mockResolvedValue(jsonResponse({ data: [{ id: "draft-model" }] }));
+
+    expect(
+      await listProviderModels({
+        provider: "170",
+        draft: { baseUrl: "https://draft.test/v1", apiKey: "draft-secret" },
+      }),
+    ).toEqual({ models: ["draft-model"], url: "https://draft.test/v1/models" });
+    expect(fetchMock).toHaveBeenCalledWith("https://draft.test/v1/models", {
+      headers: { Authorization: "Bearer draft-secret" },
+      signal: expect.anything(),
+    });
+  });
+
+  // A saved provider with a stored key still wins when the form left the key blank —
+  // otherwise re-fetching from the detail pane would send no credentials at all.
+  it("falls back to the stored credential when the draft omits the key", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ data: [{ id: "a-model" }] }));
+
+    await listProviderModels({
+      provider: "custom",
+      draft: { baseUrl: "https://draft.test/v1" },
+    });
+    expect(fetchMock).toHaveBeenCalledWith("https://draft.test/v1/models", {
+      headers: { "x-test": "yes", Authorization: "Bearer secret" },
+      signal: expect.anything(),
+    });
+  });
 });
