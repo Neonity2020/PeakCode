@@ -32,6 +32,14 @@
   <a href="#参与贡献">参与贡献</a>
 </p>
 
+<p align="center">
+  <a href="#社区">
+    <img src="./assets/prod/wechat-group-qr.png" alt="微信交流群二维码" width="200" />
+  </a>
+  <br />
+  <sub><b>微信交流群 — 扫码进群沟通。</b>提问、提需求、看进展，都欢迎进群。</sub>
+</p>
+
 ---
 
 ![Peak Code 截图](./assets/prod/readme-screenshot.png)
@@ -342,6 +350,7 @@ env -u PEAKCODE_AUTH_TOKEN PEAKCODE_PORT_OFFSET=3158 PEAKCODE_NO_BROWSER=1 \
 
 - **[GitHub Issues](https://github.com/PeakCode-AI/PeakCode/issues)** — 报告 Bug 和请求功能
 - **[Discord](https://discord.gg/jn4EGJjrvv)** — 提问与日常交流
+- **[微信交流群](./assets/prod/wechat-group-qr.png)** — 扫码进群，提问、提需求、看进展
 
 如果 Peak Code 对你的工作流有帮助，不妨给它一个 Star——这能帮助更多人发现这个项目。
 

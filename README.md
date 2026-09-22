@@ -32,6 +32,14 @@
   <a href="#contributing">Contributing</a>
 </p>
 
+<p align="center">
+  <a href="#community">
+    <img src="./assets/prod/wechat-group-qr.png" alt="WeChat group QR code" width="200" />
+  </a>
+  <br />
+  <sub><b>微信交流群 — scan to join.</b> Questions, requests, progress. 扫码进群沟通。</sub>
+</p>
+
 ---
 
 ![Peak Code screenshot](./assets/prod/readme-screenshot.png)
@@ -378,6 +386,7 @@ We welcome contributions! Please read [CONTRIBUTING.md](./CONTRIBUTING.md) befor
 
 - **[GitHub Issues](https://github.com/PeakCode-AI/PeakCode/issues)** — bug reports and feature requests
 - **[Discord](https://discord.gg/jn4EGJjrvv)** — questions and day-to-day chatter
+- **[WeChat group](./assets/prod/wechat-group-qr.png)** — 微信交流群，扫码进群（提问、提需求、看进展）
 
 If Peak Code helps your workflow, consider giving it a star — it helps others discover the project.
 
