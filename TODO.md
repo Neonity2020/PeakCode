@@ -12,6 +12,43 @@
 
 - [ ] Queueing messages
 
+## 发布留档：v0.8.0 / v0.8.1（2026-09-22）
+
+工作区这一大坨 Multi-Agent（62 个改动 + 25 个新文件）整理成 5 个主题提交（toolkit 闸门与 worker 注册表 →
+provider 的 worker 会话/归属结算/单 worker 停止 → Web 委派卡片与子智能体设置 → 设置面与关于面板 →
+模型提供商一步创建），再加 TODO、README、release 三个提交，推 main 后打 `v0.8.0`：CI
+<https://github.com/kunpengtalk/PeakCode/actions/runs/35718996159> 红（只挂 Browser test），Release Desktop
+<https://github.com/kunpengtalk/PeakCode/actions/runs/35719002931> 全绿，产物
+<https://github.com/kunpengtalk/PeakCode/releases/tag/v0.8.0>（macOS arm64/x64 dmg+zip、Linux AppImage、
+Windows nsis，外加 `latest*.yml`）。
+
+版本号按 feature 走 minor：0.8.0 > 0.7.2，`make_latest` 不会指向更小的号，已装客户端只会收到升级。
+
+README 中英文各加了一节「多智能体 / Multi-Agent」，配用户给的两张现场截图
+（`assets/prod/multi-agent.png` 三个 worker 并行、`multi-agent-parallel.png` 一轮八个），并从运行模式
+列表和「应用里还有」两条引过去。
+
+### 0.8.0 之后 main 的 CI 为什么是红的（v0.8.1 修掉）
+
+只挂 Browser test，两处都在 `ModelProvidersSettingsPanel.browser.tsx`：
+
+- 两条用例还在填 create 表单里已经不存在的 `Provider key` 输入框 —— 这轮把「提供商 Key」字段删掉、
+  改成从显示名推导的改动没有同步改用例。本地一直只跑 `bun run test`（Vitest），Playwright 那套没跑，
+  所以本地看不出来。
+- 顺着这条查出一个**真问题**，不是用例过时：推导出的 key 会撞上内置模板的 id，而「key 撞上模板就
+  等于那条模板」（列表正是这样把自定义项滤出去的），于是「StepFun 自建」推成 `stepfun` —— 正好是
+  阶跃星辰 StepFun 的 id —— 新建的提供商连同端点、密钥、模型一起并进那条内置行，自定义分组里根本
+  看不见；保留的 `custom` 占位 key 是同一个坑。修法是把保留 key（内置模板 id + `custom`）一起传进
+  推导，并让名字下方的提示与实际写入共用同一份推导，避免「提示说一个 key、写的是另一个」。同一个
+  提交里补了一条浏览器用例专门盖这个碰撞，`bun run test:browser` 24 个文件 164 条全过。
+
+修完打 `v0.8.1`：CI <https://github.com/kunpengtalk/PeakCode/actions/runs/35721134155> 全绿，Release Desktop
+<https://github.com/kunpengtalk/PeakCode/actions/runs/35721138650> 全绿，产物
+<https://github.com/kunpengtalk/PeakCode/releases/tag/v0.8.1>，`latest` 指向 0.8.1。
+
+**教训（值得记住）**：动了设置面板这类 UI，必须跑 `bun run test:browser`（在 `apps/web`）—— 它是唯一
+会跑 Playwright 用例的地方，`bun run test`、fmt、lint、typecheck 全绿也发现不了这类问题。
+
 ## 发布留档：v0.7.2（2026-09-21）
 
 修完这一轮的 stuck turn（下面那节），按仓库既有流程发了 **v0.7.2**：tag 打在 `c564ce9`（三个提交：
