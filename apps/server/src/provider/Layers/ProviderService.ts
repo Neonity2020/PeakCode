@@ -37,6 +37,7 @@ import {
   Layer,
   Option,
   PubSub,
+  Ref,
   Schema,
   SchemaIssue,
   Stream,
@@ -89,6 +90,26 @@ const PROVIDER_TURN_STALL_MS = Number.isFinite(Number(process.env.PEAKCODE_PROVI
 
 /** How long an abandoned turn waits for the provider to acknowledge the stop. */
 const TURN_ABANDON_TIMEOUT: Duration.Duration = Duration.seconds(15);
+
+/**
+ * Bounded fan-out for provider runtime events.
+ *
+ * Provider runtime events are consumed in-process by the orchestration reactors
+ * (runtime ingestion, checkpoint, command, goal continuation). The buffer is shared across all
+ * subscribers, so the only strategy that keeps every consumer lossless is back-pressure:
+ * `dropping`/`sliding` would lose lifecycle events (`turn.completed`, `session.exited`,
+ * `runtime.error`, …) for the reliable reactors as well, not just for a slow one. Back-pressure
+ * bounds the buffer and, when it fills, suspends the adapter's event loop instead of discarding.
+ * Streaming deltas (`content.delta`, tool/task progress) are already coalesced by the ingestion
+ * layer, so the buffer mostly carries low-frequency lifecycle events.
+ */
+const PROVIDER_RUNTIME_EVENT_BUFFER_CAPACITY = 4_096;
+const PROVIDER_RUNTIME_EVENT_BUFFER_HIGH_WATERMARK = Math.floor(
+  PROVIDER_RUNTIME_EVENT_BUFFER_CAPACITY * 0.75,
+);
+const PROVIDER_RUNTIME_EVENT_BUFFER_LOW_WATERMARK = Math.floor(
+  PROVIDER_RUNTIME_EVENT_BUFFER_CAPACITY * 0.25,
+);
 
 const ProviderTurnAbandonInput = Schema.Struct({
   threadId: ThreadId,
@@ -262,7 +283,12 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       options?.turnAbandonTimeoutMs ?? Duration.toMillis(TURN_ABANDON_TIMEOUT),
     );
     const directory = yield* ProviderSessionDirectory;
-    const runtimeEventPubSub = yield* PubSub.unbounded<ProviderRuntimeEvent>();
+    const runtimeEventPubSub = yield* PubSub.bounded<ProviderRuntimeEvent>(
+      PROVIDER_RUNTIME_EVENT_BUFFER_CAPACITY,
+    );
+    // Latches the current saturation episode so we log once per up/down transition instead of on
+    // every publish while the buffer is full.
+    const runtimeEventBufferSaturated = yield* Ref.make(false);
     const runtimeIdleTimers = new Map<ThreadId, ReturnType<typeof setTimeout>>();
     let stopIdleRuntimeSession: ((threadId: ThreadId) => void) | null = null;
 
@@ -307,13 +333,32 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
     };
 
     const publishRuntimeEvent = (event: ProviderRuntimeEvent): Effect.Effect<void> =>
-      Effect.succeed(event).pipe(
-        Effect.tap((canonicalEvent) =>
-          canonicalEventLogger ? canonicalEventLogger.write(canonicalEvent, null) : Effect.void,
-        ),
-        Effect.flatMap((canonicalEvent) => PubSub.publish(runtimeEventPubSub, canonicalEvent)),
-        Effect.asVoid,
-      );
+      Effect.gen(function* () {
+        const buffered = PubSub.sizeUnsafe(runtimeEventPubSub);
+        const saturated = yield* Ref.get(runtimeEventBufferSaturated);
+        if (!saturated && buffered >= PROVIDER_RUNTIME_EVENT_BUFFER_HIGH_WATERMARK) {
+          yield* Ref.set(runtimeEventBufferSaturated, true);
+          yield* Effect.logWarning(
+            "provider runtime event buffer saturated; applying back-pressure to the adapter",
+          ).pipe(
+            Effect.annotateLogs({
+              buffered,
+              capacity: PROVIDER_RUNTIME_EVENT_BUFFER_CAPACITY,
+              triggeringEventType: event.type,
+              triggeringThreadId: event.threadId,
+            }),
+          );
+        } else if (saturated && buffered <= PROVIDER_RUNTIME_EVENT_BUFFER_LOW_WATERMARK) {
+          yield* Ref.set(runtimeEventBufferSaturated, false);
+          yield* Effect.log("provider runtime event buffer drained below low watermark").pipe(
+            Effect.annotateLogs({ buffered, capacity: PROVIDER_RUNTIME_EVENT_BUFFER_CAPACITY }),
+          );
+        }
+        if (canonicalEventLogger) {
+          yield* canonicalEventLogger.write(event, null);
+        }
+        yield* PubSub.publish(runtimeEventPubSub, event);
+      });
 
     const turnStallWatchdogs = new Map<ThreadId, ReturnType<typeof setTimeout>>();
     /** Turn the watchdog is currently guarding, per thread, so its failure can be attributed. */
@@ -1277,25 +1322,15 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
           adapter.listSessions(),
         );
         const activeSessions = sessionsByProvider.flatMap((sessions) => sessions);
-        const persistedBindings = yield* directory.listThreadIds().pipe(
-          Effect.flatMap((threadIds) =>
-            Effect.forEach(
-              threadIds,
-              (threadId) =>
-                directory
-                  .getBinding(threadId)
-                  .pipe(Effect.orElseSucceed(() => Option.none<ProviderRuntimeBinding>())),
-              { concurrency: "unbounded" },
-            ),
-          ),
-          Effect.orElseSucceed(() => [] as Array<Option.Option<ProviderRuntimeBinding>>),
-        );
+        // One read for every persisted binding instead of a `getBinding` round-trip per
+        // thread. `listSessions` runs on hot paths (the reaper sweep and every `turn.started`),
+        // so the per-thread N+1 was pure query amplification.
+        const persistedBindings = yield* directory
+          .listBindings()
+          .pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<ProviderRuntimeBinding>));
         const bindingsByThreadId = new Map<ThreadId, ProviderRuntimeBinding>();
-        for (const bindingOption of persistedBindings) {
-          const binding = Option.getOrUndefined(bindingOption);
-          if (binding) {
-            bindingsByThreadId.set(binding.threadId, binding);
-          }
+        for (const binding of persistedBindings) {
+          bindingsByThreadId.set(binding.threadId, binding);
         }
 
         return activeSessions.map((session) => {
@@ -1428,7 +1463,9 @@ const makeProviderService = (options?: ProviderServiceLiveOptions) =>
       compactThread,
       // Each access creates a fresh PubSub subscription so that multiple
       // consumers (ProviderRuntimeIngestion, CheckpointReactor, etc.) each
-      // independently receive all runtime events.
+      // independently receive all runtime events. The pubsub is bounded and
+      // applies back-pressure rather than dropping, so lifecycle events reach
+      // every consumer even if one of them is momentarily slow.
       get streamEvents(): ProviderServiceShape["streamEvents"] {
         return Stream.fromPubSub(runtimeEventPubSub);
       },

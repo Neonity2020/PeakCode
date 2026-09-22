@@ -44,6 +44,33 @@ import {
 
 const ORCHESTRATION_DISPATCH_TIMEOUT_MS = 45_000;
 
+/**
+ * Bounded fan-out for orchestration domain events.
+ *
+ * Every subscriber draws from a single bounded ring buffer, so a slow consumer can no longer
+ * make it grow without bound. The overflow strategy is back-pressure (`PubSub.bounded`): when
+ * the buffer is full the publisher suspends instead of discarding, so lifecycle events
+ * (thread created/deleted/archived, turn/plan/session changes, …) are never silently dropped
+ * for any subscriber — including the in-process reactors that project checkpoints, ingest
+ * provider runtime, run automations, and delete threads.
+ *
+ * `dropping`/`sliding` are not usable here: the buffer is shared across every subscriber, so a
+ * drop would lose the event for the reliable in-process reactors too, not just for a slow
+ * socket. High-volume assistant-token deltas are already coalesced before they reach the
+ * engine (ProviderRuntimeIngestion buffers text per message), so the buffer mostly carries
+ * low-frequency lifecycle events and back-pressure stays rare in practice.
+ *
+ * Saturation (buffer above {@link ORCHESTRATION_EVENT_BUFFER_HIGH_WATERMARK}) is logged so a
+ * wedged consumer is observable rather than silent.
+ */
+const ORCHESTRATION_EVENT_BUFFER_CAPACITY = 4_096;
+const ORCHESTRATION_EVENT_BUFFER_HIGH_WATERMARK = Math.floor(
+  ORCHESTRATION_EVENT_BUFFER_CAPACITY * 0.75,
+);
+const ORCHESTRATION_EVENT_BUFFER_LOW_WATERMARK = Math.floor(
+  ORCHESTRATION_EVENT_BUFFER_CAPACITY * 0.25,
+);
+
 type CommandExecutionState = "queued" | "in-flight" | "abandoned";
 type DispatchTimeoutDecision = { kind: "abandon" } | { kind: "wait" };
 
@@ -100,7 +127,37 @@ const makeOrchestrationEngine = Effect.gen(function* () {
   let commandReadModel = createEmptyReadModel(new Date().toISOString());
 
   const commandQueue = yield* Queue.unbounded<CommandEnvelope>();
-  const eventPubSub = yield* PubSub.unbounded<OrchestrationEvent>();
+  const eventPubSub = yield* PubSub.bounded<OrchestrationEvent>(
+    ORCHESTRATION_EVENT_BUFFER_CAPACITY,
+  );
+  // Latches the current saturation episode so we log once on the way up and once on the way
+  // down instead of on every publish while the buffer is full.
+  const eventBufferSaturated = yield* Ref.make(false);
+
+  const publishDomainEvent = (event: OrchestrationEvent): Effect.Effect<void> =>
+    Effect.gen(function* () {
+      const buffered = PubSub.sizeUnsafe(eventPubSub);
+      const saturated = yield* Ref.get(eventBufferSaturated);
+      if (!saturated && buffered >= ORCHESTRATION_EVENT_BUFFER_HIGH_WATERMARK) {
+        yield* Ref.set(eventBufferSaturated, true);
+        yield* Effect.logWarning(
+          "orchestration event buffer saturated; applying back-pressure to the command worker",
+        ).pipe(
+          Effect.annotateLogs({
+            buffered,
+            capacity: ORCHESTRATION_EVENT_BUFFER_CAPACITY,
+            triggeringEventType: event.type,
+            triggeringSequence: event.sequence,
+          }),
+        );
+      } else if (saturated && buffered <= ORCHESTRATION_EVENT_BUFFER_LOW_WATERMARK) {
+        yield* Ref.set(eventBufferSaturated, false);
+        yield* Effect.log("orchestration event buffer drained below low watermark").pipe(
+          Effect.annotateLogs({ buffered, capacity: ORCHESTRATION_EVENT_BUFFER_CAPACITY }),
+        );
+      }
+      yield* PubSub.publish(eventPubSub, event);
+    });
   const maintenanceLock = yield* Semaphore.make(1);
   const deferredProjectionDirty = yield* Ref.make(false);
   const deferredProjectionCatchUpInFlight = yield* Ref.make(false);
@@ -341,7 +398,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
       commandReadModel = nextCommandReadModel;
 
       for (const persistedEvent of persistedEvents) {
-        yield* PubSub.publish(eventPubSub, persistedEvent);
+        yield* publishDomainEvent(persistedEvent);
       }
     });
 
@@ -506,7 +563,7 @@ const makeOrchestrationEngine = Effect.gen(function* () {
         { concurrency: 1 },
       );
       for (const event of committedCommand.committedEvents) {
-        yield* PubSub.publish(eventPubSub, event);
+        yield* publishDomainEvent(event);
       }
       yield* Deferred.succeed(envelope.result, { sequence: committedCommand.lastSequence });
     }).pipe(
@@ -784,7 +841,9 @@ const makeOrchestrationEngine = Effect.gen(function* () {
     repairState,
     // Each access creates a fresh PubSub subscription so that multiple
     // consumers (Effect RPC, ProviderRuntimeIngestion, CheckpointReactor, etc.)
-    // each independently receive all domain events.
+    // each independently receive all domain events. The pubsub is bounded and
+    // applies back-pressure rather than dropping, so lifecycle events reach every
+    // consumer even if one of them is momentarily slow.
     get streamDomainEvents(): OrchestrationEngineShape["streamDomainEvents"] {
       return Stream.fromPubSub(eventPubSub);
     },

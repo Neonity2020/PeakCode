@@ -6,6 +6,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
+import { isInsideWorkspace } from "./permissions.ts";
 import { agentStore } from "./store/AgentStore.ts";
 import type { AgentArtifactRecord } from "./store/records.ts";
 
@@ -338,8 +339,7 @@ export function workspaceTree(root: string, maxDepth = 4, maxEntries = 2000): Wo
 /** 工作区内的文本文件读取（文件页签点开预览用；只允许工作区内）。 */
 export function readWorkspaceFile(root: string, relativePath: string): ArtifactContent {
   const abs = path.resolve(root, relativePath);
-  const rootAbs = path.resolve(root);
-  if (abs !== rootAbs && !abs.startsWith(rootAbs + path.sep)) {
+  if (!isInsideWorkspace(root, abs)) {
     throw new Error("Path outside workspace");
   }
   if (!existsSync(abs)) throw new Error("File not found");

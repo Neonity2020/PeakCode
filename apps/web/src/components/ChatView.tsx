@@ -34,6 +34,8 @@ import {
 import { deriveTerminalCommandIdentity } from "@peakcode/shared/terminalThreads";
 import { deriveAssociatedWorktreeMetadata } from "@peakcode/shared/threadWorkspace";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -184,7 +186,6 @@ import {
 } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
 import TerminalWorkspaceTabs from "./TerminalWorkspaceTabs";
-import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -199,7 +200,7 @@ import { Button } from "./ui/button";
 import { Separator } from "./ui/separator";
 import { Skeleton } from "./ui/skeleton";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu";
-import { terminalRuntimeRegistry } from "./terminal/terminalRuntimeRegistry";
+import { disposeThreadTerminalRuntime } from "./terminal/disposeTerminalRuntime";
 import { cn, isMacPlatform, randomUUID } from "~/lib/utils";
 import { toastManager } from "./ui/toast";
 import { decodeProjectScriptKeybindingRule } from "~/lib/projectScriptKeybindings";
@@ -402,6 +403,10 @@ import {
   terminalContextIdListsEqual,
   warnVoiceGuard,
 } from "./ChatView.composer.logic";
+
+// The xterm stack (xterm + addon-image/ligatures/webgl/...) is only needed once a terminal
+// drawer is opened, so keep it out of the chat route's first-paint chunk.
+const ThreadTerminalDrawer = lazy(() => import("./ThreadTerminalDrawer"));
 
 function ComposerControlSkeleton(props: { widthClassName: string }) {
   return (
@@ -2701,7 +2706,7 @@ export default function ChatView({
       if (!confirmed) {
         return;
       }
-      terminalRuntimeRegistry.disposeTerminal(activeThreadId, terminalId);
+      disposeThreadTerminalRuntime(activeThreadId, terminalId);
       const fallbackExitWrite = () =>
         api.terminal
           .write({ threadId: activeThreadId, terminalId, data: "exit\n" })
@@ -7627,15 +7632,17 @@ export default function ChatView({
                   : "pointer-events-none translate-y-1 opacity-0",
               )}
             >
-              <ThreadTerminalDrawer
-                key={`${activeThread.id}-workspace`}
-                {...terminalDrawerProps}
-                presentationMode="workspace"
-                isVisible={terminalWorkspaceTerminalTabActive}
-                onTogglePresentationMode={
-                  terminalState.workspaceLayout === "both" ? collapseTerminalWorkspace : undefined
-                }
-              />
+              <Suspense fallback={null}>
+                <ThreadTerminalDrawer
+                  key={`${activeThread.id}-workspace`}
+                  {...terminalDrawerProps}
+                  presentationMode="workspace"
+                  isVisible={terminalWorkspaceTerminalTabActive}
+                  onTogglePresentationMode={
+                    terminalState.workspaceLayout === "both" ? collapseTerminalWorkspace : undefined
+                  }
+                />
+              </Suspense>
             </div>
           ) : null}
         </div>
@@ -7667,12 +7674,14 @@ export default function ChatView({
           return null;
         }
         return (
-          <ThreadTerminalDrawer
-            key={activeThread.id}
-            {...terminalDrawerProps}
-            presentationMode="drawer"
-            onTogglePresentationMode={expandTerminalWorkspace}
-          />
+          <Suspense fallback={null}>
+            <ThreadTerminalDrawer
+              key={activeThread.id}
+              {...terminalDrawerProps}
+              presentationMode="drawer"
+              onTogglePresentationMode={expandTerminalWorkspace}
+            />
+          </Suspense>
         );
       })()}
 

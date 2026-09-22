@@ -53,4 +53,43 @@ describe("makeDrainableWorker", () => {
       }),
     ),
   );
+
+  it.live("keeps same-key items serial and in order while distinct keys run concurrently", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        let active = 0;
+        let maxActive = 0;
+        const order: string[] = [];
+
+        const worker = yield* makeDrainableWorker(
+          (item: { readonly key: string; readonly id: number }) =>
+            Effect.gen(function* () {
+              active += 1;
+              maxActive = Math.max(maxActive, active);
+              yield* Effect.sleep("5 millis");
+              order.push(`${item.key}:${item.id}`);
+              active -= 1;
+            }),
+          { key: (item) => item.key, concurrency: 4 },
+        );
+
+        // Same key: strictly serial and in enqueue order.
+        yield* worker.enqueue({ key: "same", id: 1 });
+        yield* worker.enqueue({ key: "same", id: 2 });
+        yield* worker.enqueue({ key: "same", id: 3 });
+        yield* worker.drain;
+        expect(order).toEqual(["same:1", "same:2", "same:3"]);
+        expect(maxActive).toBe(1);
+
+        // Distinct keys land on distinct shards ("a" -> shard 0, "b" -> shard 1 for
+        // concurrency 4), so their work overlaps instead of queueing behind one another.
+        order.length = 0;
+        maxActive = 0;
+        yield* worker.enqueue({ key: "a", id: 1 });
+        yield* worker.enqueue({ key: "b", id: 1 });
+        yield* worker.drain;
+        expect(maxActive).toBe(2);
+      }),
+    ),
+  );
 });

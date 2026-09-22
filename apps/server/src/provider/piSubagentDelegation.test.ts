@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildSubagentDelegationItem,
+  delegationBudgetMessage,
   delegationProgressMessage,
   delegationSettleMessage,
   type PiDelegatedWorker,
@@ -263,5 +264,21 @@ describe("delegationSettleMessage", () => {
     const message = delegationSettleMessage({ answer: "x".repeat(400) })!;
     expect(message.length).toBeLessThanOrEqual(160);
     expect(message.endsWith("...")).toBe(true);
+  });
+});
+
+describe("delegationBudgetMessage", () => {
+  it("says it ran out of time and where the work went, not that it failed", () => {
+    const message = delegationBudgetMessage({ minutes: 15, steps: 90 });
+
+    expect(message).toContain("15-minute budget");
+    expect(message).toContain("90 steps");
+    // The worker did not break, and its answer is not lost — the card must not read like a failure.
+    expect(message).toContain("partial answer went back to the orchestrator");
+    expect(message.toLowerCase()).not.toContain("failed");
+  });
+
+  it("drops the step count when it never got anywhere", () => {
+    expect(delegationBudgetMessage({ minutes: 15 })).not.toContain("steps");
   });
 });

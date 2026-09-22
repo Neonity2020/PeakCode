@@ -65,8 +65,12 @@ export function conversationSpillDir(conversationId: number): string {
  *
  * 判定必须**解开软链接**：`tool-output/<会话>/x` 若是个指向 `~/.ssh/id_rsa` 的软链，
  * 光看字面路径会放行 —— 于是凭据拦截、工具结果凭据检查、工作区外读取授权三道门
- * 一起被绕过（bash 工具自己就能建这个软链）。所以走 `safeJoin` 同一套判据：
- * 目录不参与"先建软链再读"的假设，真实路径不在 root 底下就不算。
+ * 一起被绕过（bash 工具自己就能建这个软链）。所以走同一套判据：目录不参与"先建软链
+ * 再读"的假设，真实路径不在 root 底下就不算。
+ *
+ * 这与 `@peakcode/shared/pathSafety` 的 `isPathInsideResolved` 是同一个变体；
+ * agent-toolkit 不依赖 `@peakcode/shared`（server+web 的共享包），所以这里保留本地实现，
+ * 与 `permissions.ts` 的 `isInsideWorkspace` 一起构成 toolkit 内部各取所需的两个变体。
  */
 export function isSpillPath(target: string): boolean {
   const root = path.resolve(spillRoot());

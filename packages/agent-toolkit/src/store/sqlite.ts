@@ -27,24 +27,38 @@ export interface SyncSqlHandle {
   run(sql: string, params?: readonly SqlValue[]): void;
   all<T>(sql: string, params?: readonly SqlValue[]): T[];
   get<T>(sql: string, params?: readonly SqlValue[]): T | undefined;
+  /**
+   * Run `fn` inside a single driver transaction.
+   *
+   * The host implements this with BEGIN/COMMIT/ROLLBACK. If `fn` throws, the transaction
+   * must be rolled back and the error rethrown, so a bulk write can never end half-applied.
+   * Nested calls may either join the outer transaction (what PeakCode's host does) or use
+   * savepoints; the store only ever opens one level.
+   */
+  transaction<T>(fn: () => T): T;
 }
 
 export type SqlValue = string | number | null;
 
 /**
- * Tables owned by the toolkit.
+ * Tables owned by the toolkit, one statement per entry.
  *
- * `IF NOT EXISTS` so the store is usable standalone; hosts that version their schema
- * (PeakCode's `persistence/Migrations`) create the same tables in a migration, and the
- * two definitions agree.
+ * This array is the single source of truth for the toolkit's SQLite schema. `AGENT_TOOLKIT_SCHEMA`
+ * joins it so the store can install the schema with a single `exec`; hosts that version their
+ * schema (PeakCode's `persistence/Migrations`) replay the exact same statements, so the two can
+ * never drift. Statement-per-entry matters because `node:sqlite`'s `prepare` — what a host's
+ * Effect SQL client is built on — silently runs only the first statement of a multi-statement
+ * string.
+ *
+ * `IF NOT EXISTS` so the store is usable standalone.
  */
-export const AGENT_TOOLKIT_SCHEMA = `
-CREATE TABLE IF NOT EXISTS agent_settings (
+export const AGENT_TOOLKIT_SCHEMA_STATEMENTS: readonly string[] = [
+  `CREATE TABLE IF NOT EXISTS agent_settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
-);
+)`,
 
-CREATE TABLE IF NOT EXISTS agent_todos (
+  `CREATE TABLE IF NOT EXISTS agent_todos (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   conversation_id INTEGER NOT NULL,
   seq             INTEGER NOT NULL DEFAULT 0,
@@ -53,10 +67,10 @@ CREATE TABLE IF NOT EXISTS agent_todos (
   priority        TEXT    NOT NULL DEFAULT 'medium',
   created_at      INTEGER NOT NULL,
   updated_at      INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS agent_todos_conversation_idx ON agent_todos (conversation_id, seq, id);
+)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_todos_conversation ON agent_todos (conversation_id, seq, id)`,
 
-CREATE TABLE IF NOT EXISTS agent_goals (
+  `CREATE TABLE IF NOT EXISTS agent_goals (
   conversation_id INTEGER PRIMARY KEY,
   objective       TEXT    NOT NULL,
   acceptance      TEXT,
@@ -68,9 +82,9 @@ CREATE TABLE IF NOT EXISTS agent_goals (
   outcome         TEXT,
   created_at      INTEGER NOT NULL,
   updated_at      INTEGER NOT NULL
-);
+)`,
 
-CREATE TABLE IF NOT EXISTS agent_artifacts (
+  `CREATE TABLE IF NOT EXISTS agent_artifacts (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   conversation_id INTEGER NOT NULL,
   message_id      INTEGER,
@@ -81,11 +95,11 @@ CREATE TABLE IF NOT EXISTS agent_artifacts (
   size            INTEGER,
   tool            TEXT,
   created_at      INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS agent_artifacts_conversation_idx ON agent_artifacts (conversation_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS agent_artifacts_path_idx ON agent_artifacts (conversation_id, abs_path);
+)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_artifacts_conversation ON agent_artifacts (conversation_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_artifacts_path ON agent_artifacts (conversation_id, abs_path)`,
 
-CREATE TABLE IF NOT EXISTS agent_plans (
+  `CREATE TABLE IF NOT EXISTS agent_plans (
   conversation_id INTEGER PRIMARY KEY,
   content         TEXT    NOT NULL,
   message_id      INTEGER,
@@ -93,9 +107,9 @@ CREATE TABLE IF NOT EXISTS agent_plans (
   approved_at     INTEGER,
   created_at      INTEGER NOT NULL,
   updated_at      INTEGER NOT NULL
-);
+)`,
 
-CREATE TABLE IF NOT EXISTS agent_permissions (
+  `CREATE TABLE IF NOT EXISTS agent_permissions (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   scope      TEXT NOT NULL,
   scope_ref  TEXT NOT NULL,
@@ -103,9 +117,14 @@ CREATE TABLE IF NOT EXISTS agent_permissions (
   pattern    TEXT NOT NULL,
   action     TEXT NOT NULL,
   created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS agent_permissions_scope_idx ON agent_permissions (scope, scope_ref, id);
-`;
+)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_permissions_scope ON agent_permissions (scope, scope_ref, id)`,
+];
+
+/** The toolkit schema as one script, derived from {@link AGENT_TOOLKIT_SCHEMA_STATEMENTS}. */
+export const AGENT_TOOLKIT_SCHEMA = AGENT_TOOLKIT_SCHEMA_STATEMENTS.map(
+  (statement) => `${statement};`,
+).join("\n\n");
 
 interface TodoRowDb {
   id: number;
@@ -257,14 +276,18 @@ export function createSqliteAgentStore(
       handle.get<{ value: string }>("SELECT value FROM agent_settings WHERE key = ?", [key])?.value,
 
     setSettings: (values) => {
-      for (const [key, value] of Object.entries(values)) {
-        if (value === undefined) continue;
-        handle.run(
-          "INSERT INTO agent_settings (key, value) VALUES (?, ?) " +
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-          [key, value],
-        );
-      }
+      // Batch the upserts: one transaction instead of N autocommits (each of which would
+      // fsync on a WAL database), and no partially-applied settings map on a mid-way error.
+      handle.transaction(() => {
+        for (const [key, value] of Object.entries(values)) {
+          if (value === undefined) continue;
+          handle.run(
+            "INSERT INTO agent_settings (key, value) VALUES (?, ?) " +
+              "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [key, value],
+          );
+        }
+      });
     },
 
     listTodos: (conversationId) =>
@@ -277,21 +300,25 @@ export function createSqliteAgentStore(
 
     replaceTodos: (conversationId, items: readonly AgentTodoInput[]) => {
       const now = Date.now();
-      handle.run("DELETE FROM agent_todos WHERE conversation_id = ?", [conversationId]);
-      items.forEach((item, index) => {
-        handle.run(
-          "INSERT INTO agent_todos (conversation_id, seq, content, status, priority, created_at, updated_at) " +
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-          [
-            conversationId,
-            index,
-            item.content,
-            item.status ?? "pending",
-            item.priority ?? "medium",
-            now,
-            now,
-          ],
-        );
+      // DELETE + INSERT as one unit: without a transaction an error mid-list would leave
+      // the conversation with no todos at all (or a half-written list).
+      handle.transaction(() => {
+        handle.run("DELETE FROM agent_todos WHERE conversation_id = ?", [conversationId]);
+        items.forEach((item, index) => {
+          handle.run(
+            "INSERT INTO agent_todos (conversation_id, seq, content, status, priority, created_at, updated_at) " +
+              "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+              conversationId,
+              index,
+              item.content,
+              item.status ?? "pending",
+              item.priority ?? "medium",
+              now,
+              now,
+            ],
+          );
+        });
       });
       return handle
         .all<TodoRowDb>(
@@ -365,9 +392,11 @@ export function createSqliteAgentStore(
 
     insertArtifact: (input: AgentArtifactInput) => {
       const createdAt = Date.now();
-      handle.run(
+      // `RETURNING *` hands back exactly the inserted row, so we neither guess its id nor
+      // re-run a SELECT that could race another writer on the same path.
+      const row = handle.get<ArtifactRowDb>(
         "INSERT INTO agent_artifacts (conversation_id, message_id, path, abs_path, title, kind, size, tool, created_at) " +
-          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
         [
           input.conversationId,
           input.messageId ?? null,
@@ -379,10 +408,6 @@ export function createSqliteAgentStore(
           input.tool ?? null,
           createdAt,
         ],
-      );
-      const row = handle.get<ArtifactRowDb>(
-        "SELECT * FROM agent_artifacts WHERE conversation_id = ? AND abs_path = ? ORDER BY id DESC LIMIT 1",
-        [input.conversationId, input.absPath],
       );
       if (!row) throw new Error("agent_artifacts insert did not produce a row");
       return toArtifact(row);
@@ -462,12 +487,13 @@ export function createSqliteAgentStore(
 
     insertPermission: (input: AgentPermissionInput) => {
       const createdAt = Date.now();
-      handle.run(
-        "INSERT INTO agent_permissions (scope, scope_ref, permission, pattern, action, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        [input.scope, input.scopeRef, input.permission, input.pattern, input.action, createdAt],
-      );
+      // Was `SELECT ... ORDER BY id DESC LIMIT 1` with no WHERE: under concurrent writers
+      // that returns whatever row was inserted last by *any* session, not ours. `RETURNING *`
+      // pins the result to this insert.
       const row = handle.get<PermissionRowDb>(
-        "SELECT * FROM agent_permissions ORDER BY id DESC LIMIT 1",
+        "INSERT INTO agent_permissions (scope, scope_ref, permission, pattern, action, created_at) " +
+          "VALUES (?, ?, ?, ?, ?, ?) RETURNING *",
+        [input.scope, input.scopeRef, input.permission, input.pattern, input.action, createdAt],
       );
       if (!row) throw new Error("agent_permissions insert did not produce a row");
       return toPermission(row);

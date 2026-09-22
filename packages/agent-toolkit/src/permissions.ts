@@ -89,26 +89,88 @@ const UNGATED_TOOLS = new Set([
   "kanban_task",
 ]);
 
-/** 危险命令：smart 模式下会拦下来问一句（破坏面大且几乎不可逆）。 */
-const DANGEROUS_COMMAND_PATTERNS: RegExp[] = [
-  /\brm\s+(-[a-z-]+\s+)*-[a-z]*[rf][a-z]*\b/i, // rm -rf / rm -r（普通 rm file 不拦）
-  /\bsudo\b/,
-  /\b(mkfs|dd)\s/,
-  /\bchmod\s+-R\s+777/,
-  /\b(curl|wget)\b[^|]*\|\s*(ba)?sh/i, // curl … | sh
-  /\bgit\s+push\b/,
-  /\bgit\s+reset\s+--hard\b/,
-  /\bgit\s+clean\s+-[a-z]*f/,
-  /\b(npm|pnpm|yarn|bun)\s+publish\b/,
-  /\bkill(all)?\s+-9\b/,
-  /\b(launchctl|systemctl)\s/,
-  /\bdefaults\s+write\b/,
-  /\b(shutdown|reboot|halt)\b/,
-  /\bdiskutil\b/,
-  /\bcrontab\s+-r\b/,
-  />\s*\/dev\/(sd|disk|rdisk)/,
-  /:\s*\(\)\s*\{.*\}\s*;\s*:/, // fork bomb
+/**
+ * 危险命令：smart 模式下会拦下来问一句（破坏面大且几乎不可逆）。
+ *
+ * **单一数据来源**：每条规则同时给出两个表示，两个清单都由本表派生，杜绝漂移。
+ * - `pattern`：`isDangerousCommand` 的正则判据（能表达词边界）；
+ * - `wildcards`：smart 模式默认规则用的通配写法（用户能在设置页看到并覆盖）。
+ *
+ * 此前两份清单各自演化：`sudo` / `kill -9` / fork bomb / `>/dev/sd*` 只在正则里，
+ * `dd if=` / `chmod -R 777` 只在通配里。合并只收紧不放宽 —— 原来只在一侧的命令，
+ * 另一侧一并认下（见报告里的前后差异清单）。
+ */
+type DangerousCommandRule = {
+  /** 稳定标识，测试与诊断用。 */
+  readonly id: string;
+  /** 正则判据（区分大小写与否按各自需要）。 */
+  readonly pattern: RegExp;
+  /** smart 模式默认规则的通配写法；至少覆盖 `pattern` 认得的命令。 */
+  readonly wildcards: readonly string[];
+};
+
+const DANGEROUS_COMMANDS: readonly DangerousCommandRule[] = [
+  {
+    id: "rm-recursive",
+    pattern: /\brm\s+(-[a-z-]+\s+)*-[a-z]*[rf][a-z]*\b/i, // rm -rf / rm -r（普通 rm file 不拦）
+    wildcards: ["*rm -rf*", "*rm -fr*", "*rm -r *"],
+  },
+  { id: "sudo", pattern: /\bsudo\b/, wildcards: ["*sudo *"] },
+  { id: "mkfs", pattern: /\bmkfs\b/, wildcards: ["*mkfs*"] },
+  // 通配只用 if=/of=：`*dd *` 会误伤 `git add`（add 以「dd」结尾）之类的命令。
+  // 正则仍是较宽的 `\bdd\s`，方向只收紧不放宽。
+  { id: "dd", pattern: /\bdd\s/, wildcards: ["*dd if=*", "*dd of=*"] },
+  { id: "chmod-recursive", pattern: /\bchmod\s+-R\s+777/, wildcards: ["*chmod -R 777*"] },
+  {
+    id: "pipe-to-shell",
+    pattern: /\b(curl|wget)\b[^|]*\|\s*(ba)?sh/i, // curl … | sh
+    wildcards: ["*| sh", "*| bash", "*|sh", "*|bash", "*curl * | *", "*wget * | *"],
+  },
+  { id: "git-push", pattern: /\bgit\s+push\b/, wildcards: ["*git push*"] },
+  { id: "git-reset-hard", pattern: /\bgit\s+reset\s+--hard\b/, wildcards: ["*git reset --hard*"] },
+  { id: "git-clean-force", pattern: /\bgit\s+clean\s+-[a-z]*f/, wildcards: ["*git clean -*f*"] },
+  {
+    id: "package-publish",
+    pattern: /\b(npm|pnpm|yarn|bun)\s+publish\b/,
+    wildcards: ["*npm publish*", "*pnpm publish*", "*yarn publish*", "*bun publish*"],
+  },
+  // 此前只在正则里：补上通配，让 smart 模式也拦。
+  { id: "kill-9", pattern: /\bkill(all)?\s+-9\b/, wildcards: ["*kill -9*", "*killall -9*"] },
+  {
+    id: "service-control",
+    pattern: /\b(launchctl|systemctl)\s/,
+    wildcards: ["*launchctl *", "*systemctl *"],
+  },
+  { id: "defaults-write", pattern: /\bdefaults\s+write\b/, wildcards: ["*defaults write*"] },
+  // 此前 halt 只在正则里：补上通配。
+  {
+    id: "power",
+    pattern: /\b(shutdown|reboot|halt)\b/,
+    wildcards: ["*shutdown*", "*reboot*", "*halt*"],
+  },
+  { id: "diskutil", pattern: /\bdiskutil\b/, wildcards: ["*diskutil*"] },
+  { id: "crontab-remove", pattern: /\bcrontab\s+-r\b/, wildcards: ["*crontab -r*"] },
+  // 此前只在正则里：补上通配（`>` 后允许空白，两种写法都列）。
+  {
+    id: "raw-device-write",
+    pattern: />\s*\/dev\/(sd|disk|rdisk)/,
+    wildcards: [
+      "*>/dev/sd*",
+      "*>/dev/disk*",
+      "*>/dev/rdisk*",
+      "*> /dev/sd*",
+      "*> /dev/disk*",
+      "*> /dev/rdisk*",
+    ],
+  },
+  // 此前只在正则里：补上通配。
+  { id: "fork-bomb", pattern: /:\s*\(\)\s*\{.*\}\s*;\s*:/, wildcards: ["*:(){*", "*:() {*"] },
 ];
+
+/** 正则判据（`isDangerousCommand` 用）。由 {@link DANGEROUS_COMMANDS} 派生。 */
+const DANGEROUS_COMMAND_PATTERNS: readonly RegExp[] = DANGEROUS_COMMANDS.map(
+  (rule) => rule.pattern,
+);
 
 /**
  * 通配匹配（语义与 OpenWork / opencode 的 Wildcard.match 一致）：
@@ -333,37 +395,13 @@ export function defaultRules(mode: ApprovalMode = approvalMode()): PermissionRul
 
 /**
  * 危险命令的通配写法（smart 模式下把这些 bash 调用升级成「询问」）。
- * 覆盖面刻意保守：只拦几乎不可逆的操作，噪声太大会让用户直接关掉审批。
+ * 由 {@link DANGEROUS_COMMANDS} 派生 —— 与 `isDangerousCommand` 的正则清单同源，
+ * 不会再出现「只在一侧」的命令。覆盖面刻意保守：只拦几乎不可逆的操作，
+ * 噪声太大会让用户直接关掉审批。
  */
-export const DANGEROUS_COMMAND_WILDCARDS: string[] = [
-  "*rm -rf*",
-  "*rm -fr*",
-  "*rm -r *",
-  "*sudo *",
-  "*mkfs*",
-  "*dd if=*",
-  "*chmod -R 777*",
-  "*| sh",
-  "*| bash",
-  "*|sh",
-  "*|bash",
-  "*curl * | *",
-  "*wget * | *",
-  "*git push*",
-  "*git reset --hard*",
-  "*git clean -*f*",
-  "*npm publish*",
-  "*pnpm publish*",
-  "*yarn publish*",
-  "*bun publish*",
-  "*launchctl *",
-  "*systemctl *",
-  "*defaults write*",
-  "*shutdown*",
-  "*reboot*",
-  "*diskutil*",
-  "*crontab -r*",
-];
+export const DANGEROUS_COMMAND_WILDCARDS: string[] = DANGEROUS_COMMANDS.flatMap(
+  (rule) => rule.wildcards,
+);
 
 /** 设置层规则（用户在「权限」设置页里显式写的）。 */
 export function settingRules(): PermissionRule[] {
@@ -447,11 +485,20 @@ export function evaluate(
   return fallback ? { action: fallback.action, rule: null } : { action: "ask", rule: null };
 }
 
-/** 路径是否在工作区内。 */
+/**
+ * 路径是否在工作区内。
+ *
+ * 这是 toolkit 内部的**单一判据**：`writeTools.ts` / `agent-tools.ts` / `tools/toolSupport.ts`
+ * / `agent-artifacts.ts` 都走它，不再各自内联一份。判据与 `@peakcode/shared/pathSafety`
+ * 的 `isPathInside` 完全一致；但 agent-toolkit 并没有依赖 `@peakcode/shared`（那是
+ * server+web 的共享包），所以这里保留一份本地实现，而不是跨包 import。
+ */
 export function isInsideWorkspace(workspace: string, target: string): boolean {
   const root = path.resolve(workspace);
   const resolved = path.resolve(target);
-  return resolved === root || resolved.startsWith(root + path.sep);
+  if (resolved === root) return true;
+  const prefix = root.endsWith(path.sep) ? root : root + path.sep;
+  return resolved.startsWith(prefix);
 }
 
 /** 相对工作区展示路径：区内给相对路径（规则更好写），区外给绝对路径。 */

@@ -53,7 +53,7 @@ Long term maintainability is a core priority. If you add new functionality, firs
 
 ## Package Roles
 
-- `apps/server`: Node.js WebSocket server. Wraps Codex app-server (JSON-RPC over stdio), serves the React web app, and manages provider sessions.
+- `apps/server`: Node.js server. Runs the agent in-process via the `@earendil-works/pi-coding-agent` SDK (no Codex subprocess), serves the React web app over a typed `@effect/rpc` WebSocket API, and manages provider sessions.
 - `apps/web`: React/Vite UI. Owns session UX, conversation/event rendering, and client-side state. Connects to the server via WebSocket.
 - `packages/contracts`: Shared effect/Schema schemas and TypeScript contracts for provider events, WebSocket protocol, and model/session types. Keep this package schema-only — no runtime logic.
 - `packages/agent-toolkit`: Agent harness hosted from the server — tools, plans, goals, approvals, skills and the sqlite store behind them. Uses explicit subpath exports (e.g. `@peakcode/agent-toolkit/store/sqlite`) — no barrel index.
@@ -84,20 +84,20 @@ env -u PEAKCODE_AUTH_TOKEN PEAKCODE_HOME="$PWD/.peakcode-desktop-<purpose>" bun 
 - Serving the web UI instead (`node apps/server/dist/index.mjs --home-dir <isolated> --port <free>`) is the fallback for web-only checks, not the default way to show the user the app.
 - After launching, confirm the process and window are really up (`list_apps` / `list_windows`), bring the window to the front, and tell the user where to look.
 
-## Codex App Server (Important)
+## Agent Runtime (Important)
 
-Peak Code is currently Codex-first. The server starts `codex app-server` (JSON-RPC over stdio) per provider session, then streams structured events to the browser through WebSocket push messages.
+Peak Code is **not** Codex-first. The server runs the coding agent in-process via the `@earendil-works/pi-coding-agent` SDK; it does not spawn a `codex app-server` subprocess. The adapter that wraps that SDK and translates its session/turn events into provider runtime events is `apps/server/src/provider/Layers/PiAdapter.ts`.
 
-How we use it in this codebase:
+How this is wired in the codebase:
 
-- Session startup/resume and turn lifecycle are brokered in `apps/server/src/codexAppServerManager.ts`.
-- Provider dispatch and thread event logging are coordinated in `apps/server/src/providerManager.ts`.
-- WebSocket server routes NativeApi methods in `apps/server/src/wsServer.ts`.
-- Web app consumes orchestration domain events via WebSocket push on channel `orchestration.domainEvent` (provider runtime activity is projected into orchestration events server-side).
+- Session startup/resume and turn lifecycle are brokered by the pi adapter and the provider service under `apps/server/src/provider/`.
+- Provider dispatch and orchestration projection live under `apps/server/src/provider/` and `apps/server/src/orchestration/`.
+- The WebSocket API is typed RPC built on `@effect/rpc`: the method group is `WsRpcGroup` in `packages/contracts/src/rpc.ts`, served over WebSocket by the server (`apps/server/src/wsRpc.ts`) — there is no hand-rolled push protocol.
+- The web app consumes orchestration domain events subscribed through that RPC group (provider runtime activity is projected into orchestration events server-side).
 
 Docs:
 
-- Codex App Server docs: https://developers.openai.com/codex/sdk/#app-server
+- Codex App Server docs (reference only, historical): https://developers.openai.com/codex/sdk/#app-server
 
 ## Reference Repos
 

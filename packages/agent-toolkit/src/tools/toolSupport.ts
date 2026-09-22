@@ -8,6 +8,8 @@ import path from "node:path";
 
 import { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 
+import { isInsideWorkspace } from "../permissions.ts";
+
 import { getSetting } from "../runtime/settings.ts";
 import { isAgentDataPath } from "../runtime/paths.ts";
 
@@ -438,8 +440,7 @@ export const SECRET_PATH_PATTERNS: RegExp[] = [
 ];
 
 export function assertNotSecret(workspace: string, target: string): void {
-  const root = path.resolve(workspace);
-  if (target === root || target.startsWith(root + path.sep)) return;
+  if (isInsideWorkspace(workspace, target)) return;
   // 工具输出的转存目录开一个口子：那是应用自己写出来的文件（模型本来就在工具结果里
   // 看过它的前半段），不放开就谈不上"截断之后还能读回来"。数据目录的其余部分
   // （设置表里存着全部云端 API Key）照旧拦死。
@@ -455,8 +456,7 @@ export function assertNotSecret(workspace: string, target: string): void {
 
 /** 写操作必须落在工作区内（或已授权的目录里）。 */
 export function assertInsideWorkspace(workspace: string, target: string) {
-  const root = path.resolve(workspace);
-  if (target !== root && !target.startsWith(root + path.sep)) {
+  if (!isInsideWorkspace(workspace, target)) {
     throw new Error(`Path outside workspace is not writable: ${target}`);
   }
 }
@@ -478,7 +478,7 @@ export function authorizedFoldersOf(ctx: ToolContext): string[] {
 
 export function underAny(target: string, folders: string[]): boolean {
   const abs = path.resolve(target);
-  return folders.some((folder) => abs === folder || abs.startsWith(folder + path.sep));
+  return folders.some((folder) => isInsideWorkspace(folder, abs));
 }
 
 /**
@@ -491,9 +491,8 @@ export function underAny(target: string, folders: string[]): boolean {
  * 提示词里那句建议就成了空话。范围只有这一个子目录。
  */
 export function assertReadable(ctx: ToolContext, target: string): void {
-  const root = path.resolve(ctx.workspace);
   const abs = path.resolve(target);
-  if (abs === root || abs.startsWith(root + path.sep)) return;
+  if (isInsideWorkspace(ctx.workspace, abs)) return;
   if (isSpillPath(abs)) return;
   if (underAny(abs, authorizedFoldersOf(ctx))) return;
   throw new Error(
@@ -504,9 +503,8 @@ export function assertReadable(ctx: ToolContext, target: string): void {
 
 /** 写权限：工作区内或已授权目录。 */
 export function assertWritable(ctx: ToolContext, target: string): void {
-  const root = path.resolve(ctx.workspace);
   const abs = path.resolve(target);
-  if (abs === root || abs.startsWith(root + path.sep)) return;
+  if (isInsideWorkspace(ctx.workspace, abs)) return;
   if (underAny(abs, authorizedFoldersOf(ctx))) return;
   throw new Error(`Path outside workspace is not writable without permission: ${abs}`);
 }

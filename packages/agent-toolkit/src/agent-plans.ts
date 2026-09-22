@@ -88,16 +88,19 @@ export function savePlan(
 
   const existing = agentStore().getPlan(conversationId);
   const now = Date.now();
-  agentStore().upsertPlan({
-    conversationId,
-    content,
-    messageId: input.messageId ?? null,
-    filePath,
-    // 重新写方案 = 之前那次批准作废：内容变了，不能算"用户已经同意过"。
-    approvedAt: null,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  });
+  // Trust the returned record instead of reading the plan back out of the store.
+  const plan = toPlan(
+    agentStore().upsertPlan({
+      conversationId,
+      content,
+      messageId: input.messageId ?? null,
+      filePath,
+      // 重新写方案 = 之前那次批准作废：内容变了，不能算"用户已经同意过"。
+      approvedAt: null,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    }),
+  );
   try {
     recordArtifact({
       conversationId,
@@ -117,7 +120,6 @@ export function savePlan(
       detail: { conversationId, filePath },
     });
   }
-  const plan = getPlan(conversationId)!;
   notify(conversationId, plan);
   return plan;
 }
@@ -128,14 +130,12 @@ export function approvePlan(conversationId: number): {
   plan?: AgentPlan;
   error?: string;
 } {
-  const plan = getPlan(conversationId);
+  const plan = agentStore().getPlan(conversationId);
   if (!plan) return { ok: false, error: "这个会话还没有方案（先在 Plan 模式里让它写一份）。" };
   if (!plan.content.trim()) return { ok: false, error: "方案是空的，没什么可执行的。" };
-  const stored = agentStore().getPlan(conversationId);
-  if (stored) {
-    agentStore().upsertPlan({ ...stored, approvedAt: Date.now(), updatedAt: Date.now() });
-  }
-  const approved = getPlan(conversationId)!;
+  const approved = toPlan(
+    agentStore().upsertPlan({ ...plan, approvedAt: Date.now(), updatedAt: Date.now() }),
+  );
   notify(conversationId, approved);
   return { ok: true, plan: approved };
 }

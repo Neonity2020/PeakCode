@@ -112,6 +112,16 @@ describe("名册与协议", () => {
     expect(section).toContain("同样先用一句话说明为什么自己做");
   });
 
+  test("协议告诉编排者 worker 有时间预算，超时会把半成品交回来", () => {
+    // Without this the model reads a budget-stopped worker as a failed one and either retries it
+    // forever or drops its work — the two ways a bounded worker still produces a bad turn.
+    const section = multiAgentPromptSection()!;
+    expect(section).toContain("时间预算");
+    expect(section).toContain("半成品");
+    // And the way to avoid hitting the budget: sub-tasks that can converge.
+    expect(section).toContain("能收敛");
+  });
+
   test("协议要求收齐所有 worker 的结论并交付成品，而不是「都做完了」", () => {
     const section = multiAgentPromptSection()!;
     expect(section).toContain("收齐报告");

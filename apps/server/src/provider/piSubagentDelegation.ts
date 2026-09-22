@@ -130,6 +130,21 @@ export function delegationSettleMessage(input: {
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
 
+/**
+ * The card's line for a worker the runtime budget ended.
+ *
+ * Deliberately not phrased as a failure: the worker did not break, it ran out of time, and its
+ * partial answer is being used — so the card says how much it got through and who has the rest.
+ */
+export function delegationBudgetMessage(input: {
+  readonly minutes: number;
+  readonly steps?: number | undefined;
+}): string {
+  const stepLabel =
+    input.steps !== undefined && input.steps > 0 ? ` after ${input.steps} steps` : "";
+  return `Ran past its ${input.minutes}-minute budget${stepLabel} — stopped; its partial answer went back to the orchestrator.`;
+}
+
 export function buildSubagentDelegationItem(
   input: PiSubagentDelegationItemInput,
 ): Record<string, unknown> {

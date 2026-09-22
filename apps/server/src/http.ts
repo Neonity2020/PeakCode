@@ -7,6 +7,7 @@ import {
   AuthRevokeClientSessionInput,
   AuthRevokePairingLinkInput,
 } from "@peakcode/contracts";
+import { isPathInside } from "@peakcode/shared/pathSafety";
 import { DateTime, Effect, Exit, FileSystem, Layer, Path, Schema, Stream } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 
@@ -461,9 +462,7 @@ export const staticAndDevEffectRouteLayer = HttpRouter.add(
       return HttpServerResponse.text("Invalid static file path", { status: 400 });
     }
 
-    const isWithinStaticRoot = (candidate: string) =>
-      candidate === staticRoot ||
-      candidate.startsWith(staticRoot.endsWith(path.sep) ? staticRoot : `${staticRoot}${path.sep}`);
+    const isWithinStaticRoot = (candidate: string) => isPathInside(candidate, staticRoot);
 
     let filePath = path.resolve(staticRoot, relativePath);
     if (!isWithinStaticRoot(filePath)) {
@@ -764,11 +763,7 @@ const serveStaticAsset = Effect.fn(function* (input: {
     return;
   }
 
-  const isWithinStaticRoot = (candidate: string) =>
-    candidate === staticRoot ||
-    candidate.startsWith(
-      staticRoot.endsWith(input.path.sep) ? staticRoot : `${staticRoot}${input.path.sep}`,
-    );
+  const isWithinStaticRoot = (candidate: string) => isPathInside(candidate, staticRoot);
 
   let filePath = input.path.resolve(staticRoot, staticRelativePath);
   if (!isWithinStaticRoot(filePath)) {

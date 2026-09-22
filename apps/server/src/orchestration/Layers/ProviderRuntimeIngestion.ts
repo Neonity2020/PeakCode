@@ -9,6 +9,7 @@ import {
   ThreadId,
   TurnId,
   type OrchestrationThread,
+  type OrchestrationThreadShell,
   type ProviderRuntimeEvent,
 } from "@peakcode/contracts";
 import { Cache, Cause, Duration, Effect, Layer, Option, Ref, Stream } from "effect";
@@ -80,6 +81,16 @@ const BUFFERED_PROPOSED_PLAN_BY_ID_TTL = Duration.minutes(120);
 const STRICT_PROVIDER_LIFECYCLE_GUARD =
   process.env.PEAKCODE_STRICT_PROVIDER_LIFECYCLE_GUARD !== "0";
 
+/**
+ * Ingestion is keyed by thread: every event for a thread is projected in order by the same
+ * worker, while distinct threads are spread across a small pool of workers. The orchestration
+ * engine still serializes command application, so this only lets the per-event reads and
+ * activity projection of unrelated threads overlap instead of queueing behind one slow thread.
+ */
+const INGESTION_WORKER_CONCURRENCY = 4;
+/** Per-worker queue depth; once full, enqueue backpressures the provider/domain event streams. */
+const INGESTION_WORKER_QUEUE_CAPACITY = 8_192;
+
 type TurnStartRequestedDomainEvent = Extract<
   OrchestrationEvent,
   { type: "thread.turn-start-requested" }
@@ -94,6 +105,39 @@ type RuntimeIngestionInput =
       source: "domain";
       event: TurnStartRequestedDomainEvent;
     };
+
+/**
+ * A thread shell plus empty collections has the exact shape of a full thread.
+ *
+ * Runtime ingestion reads a thread on every provider event, including each streamed token.
+ * Most event types only touch shell fields and the session, so a three-query shell read
+ * replaces the seven-query full-detail read on the hot path. The few event types that do
+ * read messages/proposed plans/checkpoints still load the full detail (see
+ * `eventNeedsThreadCollections`); the empty arrays here are only ever observed by event
+ * types that do not read them.
+ */
+const threadFromShell = (shell: OrchestrationThreadShell): OrchestrationThread => ({
+  ...shell,
+  messages: [],
+  proposedPlans: [],
+  activities: [],
+  checkpoints: [],
+  deletedAt: null,
+});
+
+/**
+ * Whether processing this event reads the thread's messages, proposed plans or checkpoints.
+ *
+ * `item.completed` reads messages while resolving the finished assistant message; the
+ * terminal/proposed-plan events read proposed plans; `turn.diff.updated` reads checkpoints.
+ * Every other event reads only shell fields and the session.
+ */
+const eventNeedsThreadCollections = (event: ProviderRuntimeEvent): boolean =>
+  event.type === "turn.diff.updated" ||
+  event.type === "turn.proposed.completed" ||
+  event.type === "turn.completed" ||
+  event.type === "turn.aborted" ||
+  (event.type === "item.completed" && event.payload.itemType === "assistant_message");
 
 const make = Effect.gen(function* () {
   const orchestrationEngine = yield* OrchestrationEngineService;
@@ -129,6 +173,16 @@ const make = Effect.gen(function* () {
     return Option.getOrUndefined(
       yield* projectionSnapshotQuery
         .getThreadDetailById(threadId)
+        .pipe(Effect.catch(() => Effect.succeed(Option.none()))),
+    );
+  });
+
+  const getThreadShell = Effect.fnUntraced(function* (
+    threadId: ThreadId,
+  ): Effect.fn.Return<OrchestrationThreadShell | undefined> {
+    return Option.getOrUndefined(
+      yield* projectionSnapshotQuery
+        .getThreadShellById(threadId)
         .pipe(Effect.catch(() => Effect.succeed(Option.none()))),
     );
   });
@@ -636,7 +690,14 @@ const make = Effect.gen(function* () {
   const processRuntimeEvent = (event: ProviderRuntimeEvent) =>
     Effect.gen(function* () {
       const now = event.createdAt;
-      const parentThread = yield* getThreadDetail(event.threadId);
+      // Only event types that read the thread's messages/proposed plans/checkpoints need the
+      // full detail read; everything else (notably every streamed token) can use the lighter
+      // shell read. See `eventNeedsThreadCollections`.
+      const parentThread = eventNeedsThreadCollections(event)
+        ? yield* getThreadDetail(event.threadId)
+        : yield* getThreadShell(event.threadId).pipe(
+            Effect.map((shell) => (shell === undefined ? undefined : threadFromShell(shell))),
+          );
       if (!parentThread) return;
 
       const ensureSubagentThread = (
@@ -1239,7 +1300,12 @@ const make = Effect.gen(function* () {
       }),
     );
 
-  const worker = yield* makeDrainableWorker(processInputSafely);
+  const worker = yield* makeDrainableWorker(processInputSafely, {
+    key: (input) =>
+      input.source === "runtime" ? input.event.threadId : input.event.payload.threadId,
+    concurrency: INGESTION_WORKER_CONCURRENCY,
+    capacity: INGESTION_WORKER_QUEUE_CAPACITY,
+  });
 
   const start: ProviderRuntimeIngestionShape["start"] = Effect.gen(function* () {
     yield* Effect.forkScoped(

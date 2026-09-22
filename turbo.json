@@ -26,12 +26,15 @@
     },
     "typecheck": {
       "dependsOn": ["^typecheck"],
-      "outputs": [],
-      "cache": false
+      "outputs": ["*.tsbuildinfo"],
+      "cache": true
     },
     "test": {
       "dependsOn": ["^build"],
       "cache": false,
+      "outputs": []
+    },
+    "@peakcode/marketing#typecheck": {
       "outputs": []
     }
   }

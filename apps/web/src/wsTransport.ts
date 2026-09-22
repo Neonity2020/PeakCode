@@ -177,6 +177,23 @@ export class WsTransport {
       return undefined as T;
     }
 
+    // `replayEvents` is a streamed RPC (each persisted event is forwarded as it is read), but
+    // the public API still resolves a single array: collect the stream here so callers keep
+    // their existing `await replayEvents(from)`. Only the server-side buffering was unbounded.
+    if (method === ORCHESTRATION_WS_METHODS.replayEvents) {
+      const replayStream = (
+        client as unknown as Record<
+          string,
+          (input: unknown) => Stream.Stream<unknown, WsTransportRpcError, never>
+        >
+      )[method];
+      if (!replayStream) {
+        throw new WsTransportRpcError({ message: `Unknown RPC method: ${method}` });
+      }
+      const events = await this.runtime.runPromise(Stream.runCollect(replayStream(params ?? {})));
+      return Array.from(events) as T;
+    }
+
     const rpcInput =
       method === ORCHESTRATION_WS_METHODS.dispatchCommand
         ? (params as { command: unknown }).command

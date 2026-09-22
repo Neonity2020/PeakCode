@@ -20,6 +20,9 @@ export type WsRpcTestMatch = Partial<Record<string, unknown>>;
 /** Sends one value into an open subscription stream. */
 export type WsRpcTestStreamSend = (value: unknown) => void;
 
+/** Completes an open subscription stream so the client stops collecting it. */
+export type WsRpcTestStreamEnd = () => void;
+
 /** A live subscription stream opened by the app. */
 export interface WsRpcTestStream {
   readonly id: string;
@@ -29,7 +32,11 @@ export interface WsRpcTestStream {
 }
 
 type UnaryHandler = (payload: Record<string, unknown>) => unknown;
-type StreamHandler = (payload: Record<string, unknown>, send: WsRpcTestStreamSend) => void;
+type StreamHandler = (
+  payload: Record<string, unknown>,
+  send: WsRpcTestStreamSend,
+  end: WsRpcTestStreamEnd,
+) => void;
 
 interface ClientFrame {
   _tag?: unknown;
@@ -217,7 +224,11 @@ export class WsRpcTestServer {
         },
       };
       this.openStreams.set(id, stream);
-      streamHandler(payload, stream.send);
+      const end = () => {
+        this.openStreams.delete(id);
+        this.send({ _tag: "Exit", requestId: id, exit: { _tag: "Success", value: null } });
+      };
+      streamHandler(payload, stream.send, end);
       return;
     }
 

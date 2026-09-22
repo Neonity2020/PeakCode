@@ -37,6 +37,22 @@ describe("makeStallWatchdog", () => {
     expect(stalls).toHaveLength(1);
   });
 
+  it("bounds total runtime when it is never touched", () => {
+    // The second use of this helper: a worker's wall-clock budget. Never touching it makes
+    // "no activity for N" into "N since it started", which is what stops a busy-but-endless
+    // worker from holding the orchestrator's turn open forever.
+    const fired: number[] = [];
+    const deadline = makeStallWatchdog({ timeoutMs: 1000, onStall: () => fired.push(1) });
+
+    vi.advanceTimersByTime(60_000);
+    expect(fired).toHaveLength(1);
+
+    // Still a one-shot: the budget does not re-arm itself.
+    vi.advanceTimersByTime(60_000);
+    expect(fired).toHaveLength(1);
+    deadline.stop();
+  });
+
   it("stops counting once disarmed, however often that is called", () => {
     const stalls: number[] = [];
     const watchdog = makeStallWatchdog({ timeoutMs: 1000, onStall: () => stalls.push(1) });

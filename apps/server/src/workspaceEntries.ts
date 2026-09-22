@@ -19,6 +19,7 @@ import {
   ProjectSearchLocalEntriesResult,
 } from "@peakcode/contracts";
 import { isExplicitRelativePath, isWindowsAbsolutePath } from "@peakcode/shared/path";
+import { isPathInside } from "@peakcode/shared/pathSafety";
 
 const WORKSPACE_CACHE_TTL_MS = 15_000;
 const WORKSPACE_CACHE_MAX_KEYS = 4;
@@ -666,7 +667,7 @@ async function directoryHasChildDirectories(absolutePath: string): Promise<boole
 function resolveDirectoryWithinRoot(cwd: string, relativePath: string): string | null {
   const absoluteCwd = path.resolve(cwd);
   const targetDirectory = relativePath ? path.resolve(absoluteCwd, relativePath) : absoluteCwd;
-  if (targetDirectory !== absoluteCwd && !targetDirectory.startsWith(absoluteCwd + path.sep)) {
+  if (!isPathInside(targetDirectory, absoluteCwd)) {
     return null;
   }
   return targetDirectory;

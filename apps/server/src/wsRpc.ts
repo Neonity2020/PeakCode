@@ -330,7 +330,18 @@ export const makeWsRpcLayer = () =>
       const refreshGitStatus = (cwd: string) =>
         gitStatusBroadcaster.refreshStatus(cwd).pipe(Effect.catchCause(() => Effect.void));
 
-      const toShellStreamEvent = (
+      // The same immutable `OrchestrationEvent` instance is fanned out to every subscriber, so
+      // memoising the shell projection by event reference means a second WebSocket connection (or
+      // a re-read of the same event) reuses the first `getThreadShellById` result instead of
+      // paying for its three SQL queries again. The event is immutable and its projection is
+      // already applied before it is published, so the cached value stays valid for the life of
+      // the reference.
+      const shellProjectionByEvent = new WeakMap<
+        OrchestrationEvent,
+        Option.Option<OrchestrationShellStreamEvent>
+      >();
+
+      const computeShellStreamEvent = (
         event: OrchestrationEvent,
       ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never> => {
         switch (event.type) {
@@ -379,6 +390,22 @@ export const makeWsRpcLayer = () =>
         }
       };
 
+      const toShellStreamEvent = (
+        event: OrchestrationEvent,
+      ): Effect.Effect<Option.Option<OrchestrationShellStreamEvent>, never> => {
+        const cached = shellProjectionByEvent.get(event);
+        if (cached !== undefined) {
+          return Effect.succeed(cached);
+        }
+        return computeShellStreamEvent(event).pipe(
+          Effect.tap((result) =>
+            Effect.sync(() => {
+              shellProjectionByEvent.set(event, result);
+            }),
+          ),
+        );
+      };
+
       const isThreadDetailEventFor = (threadId: ThreadId, event: OrchestrationEvent) =>
         event.aggregateKind === "thread" &&
         event.aggregateId === threadId &&
@@ -419,18 +446,22 @@ export const makeWsRpcLayer = () =>
             checkpointDiffQuery.getFullThreadDiff(input),
             "Failed to load full thread diff",
           ),
+        // Streamed so the server never materialises the whole event log in memory: the RPC
+        // forwards each persisted event to the socket as it is read. The client still collects
+        // the events it needs, but only server-side buffering was unbounded before.
         [ORCHESTRATION_WS_METHODS.replayEvents]: (input) =>
-          rpcEffect(
-            Stream.runCollect(
-              orchestrationEngine.readEvents(
-                clamp(input.fromSequenceExclusive, {
-                  maximum: Number.MAX_SAFE_INTEGER,
-                  minimum: 0,
-                }),
+          orchestrationEngine
+            .readEvents(
+              clamp(input.fromSequenceExclusive, {
+                maximum: Number.MAX_SAFE_INTEGER,
+                minimum: 0,
+              }),
+            )
+            .pipe(
+              Stream.mapError((cause) =>
+                toWsRpcError(cause, "Failed to replay orchestration events"),
               ),
-            ).pipe(Effect.map((events) => Array.from(events))),
-            "Failed to replay orchestration events",
-          ),
+            ),
         [ORCHESTRATION_WS_METHODS.subscribeShell]: () =>
           Stream.merge(
             Stream.fromEffect(

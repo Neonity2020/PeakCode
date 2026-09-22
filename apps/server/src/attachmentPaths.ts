@@ -1,5 +1,7 @@
 import path from "node:path";
 
+import { isPathInside } from "@peakcode/shared/pathSafety";
+
 export const ATTACHMENTS_ROUTE_PREFIX = "/attachments";
 
 export function normalizeAttachmentRelativePath(rawRelativePath: string): string | null {
@@ -21,7 +23,7 @@ export function resolveAttachmentRelativePath(input: {
 
   const attachmentsRoot = path.resolve(input.attachmentsDir);
   const filePath = path.resolve(path.join(attachmentsRoot, normalizedRelativePath));
-  if (!filePath.startsWith(`${attachmentsRoot}${path.sep}`)) {
+  if (!isPathInside(filePath, attachmentsRoot)) {
     return null;
   }
   return filePath;

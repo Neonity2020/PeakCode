@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 
 import { agentStore, setAgentStore } from "../store/AgentStore.ts";
 import { createSqliteAgentStore, type SyncSqlHandle } from "../store/sqlite.ts";
+import { getSetting, updateSettings } from "../runtime/settings.ts";
 
 /**
  * SQLite 后端。
@@ -27,6 +28,17 @@ const openStore = (): { store: ReturnType<typeof createSqliteAgentStore>; db: Da
       db.prepare(sql).all(...params) as T[],
     get: <T>(sql: string, params: readonly (string | number | null)[] = []) =>
       db.prepare(sql).get(...params) as T | undefined,
+    transaction: <T>(fn: () => T): T => {
+      db.exec("BEGIN");
+      try {
+        const result = fn();
+        db.exec("COMMIT");
+        return result;
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+    },
   };
 
   return { store: createSqliteAgentStore(handle), db };
@@ -46,6 +58,7 @@ describe("createSqliteAgentStore", () => {
           db.prepare(sql).all(...params) as T[],
         get: <T>(sql: string, params: readonly (string | number | null)[] = []) =>
           db.prepare(sql).get(...params) as T | undefined,
+        transaction: <T>(fn: () => T): T => fn(),
       }),
     ).not.toThrow();
   });
@@ -209,6 +222,73 @@ describe("createSqliteAgentStore", () => {
     try {
       store.setSettings({ SERVER_CTX_SIZE: "32768" });
       expect(agentStore().getSetting("SERVER_CTX_SIZE")).toBe("32768");
+    } finally {
+      setAgentStore(previous);
+    }
+  });
+
+  test("replaceTodos 中途失败整体回滚，不留半写状态", () => {
+    const db = new DatabaseSync(":memory:");
+    let failTodoInsert = false;
+    const handle: SyncSqlHandle = {
+      exec: (sql) => db.exec(sql),
+      run: (sql, params = []) => {
+        if (failTodoInsert && sql.includes("INSERT INTO agent_todos")) {
+          failTodoInsert = false;
+          throw new Error("boom");
+        }
+        db.prepare(sql).run(...params);
+      },
+      all: <T>(sql: string, params: readonly (string | number | null)[] = []) =>
+        db.prepare(sql).all(...params) as T[],
+      get: <T>(sql: string, params: readonly (string | number | null)[] = []) =>
+        db.prepare(sql).get(...params) as T | undefined,
+      transaction: <T>(fn: () => T): T => {
+        db.exec("BEGIN");
+        try {
+          const result = fn();
+          db.exec("COMMIT");
+          return result;
+        } catch (error) {
+          db.exec("ROLLBACK");
+          throw error;
+        }
+      },
+    };
+    const store = createSqliteAgentStore(handle);
+    store.replaceTodos(9, [{ content: "原有待办" }]);
+
+    failTodoInsert = true;
+    expect(() => store.replaceTodos(9, [{ content: "新一" }, { content: "新二" }])).toThrow("boom");
+    // DELETE 已被回滚，原来那份还在。
+    expect(store.listTodos(9).map((row) => row.content)).toEqual(["原有待办"]);
+  });
+
+  test("设置读取命中缓存，写入后立刻失效（不会读到旧值）", () => {
+    const { store } = openStore();
+    const previous = setAgentStore(store);
+    let reads = 0;
+    const spyStore = {
+      ...store,
+      getSetting: (key: Parameters<typeof store.getSetting>[0]) => {
+        reads += 1;
+        return store.getSetting(key);
+      },
+    };
+    setAgentStore(spyStore);
+    try {
+      expect(getSetting("AGENT_APPROVAL_MODE")).toBe("");
+      expect(getSetting("AGENT_APPROVAL_MODE")).toBe("");
+      // 两次读取只落一次库。
+      expect(reads).toBe(1);
+
+      updateSettings({ AGENT_APPROVAL_MODE: "manual" });
+      expect(getSetting("AGENT_APPROVAL_MODE")).toBe("manual");
+      expect(reads).toBe(2);
+
+      updateSettings({ AGENT_APPROVAL_MODE: "auto" });
+      expect(getSetting("AGENT_APPROVAL_MODE")).toBe("auto");
+      expect(reads).toBe(3);
     } finally {
       setAgentStore(previous);
     }

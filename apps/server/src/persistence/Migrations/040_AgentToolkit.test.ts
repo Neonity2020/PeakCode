@@ -33,17 +33,36 @@ const TABLES = [
   "agent_permissions",
 ] as const;
 
+/** Quoted table list for an `IN (...)` clause — keeps index comparisons scoped to toolkit tables. */
+const AGENT_TABLES_IN = TABLES.map((table) => `'${table}'`).join(", ");
+
 const columnsOf = (db: DatabaseSync, table: string): string[] =>
   (db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all() as { name: string }[])
     .map((row) => row.name)
     .sort();
 
-const toolkitColumns = (): Map<string, string[]> => {
+/** User-created indexes on the toolkit tables (excludes SQLite's implicit `sqlite_autoindex_*`). */
+const INDEX_QUERY = `
+  SELECT name FROM sqlite_master
+  WHERE type = 'index' AND name NOT LIKE 'sqlite_autoindex_%'
+    AND tbl_name IN (${AGENT_TABLES_IN})
+`;
+
+const indexesOf = (db: DatabaseSync): string[] =>
+  (db.prepare(INDEX_QUERY).all() as { name: string }[]).map((row) => row.name).sort();
+
+type ToolkitSchemaFacts = {
+  readonly columns: Map<string, string[]>;
+  readonly indexes: string[];
+};
+
+/** Apply the toolkit's own DDL to a throwaway database and read back its shape. */
+const toolkitSchemaFacts = (): ToolkitSchemaFacts => {
   const db = new DatabaseSync(":memory:");
   db.exec(AGENT_TOOLKIT_SCHEMA);
   const columns = new Map<string, string[]>();
   for (const table of TABLES) columns.set(table, columnsOf(db, table));
-  return columns;
+  return { columns, indexes: indexesOf(db) };
 };
 
 const migratedColumns = (sql: SqlClient.SqlClient, table: string) =>
@@ -54,13 +73,19 @@ const migratedColumns = (sql: SqlClient.SqlClient, table: string) =>
     return rows.map((row) => row.name).sort();
   });
 
+const migratedIndexes = (sql: SqlClient.SqlClient) =>
+  Effect.gen(function* () {
+    const rows = yield* sql.unsafe<{ readonly name: string }>(INDEX_QUERY);
+    return rows.map((row) => row.name).sort();
+  });
+
 layer("040_AgentToolkit", (it) => {
   it.effect("creates every toolkit table with the columns the toolkit's store expects", () =>
     Effect.gen(function* () {
       yield* runMigrations({ toMigrationInclusive: 40 });
 
       const sql = yield* SqlClient.SqlClient;
-      const expected = toolkitColumns();
+      const expected = toolkitSchemaFacts().columns;
 
       for (const table of TABLES) {
         const actual = yield* migratedColumns(sql, table);
@@ -79,30 +104,27 @@ layer("040_AgentToolkit", (it) => {
 
       const sql = yield* SqlClient.SqlClient;
       const before = yield* migratedColumns(sql, "agent_todos");
-      const expected = toolkitColumns();
+      const expected = toolkitSchemaFacts().columns;
 
       assert.deepStrictEqual(before, expected.get("agent_todos"));
     }),
   );
 
-  it.effect("indexes the lookups the store actually performs", () =>
+  it.effect("creates exactly the indexes the toolkit's store declares", () =>
     Effect.gen(function* () {
       yield* runMigrations({ toMigrationInclusive: 40 });
 
       const sql = yield* SqlClient.SqlClient;
-      const indexes = yield* sql<{ readonly name: string }>`
-        SELECT name FROM sqlite_master
-        WHERE type = 'index' AND name LIKE 'idx_agent_%'
-      `;
+      // Expected index set comes from applying AGENT_TOOLKIT_SCHEMA, never from a list written
+      // down here — a rename in the toolkit must flow into the migration or this fails.
+      const expected = toolkitSchemaFacts().indexes;
+      const actual = yield* migratedIndexes(sql);
 
-      const names = indexes.map((row) => row.name).sort();
-      // 待办按会话列清单、产出物按会话+路径去重、权限按 scope 取规则 —— 三条都是热路径。
-      assert.deepStrictEqual(names, [
-        "idx_agent_artifacts_conversation",
-        "idx_agent_artifacts_path",
-        "idx_agent_permissions_scope",
-        "idx_agent_todos_conversation",
-      ]);
+      assert.deepStrictEqual(
+        actual,
+        expected,
+        "migrated indexes drifted from AGENT_TOOLKIT_SCHEMA",
+      );
     }),
   );
 });

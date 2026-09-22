@@ -84,6 +84,7 @@ import { createModelRuntimeCache } from "../modelRuntimeCache.ts";
 import { classifyPiTurnFailure } from "../piTurnFailure.ts";
 import {
   buildSubagentDelegationItem,
+  delegationBudgetMessage,
   delegationSettleMessage,
   type PiDelegatedWorker,
   type PiDelegationWorkerStatus,
@@ -208,6 +209,28 @@ const DELEGATION_TOOL_NAMES: ReadonlySet<string> = new Set(["task"]);
  */
 const SUBAGENT_STALL_TIMEOUT_MS = 10 * 60_000;
 
+/**
+ * How long one worker may run in total, whatever it is doing, before it is ended and whatever it
+ * has produced is handed back.
+ *
+ * The silence watchdog above cannot bound a turn: a worker that keeps calling tools forever is
+ * never silent, and the orchestrator's turn is *parked inside the `task` call* waiting for every
+ * worker it dispatched. So a single enthusiastic worker — a broad prompt on a large repo, which
+ * is exactly what "analyse apps/web performance" is — holds the whole turn open indefinitely.
+ * The user sees a card whose elapsed time climbs past 17 minutes with no end and no output, and
+ * the only escape is stopping the turn.
+ *
+ * A deadline makes the turn converge: every worker ends within the budget, the orchestrator gets
+ * each one's partial answer (a truncated worker still has its tool history and last message), and
+ * it can deliver a report that says what was and was not finished. `0` disables it.
+ */
+const SUBAGENT_MAX_RUNTIME_MS = (() => {
+  const raw = process.env.PEAKCODE_SUBAGENT_MAX_RUNTIME_MS;
+  if (raw === undefined) return 15 * 60_000;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 15 * 60_000;
+})();
+
 /** A worker session that is still running, and whether the user asked it to stop. */
 interface PiLiveSubagent {
   abort: () => Promise<void>;
@@ -215,8 +238,14 @@ interface PiLiveSubagent {
   stopped: boolean;
   /** Set when the watchdog ended it, so the run reports why rather than a bare failure. */
   stalled: boolean;
+  /** Set when the runtime budget ended it; the run then returns the partial answer. */
+  capped: boolean;
+  /** What it had produced when the budget ran out, handed to the orchestrator as its result. */
+  cappedAnswer?: string | undefined;
   /** Reset on every event the worker produces; fires when it goes quiet for too long. */
   watchdog: StallWatchdog;
+  /** Never reset: the worker's wall-clock budget, whatever it is busy doing. */
+  deadline: StallWatchdog;
 }
 
 /**
@@ -403,7 +432,10 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
     });
 
     const offerRuntimeEvent = (event: ProviderRuntimeEvent) => {
-      Effect.runPromise(Queue.offer(runtimeEventQueue, event)).catch(() => undefined);
+      // The queue is unbounded, so `offer` never suspends: enqueue synchronously instead of
+      // spinning up a fiber/promise per event. This runs for every streamed token and tool
+      // chunk, and the offer is the only allocation we can remove here.
+      Queue.offerUnsafe(runtimeEventQueue, event);
       if (nativeEventLogger && event.raw) {
         Effect.runPromise(nativeEventLogger.write(event.raw, event.threadId)).catch(
           () => undefined,
@@ -435,14 +467,19 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       providerThreadId: string,
       abort: () => Promise<void>,
       onStall: () => void,
+      onTimeout: () => void,
     ): PiLiveSubagent => {
       const forThread = liveSubagents.get(threadId) ?? new Map<string, PiLiveSubagent>();
       const entry: PiLiveSubagent = {
         abort,
         stopped: false,
         stalled: false,
+        capped: false,
         watchdog: makeStallWatchdog({ timeoutMs: SUBAGENT_STALL_TIMEOUT_MS, onStall }),
+        // Same helper, never touched: "no activity for N" becomes "N since it started".
+        deadline: makeStallWatchdog({ timeoutMs: SUBAGENT_MAX_RUNTIME_MS, onStall: onTimeout }),
       };
+      if (SUBAGENT_MAX_RUNTIME_MS <= 0) entry.deadline.stop();
       forThread.set(providerThreadId, entry);
       liveSubagents.set(threadId, forThread);
       return entry;
@@ -451,7 +488,9 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
     const unregisterLiveSubagent = (threadId: ThreadId, providerThreadId: string): void => {
       const forThread = liveSubagents.get(threadId);
       if (!forThread) return;
-      forThread.get(providerThreadId)?.watchdog.stop();
+      const entry = forThread.get(providerThreadId);
+      entry?.watchdog.stop();
+      entry?.deadline.stop();
       forThread.delete(providerThreadId);
       if (forThread.size === 0) liveSubagents.delete(threadId);
     };
@@ -470,6 +509,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       for (const [, entry] of entries) {
         entry.stopped = true;
         entry.watchdog.stop();
+        entry.deadline.stop();
       }
       await Promise.all(entries.map(([, entry]) => entry.abort().catch(() => undefined)));
     };
@@ -493,6 +533,7 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
       if (!live) return false;
       live.stopped = true;
       live.watchdog.stop();
+      live.deadline.stop();
       settleSubagentDelegation(threadId, {
         providerThreadId,
         status: "stopped",
@@ -1525,6 +1566,14 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
               ...(workerToolAllowlist.length > 0 ? { tools: workerToolAllowlist } : {}),
             });
             worker = workerSession;
+            /**
+             * Whatever the worker has said so far.
+             *
+             * A worker that hits its budget is worth more than nothing: its last message is the
+             * answer-in-progress, and the orchestrator can fold "here is what it found before it
+             * ran out" into the report instead of dropping the worker's whole history.
+             */
+            const partialAnswer = () => subagentFinalText(workerSession.messages);
             const live = registerLiveSubagent(
               input.threadId,
               providerThreadId,
@@ -1537,6 +1586,21 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
                   providerThreadId,
                   status: "failed",
                   message: `No output for ${Math.round(SUBAGENT_STALL_TIMEOUT_MS / 60_000)} minutes — stopped.`,
+                });
+                void workerSession.abort().catch(() => undefined);
+              },
+              () => {
+                // The budget, not a failure: it ran, it was still running, and the turn has to
+                // converge. Same order as above, and the partial answer is returned below.
+                live.capped = true;
+                live.cappedAnswer = partialAnswer();
+                settleSubagentDelegation(input.threadId, {
+                  providerThreadId,
+                  status: "stopped",
+                  message: delegationBudgetMessage({
+                    minutes: Math.round(SUBAGENT_MAX_RUNTIME_MS / 60_000),
+                    steps: subagentStepCount(workerSession.messages),
+                  }),
                 });
                 void workerSession.abort().catch(() => undefined);
               },
@@ -1562,6 +1626,13 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             // `agent_end` normally closes the turn; if the run ended without one (an aborted or
             // failed prompt can), the child thread would otherwise stay "running" forever.
             stream.finish();
+            if (live.capped) {
+              // Its settled reason is already on the card; what matters here is that the
+              // orchestrator gets the work rather than a shrug.
+              return (
+                live.cappedAnswer || "(subagent ran past its time budget and produced no answer)"
+              );
+            }
             if (live.stopped || live.stalled) {
               // The watchdog reported the stall with its own reason; a stop was reported too.
               if (live.stopped) {
@@ -1587,7 +1658,10 @@ const makePiAdapter = (options?: PiAdapterLiveOptions) =>
             // An aborted prompt rejects, so the `finish()` in the try body is skipped — close the
             // child thread's turn here or a stopped worker's thread reads as still running.
             workerStream?.finish();
-            // A stopped or stalled worker already has its own, more accurate reason on the card.
+            // A stopped, stalled or timed-out worker already has its own reason on the card.
+            if (liveSubagent?.capped) {
+              return liveSubagent.cappedAnswer || "(subagent ran past its time budget)";
+            }
             if (!liveSubagent?.stopped && !liveSubagent?.stalled) {
               settleSubagentDelegation(input.threadId, {
                 providerThreadId,

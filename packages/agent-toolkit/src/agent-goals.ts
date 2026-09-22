@@ -112,21 +112,23 @@ export function createGoal(
   const tokenBudget = input.tokenBudget ?? defaultGoalTokenBudget();
   const existing = agentStore().getGoal(conversationId);
   const now = Date.now();
-  agentStore().upsertGoal({
-    conversationId,
-    objective,
-    acceptance,
-    status: "active",
-    tokenBudget,
-    // 换目标 = 重新开始计数：旧的消耗不该算在新目标头上。
-    tokensUsed: 0,
-    secondsUsed: 0,
-    continuations: 0,
-    outcome: null,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  });
-  const goal = getGoal(conversationId)!;
+  // `upsertGoal` returns the stored record — no need to re-SELECT it back.
+  const goal = toGoal(
+    agentStore().upsertGoal({
+      conversationId,
+      objective,
+      acceptance,
+      status: "active",
+      tokenBudget,
+      // 换目标 = 重新开始计数：旧的消耗不该算在新目标头上。
+      tokensUsed: 0,
+      secondsUsed: 0,
+      continuations: 0,
+      outcome: null,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    }),
+  );
   notify(conversationId, goal);
   return goal;
 }
@@ -138,13 +140,14 @@ export function setGoalStatus(
 ): AgentGoal | null {
   const existing = agentStore().getGoal(conversationId);
   if (!existing) return null;
-  agentStore().upsertGoal({
-    ...existing,
-    status,
-    outcome: outcome?.trim() || existing.outcome,
-    updatedAt: Date.now(),
-  });
-  const goal = getGoal(conversationId);
+  const goal = toGoal(
+    agentStore().upsertGoal({
+      ...existing,
+      status,
+      outcome: outcome?.trim() || existing.outcome,
+      updatedAt: Date.now(),
+    }),
+  );
   notify(conversationId, goal);
   return goal;
 }
@@ -169,19 +172,25 @@ export function addGoalUsage(
   // 否则界面上会写着"续跑 1 次"而用户根本没让它自己跑过。
   const continuations = goal.continuations + (usage.continuation ? 1 : 0);
 
-  const stored = agentStore().getGoal(conversationId);
-  if (stored) {
+  // One write, and reuse its return value: the old code re-read the goal twice more
+  // (once to build the upsert, once to read the updated row back).
+  const updated = toGoal(
     agentStore().upsertGoal({
-      ...stored,
+      conversationId: goal.conversationId,
+      objective: goal.objective,
+      acceptance: goal.acceptance,
+      status: goal.status,
+      tokenBudget: goal.tokenBudget,
       tokensUsed,
       secondsUsed,
       continuations,
+      outcome: goal.outcome,
+      createdAt: goal.createdAt ?? Date.now(),
       updatedAt: Date.now(),
-    });
-  }
+    }),
+  );
 
-  const updated = getGoal(conversationId);
-  const exceededBudget = Boolean(updated?.tokenBudget && tokensUsed >= updated.tokenBudget);
+  const exceededBudget = Boolean(updated.tokenBudget && tokensUsed >= updated.tokenBudget);
   notify(conversationId, updated);
   return { goal: updated, exceededBudget };
 }

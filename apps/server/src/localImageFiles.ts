@@ -9,17 +9,13 @@ import os from "node:os";
 import path from "node:path";
 
 import { LOCAL_IMAGE_ROUTE_PATH, isSupportedLocalImagePath } from "@peakcode/shared/localImage";
+import { isPathInside } from "@peakcode/shared/pathSafety";
 
 export { LOCAL_IMAGE_ROUTE_PATH };
 
 export interface ResolvedLocalImageFile {
   readonly path: string;
   readonly fileName: string;
-}
-
-function isPathInside(candidate: string, root: string): boolean {
-  const relative = path.relative(root, candidate);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 async function realpathOrNull(candidate: string | undefined): Promise<string | null> {

@@ -68,7 +68,6 @@ scripts/pr-review.sh
 .cowork-temp/open-code-review-skill-inspect/open-code-review-skill/USAGE.md
 .cowork-temp/open-code-review-skill-inspect/open-code-review-skill/examples/config.json
 .cowork-temp/open-code-review-skill-inspect/open-code-review-skill/examples/.opencodereview/rule.json
-scripts/pr-review.sh
 .cowork-temp/open-code-review-skill-inspect/open-code-review-skill/README.md
 # A local SKILL.md dropped at the repo root — anchored, because an unanchored pattern also
 # hides the `SKILL.md` of every skill a bundled plugin ships under `plugins/`.

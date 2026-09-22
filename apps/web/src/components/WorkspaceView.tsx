@@ -4,7 +4,7 @@
 
 import { Plus, SettingsIcon } from "~/lib/icons";
 import { type TerminalCliKind } from "@peakcode/shared/terminalThreads";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { readNativeApi } from "~/nativeApi";
@@ -21,7 +21,6 @@ import {
 import { resolveTerminalNewAction } from "~/lib/terminalNewAction";
 import { serverConfigQueryOptions } from "~/lib/serverReactQuery";
 import { selectThreadTerminalState, useTerminalStateStore } from "~/terminalStateStore";
-import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import WorkspaceSettingsSheet from "./WorkspaceSettingsSheet";
 import { onServerWelcome } from "~/wsNativeApi";
 import { useWorkspaceStore, workspaceThreadId } from "~/workspaceStore";
@@ -30,7 +29,11 @@ import {
   ensureTerminalIdsForPreset,
   type WorkspaceLayoutPresetId,
 } from "~/workspaceTerminalLayoutPresets";
-import { terminalRuntimeRegistry } from "./terminal/terminalRuntimeRegistry";
+import { disposeThreadTerminalRuntime } from "./terminal/disposeTerminalRuntime";
+
+// Keep the xterm stack out of the workspace route's first-paint chunk; it is only needed
+// once a terminal drawer is opened.
+const ThreadTerminalDrawer = lazy(() => import("./ThreadTerminalDrawer"));
 
 function randomTerminalId(): string {
   if (typeof crypto.randomUUID === "function") {
@@ -309,7 +312,7 @@ export default function WorkspaceView({ workspaceId }: { workspaceId: string }) 
       if (!confirmed) {
         return;
       }
-      terminalRuntimeRegistry.disposeTerminal(threadId, terminalId);
+      disposeThreadTerminalRuntime(threadId, terminalId);
       const fallbackExitWrite = () =>
         api?.terminal.write({ threadId, terminalId, data: "exit\n" }).catch(() => undefined);
 
@@ -488,12 +491,14 @@ export default function WorkspaceView({ workspaceId }: { workspaceId: string }) 
               </div>
             </div>
           ) : terminalState.terminalOpen ? (
-            <ThreadTerminalDrawer
-              key={`${workspaceId}-workspace`}
-              {...terminalDrawerProps}
-              presentationMode="workspace"
-              isVisible
-            />
+            <Suspense fallback={null}>
+              <ThreadTerminalDrawer
+                key={`${workspaceId}-workspace`}
+                {...terminalDrawerProps}
+                presentationMode="workspace"
+                isVisible
+              />
+            </Suspense>
           ) : (
             <div className="flex h-full items-center justify-center px-6">
               <div className="max-w-sm rounded-3xl border border-border/70 bg-card/40 p-6 text-center shadow-sm">

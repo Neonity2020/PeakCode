@@ -1,4 +1,4 @@
-import { Cause, Duration, Effect, Layer, Option, Schedule } from "effect";
+import { Cause, Duration, Effect, Layer, Schedule } from "effect";
 import { CommandId, EventId, type OrchestrationThreadShell } from "@peakcode/contracts";
 
 import {
@@ -106,22 +106,20 @@ const makeProviderSessionReaper = (options?: ProviderSessionReaperLiveOptions) =
       // binding: a delegated worker's child thread never had one, so a binding-driven sweep
       // leaves it claiming to run forever (see selectAbandonedTurnThreads).
       const shellSnapshot = yield* projectionSnapshotQuery.getShellSnapshot();
+      // Index the shells the snapshot already returned instead of re-reading each one by id.
+      const threadsById = new Map(shellSnapshot.threads.map((thread) => [thread.id, thread]));
       for (const threadId of selectAbandonedTurnThreads({
         threads: shellSnapshot.threads,
         liveSessionsByThread,
       })) {
-        const thread = yield* projectionSnapshotQuery
-          .getThreadShellById(threadId)
-          .pipe(Effect.map(Option.getOrUndefined));
+        const thread = threadsById.get(threadId);
         if (thread) {
           yield* settleAbandonedTurn(thread, nowIso);
         }
       }
 
       for (const binding of bindings) {
-        const thread = yield* projectionSnapshotQuery
-          .getThreadShellById(binding.threadId)
-          .pipe(Effect.map(Option.getOrUndefined));
+        const thread = threadsById.get(binding.threadId);
 
         // A session that still claims a turn was already handled above; the rest of this loop
         // is about reclaiming idle runtimes.

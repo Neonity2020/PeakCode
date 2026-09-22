@@ -153,7 +153,7 @@ import { ProjectSidebarIcon } from "./ProjectSidebarIcon";
 import { ThreadPinToggleButton } from "./ThreadPinToggleButton";
 import { ThreadRunningSpinner } from "./ThreadRunningSpinner";
 import { RenameThreadDialog } from "./RenameThreadDialog";
-import { terminalRuntimeRegistry } from "./terminal/terminalRuntimeRegistry";
+import { disposeThreadTerminalRuntimes } from "./terminal/disposeTerminalRuntime";
 import {
   SidebarSearchPalette,
   type ImportProviderKind,
@@ -1074,7 +1074,7 @@ export default function Sidebar() {
       );
 
       if (api && typeof api.terminal.close === "function") {
-        terminalRuntimeRegistry.disposeThread(workspaceThread);
+        disposeThreadTerminalRuntimes(workspaceThread);
         await Promise.allSettled(
           terminalState.terminalIds.map((terminalId) =>
             api.terminal.close({
@@ -1559,7 +1559,7 @@ export default function Sidebar() {
       }
 
       try {
-        terminalRuntimeRegistry.disposeThread(threadId);
+        disposeThreadTerminalRuntimes(threadId);
         await api.terminal.close({ threadId, deleteHistory: true });
       } catch {
         // Terminal may already be closed

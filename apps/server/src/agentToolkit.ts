@@ -66,18 +66,55 @@ export function openAgentToolkitStore(dbPath: string): AgentStore | null {
   try {
     const db = new DatabaseSync(dbPath);
     db.exec("PRAGMA busy_timeout = 5000");
+    /**
+     * Prepared-statement cache, keyed by SQL text.
+     *
+     * `StatementSync` is bound to the connection that prepared it, so the cache lives
+     * inside this closure — it can never be shared with, or survive, another connection.
+     * The toolkit re-runs the same handful of statements on every tool call; without this
+     * each one recompiles the SQL.
+     */
+    const statements = new Map<string, ReturnType<DatabaseSync["prepare"]>>();
+    const prepare = (sql: string) => {
+      let statement = statements.get(sql);
+      if (statement === undefined) {
+        statement = db.prepare(sql);
+        statements.set(sql, statement);
+      }
+      return statement;
+    };
+    // `node:sqlite` has no savepoints helper, so a nested `transaction` call simply joins
+    // the outer one: only the outermost BEGIN/COMMIT/ROLLBACK reaches the driver.
+    let inTransaction = false;
     return createSqliteAgentStore(
       {
         exec: (sql) => {
           db.exec(sql);
         },
         run: (sql, params = []) => {
-          db.prepare(sql).run(...params);
+          prepare(sql).run(...params);
         },
         all: <T>(sql: string, params: readonly (string | number | null)[] = []) =>
-          db.prepare(sql).all(...params) as T[],
+          prepare(sql).all(...params) as T[],
         get: <T>(sql: string, params: readonly (string | number | null)[] = []) =>
-          db.prepare(sql).get(...params) as T | undefined,
+          prepare(sql).get(...params) as T | undefined,
+        transaction: <T>(fn: () => T): T => {
+          if (inTransaction) return fn();
+          inTransaction = true;
+          try {
+            db.exec("BEGIN");
+            try {
+              const result = fn();
+              db.exec("COMMIT");
+              return result;
+            } catch (error) {
+              db.exec("ROLLBACK");
+              throw error;
+            }
+          } finally {
+            inTransaction = false;
+          }
+        },
       },
       { migrate: false },
     );

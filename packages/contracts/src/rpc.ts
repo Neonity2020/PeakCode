@@ -237,8 +237,9 @@ export const WsOrchestrationGetFullThreadDiffRpc = Rpc.make(
 
 export const WsOrchestrationReplayEventsRpc = Rpc.make(ORCHESTRATION_WS_METHODS.replayEvents, {
   payload: OrchestrationRpcSchemas.replayEvents.input,
-  success: OrchestrationRpcSchemas.replayEvents.output,
+  success: OrchestrationEvent,
   error: WsRpcError,
+  stream: true,
 });
 
 export const WsOrchestrationSubscribeShellRpc = Rpc.make(ORCHESTRATION_WS_METHODS.subscribeShell, {

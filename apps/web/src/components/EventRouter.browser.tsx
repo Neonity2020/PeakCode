@@ -163,11 +163,14 @@ function registerServerHandlers(): void {
   server.handle(ORCHESTRATION_WS_METHODS.getShellSnapshot, () =>
     shellSnapshotFromReadModel(fixture.snapshot),
   );
-  server.handle(ORCHESTRATION_WS_METHODS.replayEvents, (payload) => {
+  server.stream(ORCHESTRATION_WS_METHODS.replayEvents, (payload, send, end) => {
     const fromSequenceExclusive =
       typeof payload.fromSequenceExclusive === "number" ? payload.fromSequenceExclusive : 0;
     replayRequestCursors.push(fromSequenceExclusive);
-    return replayEvents.filter((event) => event.sequence > fromSequenceExclusive);
+    for (const event of replayEvents.filter((event) => event.sequence > fromSequenceExclusive)) {
+      send(event);
+    }
+    end();
   });
   server.handle(WS_METHODS.serverGetConfig, () => fixture.serverConfig);
   server.handle(WS_METHODS.gitListBranches, () => ({
